@@ -164,7 +164,7 @@ export default defineConfig({
 * since: v1.10
 - type: ?<[RegExp]|[Array]<[RegExp]>>
 
-Filter to only run tests with a title matching one of the patterns. For example, passing `grep: /cart/` should only run tests with "cart" in the title. Also available in the [command line](../test-cli.md) with the `-g` option. The regular expression will be tested against the string that consists of the test file name, `test.describe` name (if any) and the test name divided by spaces, e.g. `my-test.spec.ts my-suite my-test`.
+Filter to only run tests with a title matching one of the patterns. For example, passing `grep: /cart/` should only run tests with "cart" in the title. Also available in the [command line](../test-cli.md) with the `-g` option. The regular expression will be tested against the string that consists of the project name, the test file name, the `test.describe` name (if any), the test name and the test tags divided by spaces, e.g. `chromium my-test.spec.ts my-suite my-test`.
 
 `grep` option is also useful for [tagging tests](../test-annotations.md#tag-tests).
 
@@ -443,7 +443,7 @@ Test files that took more than `threshold` milliseconds are considered slow, and
 * since: v1.45
 - type: ?<[boolean]>
 
-Whether to skip entries from `.gitignore` when searching for test files. By default, if neither [`property: TestConfig.testDir`] nor [`property: TestProject.testDir`] are explicitely specified, Playwright will ignore any test files matching `.gitignore` entries. This option allows to override that behavior.
+Whether to skip entries from `.gitignore` when searching for test files. By default, if neither [`property: TestConfig.testDir`] nor [`property: TestProject.testDir`] are explicitly specified, Playwright will ignore any test files matching `.gitignore` entries.
 
 ## property: TestConfig.retries
 * since: v1.10
@@ -481,27 +481,6 @@ export default defineConfig({
 });
 ```
 
-
-## property: TestConfig.shardingSeed
-
-* since: v1.45
-- type: ?<[string]>
-
-Shuffle the order of test groups with a seed. By default tests are run in the order they are discovered, which is mostly alphabetical. This could lead to an uneven distribution of slow and fast tests. Shuffling the order of tests in a deterministic way can help to distribute the load more evenly.
-
-The sharding seed is a string that is used to initialize a random number generator.
-
-Learn more about [parallelism and sharding](../test-parallel.md) with Playwright Test.
-
-**Usage**
-
-```js title="playwright.config.ts"
-import { defineConfig } from '@playwright/test';
-
-export default defineConfig({
-  shardingSeed: 'string value'
-});
-```
 
 ## property: TestConfig.testDir
 * since: v1.10

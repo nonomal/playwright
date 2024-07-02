@@ -67,10 +67,12 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
       await run(false);
   }, { scope: 'worker' }],
 
-  defaultSameSiteCookieValue: [async ({ browserName, browserMajorVersion, channel }, run) => {
+  defaultSameSiteCookieValue: [async ({ browserName, browserMajorVersion, channel, isLinux }, run) => {
     if (browserName === 'chromium')
       await run('Lax');
-    else if (browserName === 'webkit')
+    else if (browserName === 'webkit' && isLinux)
+      await run('Lax');
+    else if (browserName === 'webkit' && !isLinux)
       await run('None');
     else if (browserName === 'firefox' && channel === 'firefox-beta')
       await run(browserMajorVersion >= 103 && browserMajorVersion < 110 ? 'Lax' : 'None');
@@ -86,6 +88,7 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
 
   isAndroid: [false, { scope: 'worker' }],
   isElectron: [false, { scope: 'worker' }],
+  electronMajorVersion: [0, { scope: 'worker' }],
   isWebView2: [false, { scope: 'worker' }],
 
   contextFactory: async ({ _contextFactory }: any, run) => {

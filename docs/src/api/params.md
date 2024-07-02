@@ -458,6 +458,12 @@ Whether to ignore HTTPS errors when sending network requests. Defaults to `false
 Maximum number of request redirects that will be followed automatically. An error will be thrown if the number is exceeded.
 Defaults to `20`. Pass `0` to not follow redirects.
 
+## js-python-csharp-fetch-option-maxretries
+* langs: js, python, csharp
+- `maxRetries` <[int]>
+
+Maximum number of times socket errors should be retried. Currently only `ECONNRESET` error is retried. An error will be thrown if the limit is exceeded. Defaults to `0` - no retries.
+
 ## evaluate-expression
 - `expression` <[string]>
 
@@ -571,7 +577,7 @@ Whether to emulate network being offline. Defaults to `false`. Learn more about 
   - `username` <[string]>
   - `password` <[string]>
   - `origin` ?<[string]> Restrain sending http credentials on specific origin (scheme://host:port).
-  - `sendImmediately` ?<[boolean]> Whether to send `Authorization` header with the first API request. By default, the credentials are sent only when 401 (Unauthorized) response with `WWW-Authenticate` header is received. This option does not affect requests sent from the browser.
+  - `send` ?<[HttpCredentialsSend]<"unauthorized"|"always">> This option only applies to the requests sent from corresponding [APIRequestContext] and does not affect requests sent from the browser. `'always'` - `Authorization` header with basic authentication credentials will be sent with the each API request. `'unauthorized` - the credentials are only sent when 401 (Unauthorized) response with `WWW-Authenticate` header is received. Defaults to `'unauthorized'`.
 
 Credentials for [HTTP authentication](https://developer.mozilla.org/en-US/docs/Web/HTTP/Authentication).
 If no origin is specified, the username and password are sent to any servers upon unauthorized responses.

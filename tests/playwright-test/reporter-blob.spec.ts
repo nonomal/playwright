@@ -36,7 +36,7 @@ const test = baseTest.extend<{
         showReport: async ({ page }, use) => {
           let server: HttpServer | undefined;
           await use(async (reportFolder?: string) => {
-            reportFolder ??=  test.info().outputPath('playwright-report');
+            reportFolder ??= test.info().outputPath('playwright-report');
             server = startHtmlReportServer(reportFolder) as HttpServer;
             await server.start();
             await page.goto(server.urlPrefix('precise'));
@@ -290,6 +290,38 @@ test('should merge blob into blob', async ({ runInlineTest, mergeReports, showRe
     await expect(page.locator('.subnav-item:has-text("Flaky") .counter')).toHaveText('1');
     await expect(page.locator('.subnav-item:has-text("Skipped") .counter')).toHaveText('2');
   }
+});
+
+test('should produce consistent step ids', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/31023' },
+}, async ({ runInlineTest, mergeReports, showReport, page }) => {
+  const files = {
+    'playwright.config.ts': `
+      module.exports = {
+        retries: 1,
+        reporter: [
+          ['blob', { outputFile: 'blob-report/report-1.zip' }],
+          ['blob', { outputFile: 'blob-report/report-2.zip' }]
+        ]
+      };
+    `,
+    'a.test.js': `
+      import { test, expect } from '@playwright/test';
+      test('math 1', async ({}) => {
+        expect(1 + 1).toBe(2);
+      });
+    `
+  };
+  await runInlineTest(files);
+  const reportDir = test.info().outputPath('blob-report');
+  const reportFiles = await fs.promises.readdir(reportDir);
+  reportFiles.sort();
+  expect(reportFiles).toEqual(['report-1.zip', 'report-2.zip']);
+  const { exitCode } = await mergeReports(reportDir, { 'PLAYWRIGHT_HTML_OPEN': 'never' }, { additionalArgs: ['--reporter', 'html,json'] });
+  expect(exitCode).toBe(0);
+  await showReport();
+  await expect(page.locator('.subnav-item:has-text("All") .counter')).toHaveText('2');
+  await expect(page.locator('.subnav-item:has-text("Passed") .counter')).toHaveText('2');
 });
 
 test('be able to merge incomplete shards', async ({ runInlineTest, mergeReports, showReport, page }) => {
@@ -1779,6 +1811,77 @@ test('merge reports without --config preserves path separators', async ({ runInl
   expect(output).toContain(`test title: ${'tests1' + otherSeparator + 'a.test.js'}`);
   expect(output).toContain(`test: ${test.info().outputPath('dir1', 'tests2', 'b.test.js').replaceAll(path.sep, otherSeparator)}`);
   expect(output).toContain(`test title: ${'tests2' + otherSeparator + 'b.test.js'}`);
+});
+
+test('merge reports must not change test ids when there is no need to', async ({ runInlineTest, mergeReports }) => {
+  const files = {
+    'echo-test-id-reporter.js': `
+      export default class EchoTestIdReporter {
+        onTestBegin(test) {
+          console.log('%%' + test.id);
+        }
+      };
+    `,
+    'single-run.config.ts': `module.exports = {
+      reporter: [
+        ['./echo-test-id-reporter.js'],
+      ]
+    };`,
+    'shard-1.config.ts': `module.exports = {
+      fullyParallel: true,
+      shard: { total: 2, current: 1 },
+      reporter: [
+        ['./echo-test-id-reporter.js'],
+        ['blob', { outputDir: 'blob-report' }],
+      ]
+    };`,
+    'shard-2.config.ts': `module.exports = {
+      fullyParallel: true,
+      shard: { total: 2, current: 2 },
+      reporter: [
+        ['./echo-test-id-reporter.js'],
+        ['blob', { outputDir: 'blob-report' }],
+      ]
+    };`,
+    'merge.config.ts': `module.exports = {
+      reporter: [
+        ['./echo-test-id-reporter.js'],
+      ]
+    };`,
+    'a.test.js': `
+      import { test, expect } from '@playwright/test';
+      test('test 1', async ({}) => { });
+      test('test 2', async ({}) => { });
+      test('test 3', async ({}) => { });
+    `,
+  };
+  let testIdsFromSingleRun: string[];
+  let testIdsFromShard1: string[];
+  let testIdsFromShard2: string[];
+  let testIdsFromMergedReport: string[];
+  {
+    const { exitCode, outputLines } = await runInlineTest(files, { workers: 1 }, undefined, { additionalArgs: ['--config', test.info().outputPath('single-run.config.ts')] });
+    expect(exitCode).toBe(0);
+    testIdsFromSingleRun = outputLines.sort();
+    expect(testIdsFromSingleRun.length).toEqual(3);
+  }
+  {
+    const { exitCode, outputLines } = await runInlineTest(files, { workers: 1 }, {}, { additionalArgs: ['--config', test.info().outputPath('shard-1.config.ts')] });
+    expect(exitCode).toBe(0);
+    testIdsFromShard1 = outputLines.sort();
+  }
+  {
+    const { exitCode, outputLines } = await runInlineTest(files, { workers: 1 }, { PWTEST_BLOB_DO_NOT_REMOVE: '1' }, { additionalArgs: ['--config', test.info().outputPath('shard-2.config.ts')] });
+    expect(exitCode).toBe(0);
+    testIdsFromShard2 = outputLines.sort();
+    expect([...testIdsFromShard1, ...testIdsFromShard2].sort()).toEqual(testIdsFromSingleRun);
+  }
+  {
+    const { exitCode, outputLines } = await mergeReports(test.info().outputPath('blob-report'), undefined, { additionalArgs: ['--config', test.info().outputPath('merge.config.ts')] });
+    expect(exitCode).toBe(0);
+    testIdsFromMergedReport = outputLines.sort();
+    expect(testIdsFromMergedReport).toEqual(testIdsFromSingleRun);
+  }
 });
 
 test('TestSuite.project() should return owning project', async ({ runInlineTest, mergeReports }) => {

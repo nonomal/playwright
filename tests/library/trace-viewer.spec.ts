@@ -18,6 +18,7 @@ import type { TraceViewerFixtures } from '../config/traceViewerFixtures';
 import { traceViewerFixtures } from '../config/traceViewerFixtures';
 import fs from 'fs';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import { expect, playwrightTest } from '../config/browserTest';
 import type { FrameLocator } from '@playwright/test';
 
@@ -44,9 +45,9 @@ test.beforeAll(async function recordTrace({ browser, browserName, browserType, s
     console.error('Error');
     return new Promise(f => {
       // Generate exception.
-      setTimeout(() => {
+      window.builtinSetTimeout(() => {
         // And then resolve.
-        setTimeout(() => f('return ' + a), 0);
+        window.builtinSetTimeout(() => f('return ' + a), 0);
         throw new Error('Unhandled exception');
       }, 0);
     });
@@ -68,7 +69,7 @@ test.beforeAll(async function recordTrace({ browser, browserName, browserType, s
 
   // Go through instrumentation to exercise reentrant stack traces.
   const csi = {
-    onWillCloseBrowserContext: async () => {
+    runBeforeCloseBrowserContext: async () => {
       await page.hover('body');
       await page.close();
       traceFile = path.join(workerInfo.project.outputDir, String(workerInfo.workerIndex), browserName, 'trace.zip');
@@ -556,6 +557,17 @@ test('should handle src=blob', async ({ page, server, runAndTrace, browserName }
   const frame = await traceViewer.snapshotFrame('page.evaluate');
   const size = await frame.locator('img').evaluate(e => (e as HTMLImageElement).naturalWidth);
   expect(size).toBe(10);
+});
+
+test('should handle file URIs', async ({ page, runAndTrace, browserName }) => {
+  test.skip(browserName !== 'chromium');
+
+  const traceViewer = await runAndTrace(async () => {
+    await page.goto(pathToFileURL(path.join(__dirname, '..', 'assets', 'one-style.html')).href);
+  });
+
+  const frame = await traceViewer.snapshotFrame('goto');
+  await expect(frame.locator('body')).toHaveCSS('background-color', 'rgb(255, 192, 203)');
 });
 
 test('should preserve currentSrc', async ({ browser, server, showTraceViewer }) => {
@@ -1206,4 +1218,56 @@ test('should remove noscript when javaScriptEnabled is set to true', async ({ br
   const frame = await traceViewer.snapshotFrame('page.setContent');
   await expect(frame.getByText('Always visible')).toBeVisible();
   await expect(frame.getByText('Enable JavaScript to run this app.')).toBeHidden();
+});
+
+test('should open snapshot in new browser context', async ({ browser, page, runAndTrace, server }) => {
+  const traceViewer = await runAndTrace(async () => {
+    await page.goto(server.EMPTY_PAGE);
+    await page.setContent('hello');
+  });
+  await traceViewer.snapshotFrame('page.setContent');
+  const popupPromise = traceViewer.page.context().waitForEvent('page');
+  await traceViewer.page.getByTitle('Open snapshot in a new tab').click();
+  const popup = await popupPromise;
+
+  // doesn't share sw.bundle.js
+  const newPage = await browser.newPage();
+  await newPage.goto(popup.url());
+  await expect(newPage.getByText('hello')).toBeVisible();
+  await newPage.close();
+});
+
+function parseMillis(s: string): number {
+  const matchMs = s.match(/(\d+)ms/);
+  if (matchMs)
+    return +matchMs[1];
+  const matchSeconds = s.match(/([\d.]+)s/);
+  if (!matchSeconds)
+    throw new Error('Failed to parse to millis: ' + s);
+  return (+matchSeconds[1]) * 1000;
+}
+
+test('should show correct request start time', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/31133' },
+}, async ({ page, runAndTrace, server }) => {
+  server.setRoute('/api', (req, res) => {
+    setTimeout(() => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('done');
+    }, 1100);
+  });
+  const traceViewer = await runAndTrace(async () => {
+    await page.goto(server.EMPTY_PAGE);
+    await page.evaluate(() => {
+      return fetch('/api').then(r => r.text());
+    });
+  });
+  await traceViewer.selectAction('page.evaluate');
+  await traceViewer.showNetworkTab();
+  await expect(traceViewer.networkRequests).toContainText([/apiGET200text/]);
+  const line = traceViewer.networkRequests.getByText(/apiGET200text/);
+  const start = await line.locator('.grid-view-column-start').textContent();
+  const duration =  await line.locator('.grid-view-column-duration').textContent();
+  expect(parseMillis(duration)).toBeGreaterThan(1000);
+  expect(parseMillis(start)).toBeLessThan(1000);
 });

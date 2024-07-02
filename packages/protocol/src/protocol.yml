@@ -299,6 +299,7 @@ APIRequestContext:
         failOnStatusCode: boolean?
         ignoreHTTPSErrors: boolean?
         maxRedirects: number?
+        maxRetries: number?
       returns:
         response: APIResponse
 
@@ -456,7 +457,11 @@ ContextOptions:
         username: string
         password: string
         origin: string?
-        sendImmediately: boolean?
+        send:
+          type: enum?
+          literals:
+          - always
+          - unauthorized
     deviceScaleFactor: number?
     isMobile: boolean?
     hasTouch: boolean?
@@ -674,7 +679,11 @@ Playwright:
             username: string
             password: string
             origin: string?
-            sendImmediately: boolean?
+            send:
+              type: enum?
+              literals:
+              - always
+              - unauthorized
         proxy:
           type: object?
           properties:
@@ -1176,12 +1185,21 @@ BrowserContext:
       returns:
         artifact: Artifact
 
-    createTempFile:
+    createTempFiles:
       parameters:
-        name: string
-        lastModifiedMs: number?
+        rootDirName: string?
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              name: string
+              lastModifiedMs: number?
       returns:
-        writableStream: WritableStream
+        rootDir: WritableStream?
+        writableStreams:
+          type: array
+          items: WritableStream
 
     updateSubscription:
       parameters:
@@ -1195,6 +1213,38 @@ BrowserContext:
           - requestFinished
           - requestFailed
         enabled: boolean
+
+    clockFastForward:
+      parameters:
+        ticksNumber: number?
+        ticksString: string?
+
+    clockInstall:
+      parameters:
+        timeNumber: number?
+        timeString: string?
+
+    clockPauseAt:
+      parameters:
+        timeNumber: number?
+        timeString: string?
+
+    clockResume:
+
+    clockRunFor:
+      parameters:
+        ticksNumber: number?
+        ticksString: string?
+
+    clockSetFixedTime:
+      parameters:
+        timeNumber: number?
+        timeString: string?
+
+    clockSetSystemTime:
+      parameters:
+        timeNumber: number?
+        timeString: string?
 
   events:
 
@@ -1553,6 +1603,27 @@ Page:
         slowMo: true
         snapshot: true
 
+    touchscreenTouch:
+      parameters:
+        type:
+          type: enum
+          literals:
+          - touchstart
+          - touchend
+          - touchmove
+          - touchcancel
+        touchPoints:
+          type: array
+          items:
+            type: object
+            properties:
+              x: number
+              y: number
+              id: number?
+      flags:
+        slowMo: true
+        snapshot: true
+
     accessibilitySnapshot:
       parameters:
         interestingOnly: boolean?
@@ -1880,7 +1951,6 @@ Frame:
       parameters:
         expression: string
         isFunction: boolean?
-        exposeUtilityScript: boolean?
         arg: SerializedArgument
       returns:
         value: SerializedValue
@@ -2145,6 +2215,8 @@ Frame:
               name: string
               mimeType: string?
               buffer: binary
+        localDirectory: string?
+        directoryStream: WritableStream?
         localPaths:
           type: array?
           items: string
@@ -2705,6 +2777,8 @@ ElementHandle:
               name: string
               mimeType: string?
               buffer: binary
+        localDirectory: string?
+        directoryStream: WritableStream?
         localPaths:
           type: array?
           items: string

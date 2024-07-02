@@ -24,6 +24,7 @@ import type { Download } from './download';
 import type * as frames from './frames';
 import { helper } from './helper';
 import * as network from './network';
+import { InitScript } from './page';
 import type { PageDelegate } from './page';
 import { Page, PageBinding } from './page';
 import type { Progress, ProgressController } from './progress';
@@ -41,6 +42,7 @@ import { Recorder } from './recorder';
 import * as consoleApiSource from '../generated/consoleApiSource';
 import { BrowserContextAPIRequestContext } from './fetch';
 import type { Artifact } from './artifact';
+import { Clock } from './clock';
 
 export abstract class BrowserContext extends SdkObject {
   static Events = {
@@ -83,10 +85,11 @@ export abstract class BrowserContext extends SdkObject {
   private _customCloseHandler?: () => Promise<any>;
   readonly _tempDirs: string[] = [];
   private _settingStorageState = false;
-  readonly initScripts: string[] = [];
+  readonly initScripts: InitScript[] = [];
   private _routesInFlight = new Set<network.Route>();
   private _debugger!: Debugger;
   _closeReason: string | undefined;
+  readonly clock: Clock;
 
   constructor(browser: Browser, options: channels.BrowserNewContextParams, browserContextId: string | undefined) {
     super(browser, 'browser-context');
@@ -103,6 +106,7 @@ export abstract class BrowserContext extends SdkObject {
       this._harRecorders.set('', new HarRecorder(this, null, this._options.recordHar));
 
     this.tracing = new Tracing(this, browser.options.tracesDir);
+    this.clock = new Clock(this);
   }
 
   isPersistentContext(): boolean {
@@ -213,6 +217,7 @@ export abstract class BrowserContext extends SdkObject {
     await this._resetStorage();
     await this._removeExposedBindings();
     await this._removeInitScripts();
+    this.clock.markAsUninstalled();
     // TODO: following can be optimized to not perform noops.
     if (this._options.permissions)
       await this.grantPermissions(this._options.permissions);
@@ -262,7 +267,7 @@ export abstract class BrowserContext extends SdkObject {
   protected abstract doGrantPermissions(origin: string, permissions: string[]): Promise<void>;
   protected abstract doClearPermissions(): Promise<void>;
   protected abstract doSetHTTPCredentials(httpCredentials?: types.Credentials): Promise<void>;
-  protected abstract doAddInitScript(expression: string): Promise<void>;
+  protected abstract doAddInitScript(initScript: InitScript): Promise<void>;
   protected abstract doRemoveInitScripts(): Promise<void>;
   protected abstract doExposeBinding(binding: PageBinding): Promise<void>;
   protected abstract doRemoveExposedBindings(): Promise<void>;
@@ -399,9 +404,10 @@ export abstract class BrowserContext extends SdkObject {
       this._options.httpCredentials = { username, password: password || '' };
   }
 
-  async addInitScript(script: string) {
-    this.initScripts.push(script);
-    await this.doAddInitScript(script);
+  async addInitScript(source: string) {
+    const initScript = new InitScript(source);
+    this.initScripts.push(initScript);
+    await this.doAddInitScript(initScript);
   }
 
   async _removeInitScripts(): Promise<void> {
@@ -650,8 +656,13 @@ export function validateBrowserContextOptions(options: channels.BrowserNewContex
     throw new Error(`"deviceScaleFactor" option is not supported with null "viewport"`);
   if (options.noDefaultViewport && !!options.isMobile)
     throw new Error(`"isMobile" option is not supported with null "viewport"`);
-  if (options.acceptDownloads === undefined)
+  if (options.acceptDownloads === undefined && browserOptions.name !== 'electron')
     options.acceptDownloads = 'accept';
+  // Electron requires explicit acceptDownloads: true since we wait for
+  // https://github.com/electron/electron/pull/41718 to be widely shipped.
+  // In 6-12 months, we can remove this check.
+  else if (options.acceptDownloads === undefined && browserOptions.name === 'electron')
+    options.acceptDownloads = 'internal-browser-default';
   if (!options.viewport && !options.noDefaultViewport)
     options.viewport = { width: 1280, height: 720 };
   if (options.recordVideo) {

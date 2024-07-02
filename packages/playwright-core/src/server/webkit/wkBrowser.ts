@@ -22,7 +22,7 @@ import type { RegisteredListener } from '../../utils/eventsHelper';
 import { assert } from '../../utils';
 import { eventsHelper } from '../../utils/eventsHelper';
 import * as network from '../network';
-import type { Page, PageBinding, PageDelegate } from '../page';
+import type { InitScript, Page, PageBinding, PageDelegate } from '../page';
 import type { ConnectionTransport } from '../transport';
 import type * as types from '../types';
 import type * as channels from '@protocol/channels';
@@ -267,7 +267,7 @@ export class WKBrowserContext extends BrowserContext {
     const cc = network.rewriteCookies(cookies).map(c => ({
       ...c,
       session: c.expires === -1 || c.expires === undefined,
-      expires: c.expires && c.expires !== -1 ? c.expires * 1000 : c.expires
+      expires: c.expires && c.expires !== -1 ? c.expires * 1000 : c.expires,
     })) as Protocol.Playwright.SetCookieParam[];
     await this._browser._browserSession.send('Playwright.setCookies', { cookies: cc, browserContextId: this._browserContextId });
   }
@@ -315,7 +315,7 @@ export class WKBrowserContext extends BrowserContext {
       await (page._delegate as WKPage).updateHttpCredentials();
   }
 
-  async doAddInitScript(source: string) {
+  async doAddInitScript(initScript: InitScript) {
     for (const page of this.pages())
       await (page._delegate as WKPage)._updateBootstrapScript();
   }
