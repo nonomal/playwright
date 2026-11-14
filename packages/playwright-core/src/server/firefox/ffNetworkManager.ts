@@ -15,23 +15,25 @@
  * limitations under the License.
  */
 
-import type { RegisteredListener } from '../../utils/eventsHelper';
-import { eventsHelper } from '../../utils/eventsHelper';
-import type { FFSession } from './ffConnection';
-import type { Page } from '../page';
+import { eventsHelper } from '@utils/eventsHelper';
+import { splitSetCookieHeader } from '@isomorphic/headers';
 import * as network from '../network';
+
+import type { FFSession } from './ffConnection';
+import type { FFPage } from './ffPage';
+import type { RegisteredListener } from '@utils/eventsHelper';
 import type * as frames from '../frames';
 import type * as types from '../types';
 import type { Protocol } from './protocol';
-import type { HeadersArray } from '../../server/types';
 
 export class FFNetworkManager {
   private _session: FFSession;
   private _requests: Map<string, InterceptableRequest>;
-  private _page: Page;
+  private _page: FFPage;
   private _eventListeners: RegisteredListener[];
+  private _webSocketRequestIds = new Set<string>();
 
-  constructor(session: FFSession, page: Page) {
+  constructor(session: FFSession, page: FFPage) {
     this._session = session;
 
     this._requests = new Map();
@@ -49,17 +51,27 @@ export class FFNetworkManager {
     eventsHelper.removeEventListeners(this._eventListeners);
   }
 
-  async setRequestInterception(enabled: boolean) {
+  async setRequestInterception(enabled: boolean, bypassServiceWorker: boolean) {
     await Promise.all([
-      this._session.send('Network.setRequestInterception', { enabled }),
+      this._session.send('Network.setRequestInterception', { enabled, bypassServiceWorker }),
       this._session.send('Page.setCacheDisabled', { cacheDisabled: enabled }),
     ]);
   }
 
   _onRequestWillBeSent(event: Protocol.Network.requestWillBeSentPayload) {
+    // WebSocket handshakes can arrive after their frame has been detached.
+    // Align with Chromium and WebKit by handling them separately from other network activity.
+    if (event.cause === 'TYPE_WEBSOCKET') {
+      this._webSocketRequestIds.add(event.requestId);
+      this._page._onWebSocketRequestWillBeSent(event.requestId, event.url, event.headers);
+      return;
+    }
     const redirectedFrom = event.redirectedFrom ? (this._requests.get(event.redirectedFrom) || null) : null;
-    const frame = redirectedFrom ? redirectedFrom.request.frame() : (event.frameId ? this._page._frameManager.frame(event.frameId) : null);
+    const frame = redirectedFrom ? redirectedFrom.request.frame() : (event.frameId ? this._page._page.frameManager.frame(event.frameId) : null);
     if (!frame)
+      return;
+    // Align with Chromium and WebKit and not expose preflight OPTIONS requests to the client.
+    if (event.method === 'OPTIONS' && !event.isIntercepted)
       return;
     if (redirectedFrom)
       this._requests.delete(redirectedFrom._id);
@@ -68,13 +80,17 @@ export class FFNetworkManager {
     if (event.isIntercepted)
       route = new FFRouteImpl(this._session, request);
     this._requests.set(request._id, request);
-    this._page._frameManager.requestStarted(request.request, route);
+    this._page._page.frameManager.requestStarted(request.request, route);
   }
 
   _onResponseReceived(event: Protocol.Network.responseReceivedPayload) {
     const request = this._requests.get(event.requestId);
-    if (!request)
+    if (!request) {
+      // Align with Chromium and WebKit by having WebSocket be handled separately from other network activity.
+      if (this._webSocketRequestIds.has(event.requestId))
+        this._page._onWebSocketResponseReceived(event.requestId, event.status, event.statusText, event.headers);
       return;
+    }
     const getResponseBody = async () => {
       const response = await this._session.send('Network.getResponseBody', {
         requestId: request._id
@@ -100,7 +116,7 @@ export class FFNetworkManager {
       requestStart: relativeToStart(event.timing.requestStart),
       responseStart: relativeToStart(event.timing.responseStart),
     };
-    const response = new network.Response(request.request, event.status, event.statusText, parseMultivalueHeaders(event.headers), timing, getResponseBody, event.fromServiceWorker);
+    const response = new network.Response(request.request, event.status, event.statusText, event.headers, timing, getResponseBody, event.fromServiceWorker);
     if (event?.remoteIPAddress && typeof event?.remotePort === 'number') {
       response._serverAddrFinished({
         ipAddress: event.remoteIPAddress,
@@ -120,13 +136,19 @@ export class FFNetworkManager {
     response.setRawResponseHeaders(null);
     // Headers size are not available in Firefox.
     response.setResponseHeadersSize(null);
-    this._page._frameManager.requestReceivedResponse(response);
+    this._page._page.frameManager.requestReceivedResponse(response);
   }
 
   _onRequestFinished(event: Protocol.Network.requestFinishedPayload) {
     const request = this._requests.get(event.requestId);
-    if (!request)
+    if (!request) {
+      // Align with Chromium and WebKit by having WebSocket be handled separately from other network activity.
+      if (this._webSocketRequestIds.has(event.requestId)) {
+        this._webSocketRequestIds.delete(event.requestId);
+        this._page._onWebSocketRequestFinished(event.requestId);
+      }
       return;
+    }
     const response = request.request._existingResponse()!;
     response.setTransferSize(event.transferSize);
     response.setEncodedBodySize(event.encodedBodySize);
@@ -140,9 +162,8 @@ export class FFNetworkManager {
       this._requests.delete(request._id);
       response._requestFinished(responseEndTime);
     }
-    if (event.protocolVersion)
-      response._setHttpVersion(event.protocolVersion);
-    this._page._frameManager.reportRequestFinished(request.request, response);
+    response._setHttpVersion(event.protocolVersion ?? null);
+    this._page._page.frameManager.reportRequestFinished(request.request, response);
   }
 
   _onRequestFailed(event: Protocol.Network.requestFailedPayload) {
@@ -155,13 +176,14 @@ export class FFNetworkManager {
       response.setTransferSize(null);
       response.setEncodedBodySize(null);
       response._requestFinished(-1);
+      response._setHttpVersion(null);
     }
     request.request._setFailureText(event.errorCode);
-    this._page._frameManager.requestFailed(request.request, event.errorCode === 'NS_BINDING_ABORTED');
+    this._page._page.frameManager.requestFailed(request.request, event.errorCode === 'NS_BINDING_ABORTED');
   }
 }
 
-const causeToResourceType: {[key: string]: string} = {
+const causeToResourceType: {[key: string]: network.ResourceType} = {
   TYPE_INVALID: 'other',
   TYPE_OTHER: 'other',
   TYPE_SCRIPT: 'script',
@@ -179,15 +201,15 @@ const causeToResourceType: {[key: string]: string} = {
   TYPE_FONT: 'font',
   TYPE_MEDIA: 'media',
   TYPE_WEBSOCKET: 'websocket',
-  TYPE_CSP_REPORT: 'other',
+  TYPE_CSP_REPORT: 'cspreport',
   TYPE_XSLT: 'other',
-  TYPE_BEACON: 'other',
+  TYPE_BEACON: 'beacon',
   TYPE_FETCH: 'fetch',
-  TYPE_IMAGESET: 'images',
+  TYPE_IMAGESET: 'image',
   TYPE_WEB_MANIFEST: 'manifest',
 };
 
-const internalCauseToResourceType: {[key: string]: string} = {
+const internalCauseToResourceType: {[key: string]: network.ResourceType} = {
   TYPE_INTERNAL_EVENTSOURCE: 'eventsource',
 };
 
@@ -203,7 +225,7 @@ class InterceptableRequest {
     let postDataBuffer = null;
     if (payload.postData)
       postDataBuffer = Buffer.from(payload.postData, 'base64');
-    this.request = new network.Request(frame._page._browserContext, frame, null, redirectedFrom ? redirectedFrom.request : null, payload.navigationId,
+    this.request = new network.Request(frame._page.browserContext, frame, null, redirectedFrom ? redirectedFrom.request : null, payload.navigationId,
         payload.url, internalCauseToResourceType[payload.internalCause] || causeToResourceType[payload.cause] || 'other', payload.method, postDataBuffer, payload.headers);
     // "raw" headers are the same as "provisional" headers in Firefox.
     this.request.setRawRequestHeaders(null);
@@ -226,7 +248,7 @@ class FFRouteImpl implements network.RouteDelegate {
     this._request = request;
   }
 
-  async continue(request: network.Request, overrides: types.NormalizedContinueOverrides) {
+  async continue(overrides: types.NormalizedContinueOverrides) {
     await this._session.sendMayFail('Network.resumeInterceptedRequest', {
       requestId: this._request._id,
       url: overrides.url,
@@ -243,7 +265,7 @@ class FFRouteImpl implements network.RouteDelegate {
       requestId: this._request._id,
       status: response.status,
       statusText: network.statusText(response.status),
-      headers: response.headers,
+      headers: splitSetCookieHeader(response.headers),
       base64body,
     });
   }
@@ -254,15 +276,4 @@ class FFRouteImpl implements network.RouteDelegate {
       errorCode,
     });
   }
-}
-
-function parseMultivalueHeaders(headers: HeadersArray) {
-  const result: HeadersArray = [];
-  for (const header of headers) {
-    const separator = header.name.toLowerCase() === 'set-cookie' ? '\n' : ',';
-    const tokens = header.value.split(separator).map(s => s.trim());
-    for (const token of tokens)
-      result.push({ name: header.name, value: token });
-  }
-  return result;
 }

@@ -19,64 +19,63 @@ import { playwrightTest as it, expect } from '../config/browserTest';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { kTargetClosedErrorMessage } from '../config/errors';
 
-it('should reject all promises when browser is closed', async ({ browserType }) => {
+it('BT-004 should reject all promises when browser is closed', async ({ browserType }) => {
   const browser = await browserType.launch();
   const page = await (await browser.newContext()).newPage();
   let error: Error | undefined;
   const neverResolves = page.evaluate(() => new Promise(r => {})).catch(e => error = e);
-  await page.evaluate(() => new Promise(f => setTimeout(f, 0)));
+  await page.evaluate(() => new Promise(f => window.builtins.setTimeout(f, 0)));
   await browser.close();
   await neverResolves;
   // WebKit under task-set -c 1 is giving browser, rest are giving target.
   expect(error!.message).toContain(' closed');
 });
 
-it('should throw if userDataDir option is passed', async ({ browserType }) => {
+it('BT-005 should throw if userDataDir option is passed', async ({ browserType }) => {
   let waitError: Error | undefined;
   await browserType.launch({ userDataDir: 'random-path' } as any).catch(e => waitError = e);
   expect(waitError!.message).toContain('userDataDir option is not supported in `browserType.launch`. Use `browserType.launchPersistentContext` instead');
 });
 
-it('should throw if userDataDir is passed as an argument', async ({ browserType }) => {
+it('BT-006 should throw if userDataDir is passed as an argument', async ({ browserType }) => {
   let waitError: Error | undefined;
   await browserType.launch({ args: ['--user-data-dir=random-path', '--profile=random-path'] } as any).catch(e => waitError = e);
   expect(waitError!.message).toContain(`Pass userDataDir parameter to 'browserType.launchPersistentContext`);
 });
 
-it('should throw if port option is passed', async ({ browserType }) => {
+it('BT-007 should throw if port option is passed', async ({ browserType }) => {
   const error = await browserType.launch({ port: 1234 } as any).catch(e => e);
   expect(error!.message).toContain('Cannot specify a port without launching as a server.');
 });
 
-it('should throw if port option is passed for persistent context', async ({ browserType }) => {
+it('BT-008 should throw if port option is passed for persistent context', async ({ browserType }) => {
   const error = await browserType.launchPersistentContext('foo', { port: 1234 } as any).catch(e => e);
   expect(error!.message).toContain('Cannot specify a port without launching as a server.');
 });
 
-it('should throw if page argument is passed', async ({ browserType, browserName }) => {
-  it.skip(browserName === 'firefox');
+it('BT-009 should throw if page argument is passed', async ({ browserType, browserName, isBidi }) => {
+  it.skip(browserName === 'firefox' && !isBidi);
 
   let waitError: Error | undefined;
   await browserType.launch({ args: ['http://example.com'] }).catch(e => waitError = e);
   expect(waitError!.message).toContain('can not specify page');
 });
 
-it('should reject if launched browser fails immediately', async ({ mode, browserType, asset, isWindows }) => {
-  it.skip(mode.startsWith('service'));
-
-  let waitError: Error | undefined;
-  await browserType.launch({ executablePath: asset('dummy_bad_browser_executable.js') }).catch(e => waitError = e);
-  expect(waitError!.message).toContain(isWindows ? 'browserType.launch: spawn UNKNOWN' : 'Browser logs:');
+it('BT-010 should reject if launched browser fails immediately', async ({ mode, browserType, asset, channel }) => {
+  const error = await browserType.launch({ executablePath: asset('dummy_bad_browser_executable.js') }).catch(e => e);
+  if (channel === 'webkit-wsl')
+    expect(error.message).toContain('Failed to launch');
+  else
+    expect(error.message).toMatch(/browserType\.launch(.|\n)*(spawn UNKNOWN|spawn EFTYPE|Browser logs:)/gim);
 });
 
-it('should reject if executable path is invalid', async ({ browserType, mode }) => {
-  it.skip(mode.startsWith('service'), 'on service mode we dont allow passing custom executable path');
+it('BT-011 should reject if executable path is invalid', async ({ browserType, mode }) => {
   let waitError: Error | undefined;
   await browserType.launch({ executablePath: 'random-invalid-path' }).catch(e => waitError = e);
   expect(waitError!.message).toContain('Failed to launch');
 });
 
-it('should handle timeout', async ({ browserType, mode }) => {
+it('BT-012 should handle timeout', async ({ browserType, mode }) => {
   it.skip(mode !== 'default');
 
   const options: any = { timeout: 5000, __testHookBeforeCreateBrowser: () => new Promise(f => setTimeout(f, 6000)) };
@@ -86,33 +85,23 @@ it('should handle timeout', async ({ browserType, mode }) => {
   expect(error!.message).toContain(`<launched> pid=`);
 });
 
-it('should handle exception', async ({ browserType, mode }) => {
+it('BT-013 should handle exception and report launch log', async ({ browserType, mode }) => {
   it.skip(mode !== 'default');
 
   const e = new Error('Dummy');
-  const options = { __testHookBeforeCreateBrowser: () => { throw e; }, timeout: 9000 };
+  const options = { __testHookBeforeCreateBrowser: () => { throw e; }, timeout: 15000 };
   const error = await browserType.launch(options).catch(e => e);
-  expect(error!.message).toContain('Dummy');
+  expect(error.message).toContain('Dummy');
+  expect(error.message).toContain('<launching>');
 });
 
-it('should report launch log', async ({ browserType, mode }) => {
-  it.skip(mode !== 'default');
-
-  const e = new Error('Dummy');
-  const options = { __testHookBeforeCreateBrowser: () => { throw e; }, timeout: 9000 };
-  const error = await browserType.launch(options).catch(e => e);
-  expect(error!.message).toContain('<launching>');
-});
-
-it('should accept objects as options', async ({ mode,   browserType }) => {
-  it.skip(mode.startsWith('service'));
-
+it('BT-014 should accept objects as options', async ({ mode,   browserType }) => {
   // @ts-expect-error process is not a real option.
   const browser = await browserType.launch({ process });
   await browser.close();
 });
 
-it('should fire close event for all contexts', async ({ browserType }) => {
+it('BT-015 should fire close event for all contexts', async ({ browserType }) => {
   const browser = await browserType.launch();
   const context = await browser.newContext();
   let closed = false;
@@ -121,7 +110,7 @@ it('should fire close event for all contexts', async ({ browserType }) => {
   expect(closed).toBe(true);
 });
 
-it('should be callable twice', async ({ browserType }) => {
+it('BT-016 should be callable twice', async ({ browserType }) => {
   const browser = await browserType.launch();
   await Promise.all([
     browser.close(),
@@ -130,9 +119,8 @@ it('should be callable twice', async ({ browserType }) => {
   await browser.close();
 });
 
-it('should allow await using', async ({ browserType }) => {
-  const nodeVersion = +process.versions.node.split('.')[0];
-  it.skip(nodeVersion < 18);
+it('BT-017 should allow await using', async ({ browserType, nodeVersion }) => {
+  it.skip(nodeVersion.major < 18);
 
   let b: Browser;
   let c: BrowserContext;

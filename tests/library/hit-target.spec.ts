@@ -21,7 +21,7 @@ declare const renderComponent;
 declare const e;
 declare const MaterialUI;
 
-it('should block all events when hit target is wrong', async ({ page, server }) => {
+it('HT-001 should block all events when hit target is wrong', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/input/button.html');
   await page.evaluate(() => {
     const blocker = document.createElement('div');
@@ -40,8 +40,8 @@ it('should block all events when hit target is wrong', async ({ page, server }) 
     }
   });
 
-  const error = await page.click('button', { timeout: 1000 }).catch(e => e);
-  expect(error.message).toContain('page.click: Timeout 1000ms exceeded.');
+  const error = await page.click('button', { timeout: 3000 }).catch(e => e);
+  expect(error.message).toContain('page.click: Timeout 3000ms exceeded.');
 
   // Give it some time, just in case.
   await page.waitForTimeout(1000);
@@ -49,7 +49,7 @@ it('should block all events when hit target is wrong', async ({ page, server }) 
   expect(allEvents).toEqual([]);
 });
 
-it('should block click when mousedown fails', async ({ page, server }) => {
+it('HT-002 should block click when mousedown fails', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/input/button.html');
   await page.$eval('button', button => {
     button.addEventListener('mousemove', () => {
@@ -73,7 +73,7 @@ it('should block click when mousedown fails', async ({ page, server }) => {
   ]);
 });
 
-it('should click when element detaches in mousedown', async ({ page, server }) => {
+it('HT-003 should click when element detaches in mousedown', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/input/button.html');
   await page.$eval('button', button => {
     button.addEventListener('mousedown', () => {
@@ -82,11 +82,11 @@ it('should click when element detaches in mousedown', async ({ page, server }) =
     });
   });
 
-  await page.click('button', { timeout: 1000 });
+  await page.click('button', { timeout: 15000 });
   expect(await page.evaluate('result')).toBe('Mousedown');
 });
 
-it('should block all events when hit target is wrong and element detaches', async ({ page, server }) => {
+it('HT-004 should block all events when hit target is wrong and element detaches', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/input/button.html');
   await page.$eval('button', button => {
     const blocker = document.createElement('div');
@@ -107,8 +107,8 @@ it('should block all events when hit target is wrong and element detaches', asyn
     }
   });
 
-  const error = await page.click('button', { timeout: 1000 }).catch(e => e);
-  expect(error.message).toContain('page.click: Timeout 1000ms exceeded.');
+  const error = await page.click('button', { timeout: 3000 }).catch(e => e);
+  expect(error.message).toContain('page.click: Timeout 3000ms exceeded.');
 
   // Give it some time, just in case.
   await page.waitForTimeout(1000);
@@ -116,7 +116,7 @@ it('should block all events when hit target is wrong and element detaches', asyn
   expect(allEvents).toEqual([]);
 });
 
-it('should not block programmatic events', async ({ page, server }) => {
+it('HT-005 should not block programmatic events', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/input/button.html');
   await page.$eval('button', button => {
     button.addEventListener('mousemove', () => {
@@ -141,7 +141,7 @@ it('should not block programmatic events', async ({ page, server }) => {
   ]);
 });
 
-it('should click the button again after document.write', async ({ page, server }) => {
+it('HT-006 should click the button again after document.write', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/input/button.html');
   await page.click('button');
   expect(await page.evaluate('result')).toBe('Clicked');
@@ -155,7 +155,7 @@ it('should click the button again after document.write', async ({ page, server }
   expect(await page.evaluate('result2')).toBe(true);
 });
 
-it('should work with mui select', async ({ page, server }) => {
+it('HT-007 should work with mui select', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/mui.html');
   await page.evaluate(() => {
     renderComponent(e(MaterialUI.FormControl, { fullWidth: true }, [
@@ -176,13 +176,13 @@ it('should work with mui select', async ({ page, server }) => {
   await expect(page.locator('text=Thirty')).toBeVisible();
 });
 
-it('should work with drag and drop that moves the element under cursor', async ({ page, server }) => {
+it('HT-008 should work with drag and drop that moves the element under cursor', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/input/drag-n-drop-manual.html');
   await page.dragAndDrop('#from', '#to');
   await expect(page.locator('#to')).toHaveText('Dropped');
 });
 
-it('should work with block inside inline', async ({ page, server }) => {
+it('HT-009 should work with block inside inline', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.setContent(`
     <div>
@@ -197,7 +197,7 @@ it('should work with block inside inline', async ({ page, server }) => {
   expect(await page.evaluate('window._clicked')).toBe(true);
 });
 
-it('should work with block-block-block inside inline-inline', async ({ page, server }) => {
+it('HT-010 should work with block-block-block inside inline-inline', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.setContent(`
     <div>
@@ -220,7 +220,7 @@ it('should work with block-block-block inside inline-inline', async ({ page, ser
   await expect(page).toHaveURL(server.EMPTY_PAGE + '#yay');
 });
 
-it('should work with block inside inline in shadow dom', async ({ page, server }) => {
+it('HT-011 should work with block inside inline in shadow dom', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.setContent(`
     <div>
@@ -241,7 +241,7 @@ it('should work with block inside inline in shadow dom', async ({ page, server }
   expect(await page.evaluate('window._clicked')).toBe(true);
 });
 
-it('should not click iframe overlaying the target', async ({ page, server }) => {
+it('HT-012 should not click iframe overlaying the target', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.setContent(`
     <button style="position: absolute; left: 250px;bottom: 0;height: 40px;width: 200px;" onclick="window._clicked=1">
@@ -251,12 +251,12 @@ it('should not click iframe overlaying the target', async ({ page, server }) => 
       <iframe srcdoc="<body onclick='window.top._clicked=2' style='background-color:red;height:40px;'></body>" style="display: block; border: 0px; width: 100vw; height: 48px;"></iframe>
     </div>
   `);
-  const error = await page.click('text=click-me', { timeout: 1000 }).catch(e => e);
+  const error = await page.click('text=click-me', { timeout: 3000 }).catch(e => e);
   expect(await page.evaluate('window._clicked')).toBe(undefined);
-  expect(error.message).toContain(`<iframe srcdoc="<body onclick='window.top._clicked=2' st…></iframe> from <div>…</div> subtree intercepts pointer events`);
+  expect(error.message).toContain(`<iframe srcdoc=\"<body onclick='window.top._clicked=2' style='background-color:red;height:40px;'></body>\"></iframe> from <div>…</div> subtree intercepts pointer events`);
 });
 
-it('should not click an element overlaying iframe with the target', async ({ page, server }) => {
+it('HT-013 should not click an element overlaying iframe with the target', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.setContent(`
     <div onclick='window.top._clicked=1'>padding</div>
@@ -275,7 +275,7 @@ it('should not click an element overlaying iframe with the target', async ({ pag
   expect(await page.evaluate('window._clicked')).toBe(3);
 });
 
-it('should click into frame inside closed shadow root', async ({ page, server }) => {
+it('HT-014 should click into frame inside closed shadow root', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.setContent(`
     <div id=framecontainer>
@@ -290,12 +290,12 @@ it('should click into frame inside closed shadow root', async ({ page, server })
     </script>
   `);
 
-  const frame = page.frame({ name: 'myframe' });
+  const frame = page.frames()[1];
   await frame.locator('text=click me').click();
   expect(await page.evaluate('window.__clicked')).toBe(true);
 });
 
-it('should click an element inside closed shadow root', async ({ page, server }) => {
+it('HT-015 should click an element inside closed shadow root', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.setContent(`
     <div id=container>
@@ -316,7 +316,7 @@ it('should click an element inside closed shadow root', async ({ page, server })
   expect(await page.evaluate('window.__clicked')).toBe(true);
 });
 
-it('should detect overlay from another shadow root', async ({ page, server }) => {
+it('HT-016 should detect overlay from another shadow root', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.setContent(`
     <style>
@@ -359,11 +359,11 @@ it('should detect overlay from another shadow root', async ({ page, server }) =>
     </script>
   `);
 
-  const error = await page.locator('#container1 >> text=click me').click({ timeout: 2000 }).catch(e => e);
+  const error = await page.locator('#container1 >> text=click me').click({ timeout: 3000 }).catch(e => e);
   expect(error.message).toContain(`<div id="container2"></div> intercepts pointer events`);
 });
 
-it('should detect overlaid element in a transformed iframe', async ({ page }) => {
+it('HT-017 should detect overlaid element in a transformed iframe', async ({ page }) => {
   await page.setContent(`
     <style>
       body, html, iframe { margin: 0; padding: 0; border: none; }
@@ -391,11 +391,11 @@ it('should detect overlaid element in a transformed iframe', async ({ page }) =>
     "></iframe>
   `);
   const locator = page.frameLocator('iframe').locator('div');
-  const error = await locator.click({ timeout: 2000 }).catch(e => e);
+  const error = await locator.click({ timeout: 5000 }).catch(e => e);
   expect(error.message).toContain('<section>Overlay</section> intercepts pointer events');
 });
 
-it('should click in iframe with padding', async ({ page }) => {
+it('HT-018 should click in iframe with padding', async ({ page }) => {
   await page.setContent(`
     <style>
       body, html, iframe { margin: 0; padding: 0; border: none; box-sizing: border-box; }
@@ -419,7 +419,7 @@ it('should click in iframe with padding', async ({ page }) => {
   expect(await page.evaluate('window._clicked')).toBe(true);
 });
 
-it('should click in iframe with padding 2', async ({ page }) => {
+it('HT-019 should click in iframe with padding 2', async ({ page }) => {
   await page.setContent(`
     <style>
       body, html, iframe { margin: 0; padding: 0; border: none; box-sizing: content-box; }
@@ -443,7 +443,7 @@ it('should click in iframe with padding 2', async ({ page }) => {
   expect(await page.evaluate('window._clicked')).toBe(true);
 });
 
-it('should click in custom element', async ({ page }) => {
+it('HT-020 should click in custom element', async ({ page }) => {
   await page.setContent(`
     <html>
       <body>
@@ -462,5 +462,53 @@ it('should click in custom element', async ({ page }) => {
     </html>
   `);
   await page.locator('input').click();
+  expect(await page.evaluate('window.__clicked')).toBe(true);
+});
+
+it('HT-021 should click in nested custom elements', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43118' },
+}, async ({ page }) => {
+  await page.setContent(`
+    <outer-host></outer-host>
+    <script>
+      customElements.define('inner-host', class extends HTMLElement {
+        connectedCallback() {
+          this.attachShadow({ mode: 'open' }).innerHTML = '<inner-most></inner-most>';
+        }
+      });
+      customElements.define('inner-most', class extends HTMLElement {
+        connectedCallback() {
+          this.attachShadow({ mode: 'open' }).innerHTML = '<input>';
+          this.shadowRoot.querySelector('input').addEventListener('click', () => window.__clicked = true);
+        }
+      });
+      customElements.define('outer-host', class extends HTMLElement {
+        connectedCallback() {
+          this.attachShadow({ mode: 'open' }).innerHTML = '<inner-host></inner-host>';
+        }
+      });
+    </script>
+  `);
+  await page.locator('input').click();
+  expect(await page.evaluate('window.__clicked')).toBe(true);
+});
+
+it('HT-022 should click an element inside nested closed shadow roots', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43118' },
+}, async ({ page }) => {
+  await page.setContent(`
+    <div id=container></div>
+    <script>
+      const input = document.createElement('input');
+      input.addEventListener('click', () => window.__clicked = true);
+      const outer = document.getElementById('container').attachShadow({ mode: 'closed' });
+      const inner = document.createElement('div');
+      outer.appendChild(inner);
+      inner.attachShadow({ mode: 'closed' }).appendChild(input);
+      window.__target = input;
+    </script>
+  `);
+  const handle = await page.evaluateHandle('window.__target');
+  await (handle as any as ElementHandle).click();
   expect(await page.evaluate('window.__clicked')).toBe(true);
 });

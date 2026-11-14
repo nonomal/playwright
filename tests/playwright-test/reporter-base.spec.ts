@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { test, expect } from './playwright-test-fixtures';
+import { test, expect, stripAnsi } from './playwright-test-fixtures';
 import * as path from 'path';
 
 for (const useIntermediateMergeReport of [false, true] as const) {
@@ -110,12 +110,59 @@ for (const useIntermediateMergeReport of [false, true] as const) {
       expect(result.failed).toBe(1);
       const output = result.output;
       expect(output).toContain('Error: Assertion error');
-      expect(output).toContain('a.spec.ts:4:15 › fail');
+      expect(output).toContain('a.spec.ts:4:11 › fail');
       expect(output).toContain(`  4 |           test('fail', async ({}) => {`);
       expect(output).toContain(`> 5 |             assert(false);`);
       expect(output).toContain(`    |             ^`);
       expect(output).toContain(`utils.js:4`);
       expect(output).toContain(`a.spec.ts:5:13`);
+    });
+
+    test('should print error with a nested cause', async ({ runInlineTest }) => {
+      const result = await runInlineTest({
+        'a.spec.ts': `
+          import { test, expect } from '@playwright/test';
+
+          test('foobar', async ({}) => {
+            try {
+              try {
+                const error = new Error('my-message');
+                error.name = 'SpecialError';
+                throw error;
+              } catch (e) {
+                try {
+                  throw new Error('inner-message', { cause: e });
+                } catch (e) {
+                  throw new Error('outer-message', { cause: e });
+                }
+              }
+            } catch (e) {
+              throw new Error('wrapper-message', { cause: e });
+            }
+          });
+          test.afterAll(() => {
+            expect(test.info().errors.length).toBe(1);
+            expect(test.info().errors[0]).toBe(test.info().error);
+            expect(test.info().error.message).toBe('Error: wrapper-message');
+            expect(test.info().error.cause.message).toBe('Error: outer-message');
+            expect(test.info().error.cause.cause.message).toBe('Error: inner-message');
+            expect(test.info().error.cause.cause.cause.message).toBe('SpecialError: my-message');
+            expect(test.info().error.cause.cause.cause.cause).toBe(undefined);
+            console.log('afterAll executed successfully');
+          })
+        `
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.failed).toBe(1);
+      const testFile = path.join(result.report.config.rootDir, result.report.suites[0].specs[0].file);
+      expect(result.output).toContain(`${testFile}:18:`);
+      expect(result.output).toContain(`[cause]: Error: outer-message`);
+      expect(result.output).toContain(`${testFile}:14:`);
+      expect(result.output).toContain(`[cause]: Error: inner-message`);
+      expect(result.output).toContain(`${testFile}:12:`);
+      expect(result.output).toContain(`[cause]: SpecialError: my-message`);
+      expect(result.output).toContain(`${testFile}:7:`);
+      expect(result.output).toContain('afterAll executed successfully');
     });
 
     test('should print codeframe from a helper', async ({ runInlineTest }) => {
@@ -140,13 +187,13 @@ for (const useIntermediateMergeReport of [false, true] as const) {
       expect(result.output).toContain('Error: oh my');
       expect(result.output).toContain(`   2 |           export function ohMy() {`);
       expect(result.output).toContain(` > 3 |             throw new Error('oh my');`);
-      expect(result.output).toContain(`     |                   ^`);
+      expect(result.output).toMatch(/^ +\| +\^$/m);
     });
 
     test('should print slow tests', async ({ runInlineTest }) => {
       const result = await runInlineTest({
         'playwright.config.ts': `
-          module.exports = {
+          export default {
             projects: [
               { name: 'foo' },
               { name: 'bar' },
@@ -175,7 +222,7 @@ for (const useIntermediateMergeReport of [false, true] as const) {
       expect(result.output).toContain(`Slow test file: [bar] › dir${path.sep}a.test.js (`);
       expect(result.output).toContain(`Slow test file: [baz] › dir${path.sep}a.test.js (`);
       expect(result.output).toContain(`Slow test file: [qux] › dir${path.sep}a.test.js (`);
-      expect(result.output).toContain(`Consider splitting slow test files to speed up parallel execution`);
+      expect(result.output).toContain(`Consider running tests from slow files in parallel`);
       expect(result.output).not.toContain(`Slow test file: [foo] › dir${path.sep}b.test.js (`);
       expect(result.output).not.toContain(`Slow test file: [bar] › dir${path.sep}b.test.js (`);
       expect(result.output).not.toContain(`Slow test file: [baz] › dir${path.sep}b.test.js (`);
@@ -185,7 +232,7 @@ for (const useIntermediateMergeReport of [false, true] as const) {
     test('should print if maxFailures is reached', async ({ runInlineTest }) => {
       const result = await runInlineTest({
         'playwright.config.ts': `
-          module.exports = {
+          export default {
             maxFailures: 1,
           };
         `,
@@ -213,7 +260,7 @@ for (const useIntermediateMergeReport of [false, true] as const) {
       test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29768' });
       const result = await runInlineTest({
         'playwright.config.ts': `
-          module.exports = {
+          export default {
             globalTimeout: 3000,
           };
         `,
@@ -239,7 +286,7 @@ for (const useIntermediateMergeReport of [false, true] as const) {
     test('should not print slow parallel tests', async ({ runInlineTest }) => {
       const result = await runInlineTest({
         'playwright.config.ts': `
-          module.exports = {
+          export default {
             reportSlowTests: { max: 0, threshold: 500 },
           };
         `,
@@ -263,7 +310,7 @@ for (const useIntermediateMergeReport of [false, true] as const) {
     test('should not print slow tests', async ({ runInlineTest }) => {
       const result = await runInlineTest({
         'playwright.config.ts': `
-          module.exports = {
+          export default {
             projects: [
               { name: 'baz' },
               { name: 'qux' },
@@ -417,6 +464,128 @@ for (const useIntermediateMergeReport of [false, true] as const) {
       expect(result.exitCode).toBe(0);
       expect(result.passed).toBe(1);
       expect(result.output).toMatch(/\d+ passed \(\d+(\.\d)?(ms|s)\)/);
+    });
+
+    test('should output tags', async ({ runInlineTest }) => {
+      const result = await runInlineTest({
+        'a.test.ts': `
+          const { test, expect } = require('@playwright/test');
+          test('passes', { tag: ['@foo1', '@foo2'] }, async ({}) => {
+            expect(0).toBe(0);
+          });
+          test('passes @bar1 @bar2', async ({}) => {
+            expect(0).toBe(0);
+          });
+          test('passes @baz1', { tag: ['@baz2'] }, async ({}) => {
+            expect(0).toBe(0);
+          });
+        `,
+      });
+      const text = stripAnsi(result.output);
+      expect(text).toContain('› passes @foo1 @foo2 (');
+      expect(text).toContain('› passes @bar1 @bar2 (');
+      expect(text).toContain('› passes @baz1 @baz2 (');
+    });
+
+    test('should omit tags when omitTags is set', async ({ runInlineTest }) => {
+      const result = await runInlineTest({
+        'playwright.config.ts': `
+          export default {
+            reporter: [['list', { omitTags: true }]],
+          };
+        `,
+        'a.test.ts': `
+          const { test, expect } = require('@playwright/test');
+          test('passes', { tag: ['@foo1', '@foo2'] }, async ({}) => {
+            expect(0).toBe(0);
+          });
+          test('passes @bar1 @bar2', async ({}) => {
+            expect(0).toBe(0);
+          });
+          test('passes @baz1', { tag: ['@baz2'] }, async ({}) => {
+            expect(0).toBe(0);
+          });
+        `,
+      });
+      const text = stripAnsi(result.output);
+      // Tags appended from the `tag` annotation are omitted.
+      expect(text).toContain('› passes (');
+      expect(text).not.toContain('@foo1');
+      expect(text).not.toContain('@foo2');
+      expect(text).not.toContain('@baz2');
+      // Tags authored directly in the title are preserved.
+      expect(text).toContain('› passes @bar1 @bar2 (');
+      expect(text).toContain('› passes @baz1 (');
+      expect(result.exitCode).toBe(0);
+    });
+
+    test('should omit tags from failures when omitTags is set', async ({ runInlineTest }) => {
+      const result = await runInlineTest({
+        'playwright.config.ts': `
+          export default {
+            reporter: [['list', { omitTags: true }]],
+          };
+        `,
+        'a.test.ts': `
+          const { test, expect } = require('@playwright/test');
+          test('fails', { tag: ['@qux1'] }, async ({}) => {
+            expect(1).toBe(2);
+          });
+        `,
+      });
+      const text = stripAnsi(result.output);
+      const titleLines = text.split('\n').filter(line => line.includes('a.test.ts') && line.includes('› fails'));
+      expect(titleLines.length).toBeGreaterThan(0);
+      for (const line of titleLines)
+        expect(line).not.toContain('@qux1');
+      expect(result.exitCode).toBe(1);
+    });
+
+    test('should omit tags via the PLAYWRIGHT_LIST_OMIT_TAGS environment variable', async ({ runInlineTest }) => {
+      const result = await runInlineTest({
+        'playwright.config.ts': `
+          export default {
+            reporter: [['list']],
+          };
+        `,
+        'a.test.ts': `
+          const { test, expect } = require('@playwright/test');
+          test('passes', { tag: ['@foo1', '@foo2'] }, async ({}) => {
+            expect(0).toBe(0);
+          });
+          test('passes @bar1 @bar2', async ({}) => {
+            expect(0).toBe(0);
+          });
+        `,
+      }, undefined, { PLAYWRIGHT_LIST_OMIT_TAGS: '1' });
+      const text = stripAnsi(result.output);
+      // Tags appended from the `tag` annotation are omitted.
+      expect(text).toContain('› passes (');
+      expect(text).not.toContain('@foo1');
+      expect(text).not.toContain('@foo2');
+      // Tags authored directly in the title are preserved.
+      expect(text).toContain('› passes @bar1 @bar2 (');
+      expect(result.exitCode).toBe(0);
+    });
+
+    test('should let PLAYWRIGHT_LIST_OMIT_TAGS override the omitTags option', async ({ runInlineTest }) => {
+      const result = await runInlineTest({
+        'playwright.config.ts': `
+          export default {
+            reporter: [['list', { omitTags: true }]],
+          };
+        `,
+        'a.test.ts': `
+          const { test, expect } = require('@playwright/test');
+          test('passes', { tag: ['@foo1', '@foo2'] }, async ({}) => {
+            expect(0).toBe(0);
+          });
+        `,
+      }, undefined, { PLAYWRIGHT_LIST_OMIT_TAGS: '0' });
+      const text = stripAnsi(result.output);
+      // The environment variable disables omitTags, so the appended tags are shown.
+      expect(text).toContain('› passes @foo1 @foo2 (');
+      expect(result.exitCode).toBe(0);
     });
   });
 }

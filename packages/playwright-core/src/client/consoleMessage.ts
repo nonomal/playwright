@@ -14,30 +14,39 @@
  * limitations under the License.
  */
 
-import * as util from 'util';
-import { JSHandle } from './jsHandle';
-import type * as channels from '@protocol/channels';
-import type * as api from '../../types/types';
-import { Page } from './page';
+import { inspect } from 'util';
 
-type ConsoleMessageLocation = channels.BrowserContextConsoleEvent['location'];
+import { JSHandle } from './jsHandle';
+
+import type * as api from '../../types/types';
+import type * as channels from './channels';
+import type { Page } from './page';
+import type { Worker } from './worker';
 
 export class ConsoleMessage implements api.ConsoleMessage {
 
   private _page: Page | null;
-  private _event: channels.BrowserContextConsoleEvent | channels.ElectronApplicationConsoleEvent;
+  private _worker: Worker | null;
+  private _event: channels.BrowserContextConsoleEvent | channels.WorkerConsoleEvent | channels.ElectronApplicationConsoleEvent;
 
-  constructor(event: channels.BrowserContextConsoleEvent | channels.ElectronApplicationConsoleEvent) {
-    this._page = ('page' in event && event.page) ? Page.from(event.page) : null;
+  constructor(event: channels.BrowserContextConsoleEvent | channels.WorkerConsoleEvent | channels.ElectronApplicationConsoleEvent, page: Page | null, worker: Worker | null) {
+    this._page = page;
+    this._worker = worker;
     this._event = event;
+    if (inspect.custom)
+      (this as any)[inspect.custom] = () => this._inspect();
+  }
+
+  worker() {
+    return this._worker;
   }
 
   page() {
     return this._page;
   }
 
-  type(): string {
-    return this._event.type;
+  type(): ReturnType<api.ConsoleMessage['type']> {
+    return this._event.type as ReturnType<api.ConsoleMessage['type']>;
   }
 
   text(): string {
@@ -48,11 +57,16 @@ export class ConsoleMessage implements api.ConsoleMessage {
     return this._event.args.map(JSHandle.from);
   }
 
-  location(): ConsoleMessageLocation {
-    return this._event.location;
+  location(): ReturnType<api.ConsoleMessage['location']> {
+    const { url, lineNumber, columnNumber } = this._event.location;
+    return { url, line: lineNumber, column: columnNumber, lineNumber, columnNumber };
   }
 
-  [util.inspect.custom]() {
+  timestamp(): number {
+    return this._event.timestamp;
+  }
+
+  private _inspect() {
     return this.text();
   }
 }

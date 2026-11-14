@@ -14,28 +14,42 @@
  * limitations under the License.
  */
 
-import { devices, defineConfig } from '@playwright/experimental-ct-react';
 import path from 'path';
+import url from 'url';
+import { devices, defineConfig } from '@playwright/test';
+
+process.env.PWTEST_UNDER_TEST = '1';
+
+const dirname = path.dirname(url.fileURLToPath(import.meta.url));
+const outputDir = path.join(dirname, '..', '..', 'test-results');
 
 export default defineConfig({
   testDir: 'src',
+  outputDir,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  snapshotPathTemplate: '{testDir}/__screenshots__/{projectName}/{testFilePath}/{arg}{ext}',
-  reporter: process.env.CI ? 'blob' : 'html',
+  reporter: process.env.CI ? [
+    ['dot'],
+    ['json', { outputFile: path.join(outputDir, 'report.json') }],
+    ['blob', { outputDir: path.join(dirname, '..', '..', 'blob-report') }],
+    ['../../tests/config/parquetReporter.ts'],
+  ] : [
+    ['html', { open: 'on-failure' }]
+  ],
+  tag: process.env.PW_TAG,
   use: {
-    ctPort: 3101,
-    ctViteConfig: {
-      resolve: {
-        alias: {
-          '@web': path.resolve(__dirname, '../web/src'),
-        },
-      }
-    },
+    baseURL: 'http://localhost:3101/tests/index.html',
+    serviceWorkers: 'block',
+    reuseContext: true,
     trace: 'on-first-retry',
   },
   projects: [{
     name: 'chromium',
     use: { ...devices['Desktop Chrome'] },
   }],
+  webServer: {
+    command: 'npx vite --port 3101 --strictPort',
+    url: 'http://localhost:3101/tests/index.html',
+    reuseExistingServer: !process.env.CI,
+  },
 });

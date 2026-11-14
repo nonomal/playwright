@@ -16,21 +16,50 @@
 
 import * as React from 'react';
 import './expandable.css';
+import { clsx } from '../uiUtils';
 
 export const Expandable: React.FunctionComponent<React.PropsWithChildren<{
-  title: JSX.Element | string,
+  title: React.JSX.Element | string,
   setExpanded: (expanded: boolean) => void,
   expanded: boolean,
   expandOnTitleClick?: boolean,
-}>> = ({ title, children, setExpanded, expanded, expandOnTitleClick }) => {
-  return <div className={'expandable' + (expanded ? ' expanded' : '')}>
-    <div className='expandable-title' onClick={() => expandOnTitleClick && setExpanded(!expanded)}>
-      <div
-        className={'codicon codicon-' + (expanded ? 'chevron-down' : 'chevron-right')}
-        style={{ cursor: 'pointer', color: 'var(--vscode-foreground)', marginLeft: '5px' }}
-        onClick={() => !expandOnTitleClick && setExpanded(!expanded)} />
-      {title}
+  titleSuffix?: React.ReactNode,
+  className?: string;
+}>> = ({ title, children, setExpanded, expanded, expandOnTitleClick, titleSuffix, className }) => {
+  const titleId = React.useId();
+  const regionId = React.useId();
+
+  const onClick = React.useCallback(() => setExpanded(!expanded), [expanded, setExpanded]);
+
+  const chevron = <div
+    className={clsx('codicon', expanded ? 'codicon-chevron-down' : 'codicon-chevron-right')}
+    style={{ color: 'var(--vscode-foreground)', marginLeft: '5px' }} />;
+
+  return <div className={clsx('expandable', expanded && 'expanded', className)}>
+    <div className='expandable-title' id={expandOnTitleClick ? undefined : titleId}>
+      {expandOnTitleClick ?
+        <button
+          id={titleId}
+          aria-expanded={expanded}
+          aria-controls={regionId}
+          className='expandable-title-button'
+          onClick={onClick}>
+          {chevron}
+          {title}
+        </button> :
+        <>
+          <button
+            aria-expanded={expanded}
+            aria-controls={regionId}
+            aria-label={expanded ? 'Collapse' : 'Expand'}
+            className='expandable-title-button'
+            onClick={onClick}>
+            {chevron}
+          </button>
+          {title}
+        </>}
+      {titleSuffix}
     </div>
-    { expanded && <div style={{ marginLeft: 25 }}>{children}</div> }
+    {expanded && <div id={regionId} aria-labelledby={titleId} role='region' className='expandable-content'>{children}</div>}
   </div>;
 };

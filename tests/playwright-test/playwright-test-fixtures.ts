@@ -18,7 +18,9 @@ import type { JSONReport, JSONReportSpec, JSONReportSuite, JSONReportTest, JSONR
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execSync } from 'node:child_process';
 import { PNG } from 'playwright-core/lib/utilsBundle';
+import { utils } from '../../packages/playwright-core/lib/coreBundle';
 import type { CommonFixtures, CommonWorkerFixtures, TestChildProcess } from '../config/commonFixtures';
 import { commonFixtures } from '../config/commonFixtures';
 import type { ServerFixtures, ServerWorkerOptions } from '../config/serverFixtures';
@@ -26,11 +28,13 @@ import { serverFixtures } from '../config/serverFixtures';
 import type { TestInfo } from './stable-test-runner';
 import { expect } from './stable-test-runner';
 import { test as base } from './stable-test-runner';
+import { inheritAndCleanEnv } from '../config/utils';
 export { countTimes } from '../config/commonFixtures';
 
 type CliRunResult = {
   exitCode: number,
   output: string,
+  outputLines: string[],
 };
 
 export type RunResult = {
@@ -47,7 +51,7 @@ export type RunResult = {
   interrupted: number,
   didNotRun: number,
   report: JSONReport,
-  results: any[],
+  results: JSONReportTestResult[],
 };
 
 type TSCResult = {
@@ -86,7 +90,9 @@ export async function writeFiles(testInfo: TestInfo, files: Files, initial: bool
   return baseDir;
 }
 
-export const cliEntrypoint = path.join(__dirname, '../../packages/playwright-test/cli.js');
+export const cliCommand = process.env.PW_BUN
+  ? ['bun', path.join(__dirname, 'current-test-runner/node_modules/@playwright/test/cli.js')]
+  : ['node', path.join(__dirname, '../../packages/playwright-test/cli.js')];
 
 const configFile = (baseDir: string, files: Files): string | undefined => {
   for (const [name, content] of Object.entries(files)) {
@@ -124,9 +130,13 @@ function startPlaywrightTest(childProcess: CommonFixtures['childProcess'], baseD
   );
   if (options.additionalArgs)
     args.push(...options.additionalArgs);
+  return startPlaywrightChildProcess(childProcess, baseDir, args, env, options);
+}
+
+function startPlaywrightChildProcess(childProcess: CommonFixtures['childProcess'], baseDir: string, args: string[], env: NodeJS.ProcessEnv, options: RunOptions): TestChildProcess {
   return childProcess({
-    command: ['node', cliEntrypoint, ...args],
-    env: cleanEnv(env),
+    command: [...cliCommand, ...args],
+    env: inheritAndCleanEnv(env),
     cwd: options.cwd ? path.resolve(baseDir, options.cwd) : baseDir,
   });
 }
@@ -140,7 +150,7 @@ async function runPlaywrightTest(childProcess: CommonFixtures['childProcess'], b
   const reportFile = path.join(baseDir, 'report.json');
   // When we have useIntermediateMergeReport, we want the JSON reporter only at the merge step.
   const envWithJsonReporter = {
-    PW_TEST_REPORTER: path.join(__dirname, '../../packages/playwright/lib/reporters/json.js'),
+    PW_TEST_REPORTER: 'json',
     PLAYWRIGHT_JSON_OUTPUT_NAME: reportFile,
     ...env,
   };
@@ -198,42 +208,14 @@ async function runPlaywrightTest(childProcess: CommonFixtures['childProcess'], b
   };
 }
 
-async function runPlaywrightCLI(childProcess: CommonFixtures['childProcess'], args: string[], baseDir: string, env: NodeJS.ProcessEnv, entryPoint?: string): Promise<{ output: string, stdout: string, stderr: string, exitCode: number }> {
+async function runPlaywrightCLI(childProcess: CommonFixtures['childProcess'], args: string[], baseDir: string, env: NodeJS.ProcessEnv): Promise<{ output: string, stdout: string, stderr: string, exitCode: number }> {
   const testProcess = childProcess({
-    command: ['node', entryPoint || cliEntrypoint, ...args],
-    env: cleanEnv(env),
+    command: [...cliCommand, ...args],
+    env: inheritAndCleanEnv(env),
     cwd: baseDir,
   });
   const { exitCode } = await testProcess.exited;
   return { exitCode, output: testProcess.output, stdout: testProcess.stdout, stderr: testProcess.stderr };
-}
-
-export function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    // BEGIN: Reserved CI
-    CI: undefined,
-    BUILD_URL: undefined,
-    CI_COMMIT_SHA: undefined,
-    CI_JOB_URL: undefined,
-    CI_PROJECT_URL: undefined,
-    GITHUB_REPOSITORY: undefined,
-    GITHUB_RUN_ID: undefined,
-    GITHUB_SERVER_URL: undefined,
-    GITHUB_SHA: undefined,
-    // END: Reserved CI
-    PW_TEST_HTML_REPORT_OPEN: undefined,
-    PLAYWRIGHT_HTML_OPEN: undefined,
-    PW_TEST_REPORTER: undefined,
-    PW_TEST_REPORTER_WS_ENDPOINT: undefined,
-    PW_TEST_SOURCE_TRANSFORM: undefined,
-    PW_TEST_SOURCE_TRANSFORM_SCOPE: undefined,
-    PWTEST_BOT_NAME: undefined,
-    TEST_WORKER_INDEX: undefined,
-    TEST_PARALLEL_INDEX: undefined,
-    NODE_OPTIONS: undefined,
-    ...env,
-  };
 }
 
 export type RunOptions = {
@@ -243,9 +225,11 @@ export type RunOptions = {
 type Fixtures = {
   writeFiles: (files: Files) => Promise<string>;
   deleteFile: (file: string) => Promise<void>;
+  git: (command: string) => void;
   runInlineTest: (files: Files, params?: Params, env?: NodeJS.ProcessEnv, options?: RunOptions) => Promise<RunResult>;
-  runCLICommand: (files: Files, command: string, args?: string[], entryPoint?: string) => Promise<{ stdout: string, stderr: string, exitCode: number }>;
-  runWatchTest: (files: Files, env?: NodeJS.ProcessEnv, options?: RunOptions) => Promise<TestChildProcess>;
+  runCLICommand: (files: Files, command: string, args?: string[]) => Promise<{ stdout: string, stderr: string, exitCode: number }>;
+  startCLICommand: (files: Files, command: string, args?: string[], options?: RunOptions, env?: NodeJS.ProcessEnv) => Promise<TestChildProcess>;
+  runWatchTest: (files: Files, params?: Params, env?: NodeJS.ProcessEnv, options?: RunOptions) => Promise<TestChildProcess>;
   interactWithTestRunner: (files: Files, params?: Params, env?: NodeJS.ProcessEnv, options?: RunOptions) => Promise<TestChildProcess>;
   runTSC: (files: Files) => Promise<TSCResult>;
   mergeReports: (reportFolder: string, env?: NodeJS.ProcessEnv, options?: RunOptions) => Promise<CliRunResult>
@@ -268,26 +252,45 @@ export const test = base
         });
       },
 
+      git: async ({}, use, testInfo) => {
+        const baseDir = testInfo.outputPath();
+        const git = (command: string) => execSync(`git ${command}`, { cwd: baseDir, stdio: process.env.PWTEST_DEBUG ? 'inherit' : 'ignore' });
+        git(`init --initial-branch=main`);
+        git(`config --local user.name "Robert Botman"`);
+        git(`config --local user.email "botty@mcbotface.com"`);
+        git(`config --local core.autocrlf false`);
+        await use((command: string) => git(command));
+      },
+
       runInlineTest: async ({ childProcess, mergeReports, useIntermediateMergeReport }, use, testInfo: TestInfo) => {
         const cacheDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'playwright-test-cache-'));
         await use(async (files: Files, params: Params = {}, env: NodeJS.ProcessEnv = {}, options: RunOptions = {}) => {
           const baseDir = await writeFiles(testInfo, files, true);
-          return await runPlaywrightTest(childProcess, baseDir, params, { ...env, PWTEST_CACHE_DIR: cacheDir }, options, files, mergeReports, useIntermediateMergeReport);
+          return await runPlaywrightTest(childProcess, baseDir, params, { PLAYWRIGHT_TRANSFORM_CACHE_DIR: cacheDir, ...env }, options, files, mergeReports, useIntermediateMergeReport);
         });
         await removeFolders([cacheDir]);
       },
 
       runCLICommand: async ({ childProcess }, use, testInfo: TestInfo) => {
         const cacheDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'playwright-test-cache-'));
-        await use(async (files: Files, command: string, args?: string[], entryPoint?: string) => {
+        await use(async (files: Files, command: string, args?: string[]) => {
           const baseDir = await writeFiles(testInfo, files, true);
-          return await runPlaywrightCLI(childProcess, [command, ...(args || [])], baseDir, { PWTEST_CACHE_DIR: cacheDir }, entryPoint);
+          return await runPlaywrightCLI(childProcess, [command, ...(args || [])], baseDir, { PLAYWRIGHT_TRANSFORM_CACHE_DIR: cacheDir });
+        });
+        await removeFolders([cacheDir]);
+      },
+
+      startCLICommand: async ({ childProcess }, use, testInfo: TestInfo) => {
+        const cacheDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'playwright-test-cache-'));
+        await use(async (files: Files, command: string, args?: string[], options: RunOptions = {}, env: NodeJS.ProcessEnv = {}) => {
+          const baseDir = await writeFiles(testInfo, files, true);
+          return startPlaywrightChildProcess(childProcess, baseDir, [command, ...(args || [])], { ...env, PLAYWRIGHT_TRANSFORM_CACHE_DIR: cacheDir }, options);
         });
         await removeFolders([cacheDir]);
       },
 
       runWatchTest: async ({ interactWithTestRunner }, use, testInfo: TestInfo) => {
-        await use((files, env, options) => interactWithTestRunner(files, {}, { ...env, PWTEST_WATCH: '1' }, options));
+        await use((files, params, env, options) => interactWithTestRunner(files, params, { ...env, PWTEST_WATCH: '1' }, options));
       },
 
       interactWithTestRunner: async ({ childProcess }, use, testInfo: TestInfo) => {
@@ -295,7 +298,7 @@ export const test = base
         let testProcess: TestChildProcess | undefined;
         await use(async (files: Files, params: Params = {}, env: NodeJS.ProcessEnv = {}, options: RunOptions = {}) => {
           const baseDir = await writeFiles(testInfo, files, true);
-          testProcess = startPlaywrightTest(childProcess, baseDir, params, { ...env, PWTEST_CACHE_DIR: cacheDir }, options);
+          testProcess = startPlaywrightTest(childProcess, baseDir, params, { PLAYWRIGHT_TRANSFORM_CACHE_DIR: cacheDir, ...env }, options);
           return testProcess;
         });
         await testProcess?.kill();
@@ -319,18 +322,23 @@ export const test = base
 
       mergeReports: async ({ childProcess }, use) => {
         await use(async (reportFolder: string, env: NodeJS.ProcessEnv = {}, options: RunOptions = {}) => {
-          const command = ['node', cliEntrypoint, 'merge-reports', reportFolder];
+          const command = [...cliCommand, 'merge-reports', reportFolder];
           if (options.additionalArgs)
             command.push(...options.additionalArgs);
 
           const cwd = options.cwd ? path.resolve(test.info().outputDir, options.cwd) : test.info().outputDir;
           const testProcess = childProcess({
             command,
-            env: cleanEnv(env),
+            env: inheritAndCleanEnv(env),
             cwd,
           });
           const { exitCode } = await testProcess.exited;
-          return { exitCode, output: testProcess.output.toString() };
+          const output = testProcess.output.toString();
+          return {
+            exitCode,
+            output,
+            outputLines: parseOutputLines(output),
+          };
         });
       },
 
@@ -354,8 +362,10 @@ const TSCONFIG = {
     'allowSyntheticDefaultImports': true,
     'rootDir': '.',
     'lib': ['esnext', 'dom', 'DOM.Iterable'],
+    'types': ['node'],
     'noEmit': true,
     'skipLibCheck': true,
+    'ignoreDeprecations': '6.0',
   },
   'exclude': [
     'node_modules'
@@ -383,6 +393,11 @@ export function createImage(width: number, height: number, r: number = 0, g: num
 
 export function createWhiteImage(width: number, height: number) {
   return createImage(width, height, 255, 255, 255);
+}
+
+export function createWebpImage(width: number, height: number, r: number = 0, g: number = 0, b: number = 0): Buffer {
+  const png = PNG.sync.read(createImage(width, height, r, g, b));
+  return utils.encodeWebp({ width: png.width, height: png.height, data: png.data }, { lossless: true });
 }
 
 export function paintBlackPixels(image: Buffer, blackPixelsCount: number): Buffer {
@@ -416,6 +431,10 @@ export function expectTestHelper(result: RunResult) {
   };
 }
 
+function parseOutputLines(output: string): string[] {
+  return output.split('\n').filter(line => line.startsWith('%%')).map(line => line.substring(2).trim());
+}
+
 export function parseTestRunnerOutput(output: string) {
   const summary = (re: RegExp) => {
     let result = 0;
@@ -436,7 +455,7 @@ export function parseTestRunnerOutput(output: string) {
   const strippedOutput = stripAnsi(output);
   return {
     output: strippedOutput,
-    outputLines: strippedOutput.split('\n').filter(line => line.startsWith('%%')).map(line => line.substring(2).trim()),
+    outputLines: parseOutputLines(strippedOutput),
     rawOutput: output,
     passed,
     failed,
@@ -446,16 +465,6 @@ export function parseTestRunnerOutput(output: string) {
     didNotRun,
   };
 }
-
-export const playwrightCtConfigText = `
-import { defineConfig } from '@playwright/experimental-ct-react';
-export default defineConfig({
-  use: {
-    ctPort: ${3200 + (+process.env.TEST_PARALLEL_INDEX)}
-  },
-  projects: [{name: 'default'}],
-});
-`;
 
 export async function removeFolders(dirs: string[]): Promise<Error[]> {
   return await Promise.all(dirs.map((dir: string) =>

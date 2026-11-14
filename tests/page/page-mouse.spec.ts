@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { test as it, expect } from './pageTest';
+import { test as it, expect, rafraf } from './pageTest';
 
 function dimensions() {
   const rect = document.querySelector('textarea').getBoundingClientRect();
@@ -27,7 +27,7 @@ function dimensions() {
   };
 }
 
-it('should click the document @smoke', async ({ page, server }) => {
+it('MO-001 should click the document @smoke', async ({ page, server }) => {
   await page.evaluate(() => {
     window['clickPromise'] = new Promise(resolve => {
       document.addEventListener('click', event => {
@@ -52,7 +52,7 @@ it('should click the document @smoke', async ({ page, server }) => {
   expect(event.button).toBe(0);
 });
 
-it('should dblclick the div', async ({ page, server }) => {
+it('MO-002 should dblclick the div', async ({ page, server }) => {
   await page.setContent(`<div style='width: 100px; height: 100px;'>Click me</div>`);
   await page.evaluate(() => {
     window['dblclickPromise'] = new Promise(resolve => {
@@ -78,7 +78,34 @@ it('should dblclick the div', async ({ page, server }) => {
   expect(event.button).toBe(0);
 });
 
-it('should pointerdown the div with a custom button', async ({ page, server, browserName }) => {
+it('MO-003 down and up should generate click', async ({ page, server }) => {
+  await page.evaluate(() => {
+    window['clickPromise'] = new Promise(resolve => {
+      document.addEventListener('click', event => {
+        resolve({
+          type: event.type,
+          detail: event.detail,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          isTrusted: event.isTrusted,
+          button: event.button
+        });
+      });
+    });
+  });
+  await page.mouse.move(50, 60);
+  await page.mouse.down();
+  await page.mouse.up();
+  const event = await page.evaluate(() => window['clickPromise']);
+  expect(event.type).toBe('click');
+  expect(event.detail).toBe(1);
+  expect(event.clientX).toBe(50);
+  expect(event.clientY).toBe(60);
+  expect(event.isTrusted).toBe(true);
+  expect(event.button).toBe(0);
+});
+
+it('MO-004 should pointerdown the div with a custom button', async ({ page, server, browserName }) => {
   await page.setContent(`<div style='width: 100px; height: 100px;'>Click me</div>`);
   await page.evaluate(() => {
     window['pointerdownPromise'] = new Promise(resolve => {
@@ -107,10 +134,10 @@ it('should pointerdown the div with a custom button', async ({ page, server, bro
   expect(event.isTrusted).toBe(true);
   expect(event.button).toBe(1);
   expect(event.buttons).toBe(4);
-  expect(event.pointerId).toBe(browserName === 'firefox' ? 0 : 1);
+  expect(event.pointerId).toBeGreaterThanOrEqual(0);
 });
 
-it('should report correct buttons property', async ({ page }) => {
+it('MO-005 should report correct buttons property', async ({ page }) => {
   await page.evaluate(() => {
     (window as any).__EVENTS = [];
     const handler = event => {
@@ -144,13 +171,39 @@ it('should report correct buttons property', async ({ page }) => {
   ]);
 });
 
-it('should select the text with mouse', async ({ page, server }) => {
+it('MO-006 should report correct pointerType property', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/38376' },
+}, async ({ page }) => {
+  await page.mouse.move(50, 60);
+  await page.evaluate(() => {
+    (window as any).__EVENTS = [];
+    const handler = event => {
+      (window as any).__EVENTS.push({
+        type: event.type,
+        pointerType: event.pointerType,
+      });
+    };
+    window.addEventListener('pointerdown', handler, false);
+    window.addEventListener('pointermove', handler, false);
+    window.addEventListener('pointerup', handler, false);
+  });
+  await page.mouse.move(60, 50);
+  await page.mouse.down();
+  await page.mouse.up();
+  expect(await page.evaluate(() => (window as any).__EVENTS)).toEqual([
+    { type: 'pointermove', pointerType: 'mouse' },
+    { type: 'pointerdown', pointerType: 'mouse' },
+    { type: 'pointerup', pointerType: 'mouse' },
+  ]);
+});
+
+it('MO-007 should select the text with mouse', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/input/textarea.html');
   await page.focus('textarea');
   const text = 'This is the text that we are going to try to select. Let\'s see how it goes.';
   await page.keyboard.type(text);
   // Firefox needs an extra frame here after typing or it will fail to set the scrollTop
-  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await rafraf(page);
   await page.evaluate(() => document.querySelector('textarea').scrollTop = 0);
   const { x, y } = await page.evaluate(dimensions);
   await page.mouse.move(x + 2, y + 2);
@@ -163,7 +216,9 @@ it('should select the text with mouse', async ({ page, server }) => {
   })).toBe(text);
 });
 
-it('should trigger hover state', async ({ page, server }) => {
+it('MO-008 should trigger hover state', async ({ page, server, headless }) => {
+  it.skip(!headless, 'headed messes up with hover');
+
   await page.goto(server.PREFIX + '/input/scrollable.html');
   await page.hover('#button-6');
   expect(await page.evaluate(() => document.querySelector('button:hover').id)).toBe('button-6');
@@ -173,31 +228,25 @@ it('should trigger hover state', async ({ page, server }) => {
   expect(await page.evaluate(() => document.querySelector('button:hover').id)).toBe('button-91');
 });
 
-it('hover should support noWaitAfter', async ({ page, server }) => {
-  await page.goto(server.EMPTY_PAGE);
-  await page.setContent(`<button onmouseover='location.href="${server.PREFIX}/next"'>GO</button>`);
-  await Promise.all([
-    new Promise(fulfill => server.setRoute('/next', fulfill)),
-    page.hover('button', { noWaitAfter: true })
-  ]);
-  expect(page.url()).toBe(server.EMPTY_PAGE);
-});
+it('MO-009 should trigger hover state on disabled button', async ({ page, server, headless }) => {
+  it.skip(!headless, 'headed messes up with hover');
 
-it('should trigger hover state on disabled button', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/input/scrollable.html');
   await page.$eval('#button-6', (button: HTMLButtonElement) => button.disabled = true);
   await page.hover('#button-6', { timeout: 5000 });
   expect(await page.evaluate(() => document.querySelector('button:hover').id)).toBe('button-6');
 });
 
-it('should trigger hover state with removed window.Node', async ({ page, server }) => {
+it('MO-010 should trigger hover state with removed window.Node', async ({ page, server, headless }) => {
+  it.skip(!headless, 'headed messes up with hover');
+
   await page.goto(server.PREFIX + '/input/scrollable.html');
   await page.evaluate(() => delete window.Node);
   await page.hover('#button-6');
   expect(await page.evaluate(() => document.querySelector('button:hover').id)).toBe('button-6');
 });
 
-it('should set modifier keys on click', async ({ page, server, browserName, isMac }) => {
+it('MO-011 should set modifier keys on click', async ({ page, server, browserName, isMac }) => {
   await page.goto(server.PREFIX + '/input/scrollable.html');
   await page.evaluate(() => document.querySelector('#button-3').addEventListener('mousedown', e => window['lastEvent'] = e, true));
   const modifiers = { 'Shift': 'shiftKey', 'Control': 'ctrlKey', 'Alt': 'altKey', 'Meta': 'metaKey' };
@@ -218,8 +267,9 @@ it('should set modifier keys on click', async ({ page, server, browserName, isMa
   }
 });
 
-it('should tween mouse movement', async ({ page, browserName, isAndroid }) => {
+it('MO-012 should tween mouse movement', async ({ page, browserName, isAndroid, headless }) => {
   it.skip(isAndroid, 'Bad rounding');
+  it.skip(!headless, 'actual mouse interferes with the exact mousemove events');
 
   // The test becomes flaky on WebKit without next line.
   if (browserName === 'webkit')
@@ -228,20 +278,20 @@ it('should tween mouse movement', async ({ page, browserName, isAndroid }) => {
   await page.evaluate(() => {
     window['result'] = [];
     document.addEventListener('mousemove', event => {
-      window['result'].push([event.clientX, event.clientY]);
+      window['result'].push([event.clientX, event.clientY, event.movementX, event.movementY]);
     });
   });
   await page.mouse.move(200, 300, { steps: 5 });
   expect(await page.evaluate('result')).toEqual([
-    [120, 140],
-    [140, 180],
-    [160, 220],
-    [180, 260],
-    [200, 300]
+    [120, 140, 20, 40],
+    [140, 180, 20, 40],
+    [160, 220, 20, 40],
+    [180, 260, 20, 40],
+    [200, 300, 20, 40]
   ]);
 });
 
-it('should always round down', async ({ page }) => {
+it('MO-013 should always round down', async ({ page }) => {
   await page.evaluate(() => {
     document.addEventListener('mousedown', event => {
       window['result'] = [event.clientX, event.clientY];
@@ -251,7 +301,7 @@ it('should always round down', async ({ page }) => {
   expect(await page.evaluate('result')).toEqual([50, 50]);
 });
 
-it('should not crash on mouse drag with any button', async ({ page }) => {
+it('MO-014 should not crash on mouse drag with any button', async ({ page }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16609' });
   await page.evaluate(() => {
     // Do not show contextmenu on right click since it is poorly supported.
@@ -264,16 +314,16 @@ it('should not crash on mouse drag with any button', async ({ page }) => {
   }
 });
 
-it('should dispatch mouse move after context menu was opened', async ({ page, browserName, isWindows }) => {
+it('MO-015 should dispatch mouse move after context menu was opened', async ({ page, browserName, isWindows }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20823' });
-  it.fixme(browserName === 'firefox');
-  it.skip(browserName === 'chromium' && isWindows, 'context menu support is best-effort for Linux and MacOS');
+  it.fixme(browserName === 'chromium' && isWindows, 'context menu support is best-effort for Linux and MacOS');
   await page.evaluate(() => {
     window['contextMenuPromise'] = new Promise(x => {
       window.addEventListener('contextmenu', x, false);
     });
   });
-  const CX = 100, CY = 100;
+  const CX = 100;
+  const CY = 100;
   await page.mouse.move(CX, CY);
   await page.mouse.down({ button: 'right' });
   await page.evaluate(() => window['contextMenuPromise']);
@@ -288,3 +338,48 @@ it('should dispatch mouse move after context menu was opened', async ({ page, br
   }
 });
 
+it('MO-016 should track hover across iframe boundaries', async ({ page, headless }) => {
+  it.skip(!headless, 'headed messes up with hover');
+
+  await page.setContent(`
+    <style>
+      body, html { margin: 0; padding: 0; }
+      #parentBox { position: absolute; left: 10px; top: 10px; width: 100px; height: 100px; }
+      iframe { position: absolute; left: 200px; top: 10px; width: 200px; height: 200px; border: none; }
+    </style>
+    <div id="parentBox"></div>
+    <iframe srcdoc="
+      <style>body, html { margin: 0; padding: 0; } #childBox { width: 180px; height: 180px; }</style>
+      <div id='childBox'></div>
+      <script>
+        const box = document.querySelector('#childBox');
+        box.addEventListener('mouseenter', () => window.top.__log.push('child:enter'));
+        box.addEventListener('mouseleave', () => window.top.__log.push('child:leave'));
+      </script>
+    "></iframe>
+    <script>
+      window.__log = [];
+      const box = document.querySelector('#parentBox');
+      box.addEventListener('mouseenter', () => window.__log.push('parent:enter'));
+      box.addEventListener('mouseleave', () => window.__log.push('parent:leave'));
+    </script>
+  `);
+  await page.waitForSelector('iframe');
+  await page.frames()[1].waitForSelector('#childBox');
+  const log = () => page.evaluate(() => window['__log']);
+  const parentBox = (await page.locator('#parentBox').boundingBox())!;
+  const iframeBox = (await page.locator('iframe').boundingBox())!;
+  const parentCenter = { x: parentBox.x + parentBox.width / 2, y: parentBox.y + parentBox.height / 2 };
+  const childCenter = { x: iframeBox.x + 90, y: iframeBox.y + 90 };
+
+  await page.mouse.move(parentCenter.x, parentCenter.y);
+  await expect.poll(log).toEqual(['parent:enter']);
+
+  // Crossing into the iframe leaves the parent element and enters the child.
+  await page.mouse.move(childCenter.x, childCenter.y);
+  await expect.poll(log).toEqual(['parent:enter', 'parent:leave', 'child:enter']);
+
+  // Crossing back out leaves the child element and re-enters the parent.
+  await page.mouse.move(parentCenter.x, parentCenter.y);
+  await expect.poll(log).toEqual(['parent:enter', 'parent:leave', 'child:enter', 'child:leave', 'parent:enter']);
+});

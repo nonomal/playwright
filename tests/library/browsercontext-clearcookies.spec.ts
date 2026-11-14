@@ -17,7 +17,7 @@
 
 import { contextTest as it, expect } from '../config/browserTest';
 
-it('should clear cookies', async ({ context, page, server }) => {
+it('CO-042 should clear cookies', async ({ context, page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await context.addCookies([{
     url: server.EMPTY_PAGE,
@@ -31,7 +31,7 @@ it('should clear cookies', async ({ context, page, server }) => {
   expect(await page.evaluate('document.cookie')).toBe('');
 });
 
-it('should isolate cookies when clearing', async ({ context, server, browser }) => {
+it('CO-043 should isolate cookies when clearing', async ({ context, server, browser }) => {
   const anotherContext = await browser.newContext();
   await context.addCookies([{ url: server.EMPTY_PAGE, name: 'page1cookie', value: 'page1value' }]);
   await anotherContext.addCookies([{ url: server.EMPTY_PAGE, name: 'page2cookie', value: 'page2value' }]);
@@ -49,7 +49,7 @@ it('should isolate cookies when clearing', async ({ context, server, browser }) 
   await anotherContext.close();
 });
 
-it('should remove cookies by name', async ({ context, page, server }) => {
+it('CO-044 should remove cookies by name', async ({ context, page, server }) => {
   await context.addCookies([{
     name: 'cookie1',
     value: '1',
@@ -69,7 +69,7 @@ it('should remove cookies by name', async ({ context, page, server }) => {
   expect(await page.evaluate('document.cookie')).toBe('cookie2=2');
 });
 
-it('should remove cookies by name regex', async ({ context, page, server }) => {
+it('CO-045 should remove cookies by name regex', async ({ context, page, server }) => {
   await context.addCookies([{
     name: 'cookie1',
     value: '1',
@@ -89,7 +89,7 @@ it('should remove cookies by name regex', async ({ context, page, server }) => {
   expect(await page.evaluate('document.cookie')).toBe('cookie2=2');
 });
 
-it('should remove cookies by domain', async ({ context, page, server }) => {
+it('CO-046 should remove cookies by domain', async ({ context, page, server }) => {
   await context.addCookies([{
     name: 'cookie1',
     value: '1',
@@ -113,7 +113,7 @@ it('should remove cookies by domain', async ({ context, page, server }) => {
   expect(await page.evaluate('document.cookie')).toBe('cookie1=1');
 });
 
-it('should remove cookies by path', async ({ context, page, server }) => {
+it('CO-047 should remove cookies by path', async ({ context, page, server }) => {
   await context.addCookies([{
     name: 'cookie1',
     value: '1',
@@ -143,7 +143,7 @@ it('should remove cookies by path', async ({ context, page, server }) => {
   expect(await page.evaluate('document.cookie')).toBe('cookie3=3');
 });
 
-it('should remove cookies by name and domain', async ({ context, page, server }) => {
+it('CO-048 should remove cookies by name and domain', async ({ context, page, server }) => {
   await context.addCookies([{
     name: 'cookie1',
     value: '1',
@@ -163,4 +163,90 @@ it('should remove cookies by name and domain', async ({ context, page, server })
   expect(await page.evaluate('document.cookie')).toBe('');
   await page.goto(server.CROSS_PROCESS_PREFIX);
   expect(await page.evaluate('document.cookie')).toBe('cookie1=1');
+});
+
+it('CO-049 should not transiently delete non-matching cookies when filtering', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/40953' },
+}, async ({ context, page, server, browserName, isWindows, isFrozenWebkit }) => {
+  it.skip(browserName === 'webkit' && isWindows, 'cookieStore change events not supported on WebKit/Windows (curl backend lacks cookie change notifications)');
+  it.skip(isFrozenWebkit);
+
+  await context.addCookies([{
+    name: 'keep_me',
+    value: '1',
+    domain: new URL(server.PREFIX).hostname,
+    path: '/',
+  },
+  {
+    name: 'delete_me',
+    value: '2',
+    domain: new URL(server.PREFIX).hostname,
+    path: '/',
+  }
+  ]);
+  await page.goto(server.PREFIX);
+
+  const eventsHandle = await page.evaluateHandle(() => {
+    const events: string[] = [];
+    cookieStore.addEventListener('change', event => {
+      for (const changed of event.changed)
+        events.push(`changed ${changed.name}`);
+      for (const deleted of event.deleted)
+        events.push(`deleted ${deleted.name}`);
+    });
+    return events;
+  });
+
+  await context.clearCookies({ name: 'delete_me' });
+  await expect.poll(() => eventsHandle.jsonValue()).toEqual(['deleted delete_me']);
+  expect(await page.evaluate('document.cookie')).toBe('keep_me=1');
+});
+
+it('CO-050 should remove partitioned cookies by name', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/40953' },
+}, async ({ browser, httpsServer, browserName }) => {
+  it.skip(browserName !== 'chromium', 'Partitioned cookies (CHIPS) are Chromium-specific');
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  await context.addCookies([
+    {
+      name: 'delete_me',
+      value: '1',
+      domain: httpsServer.HOSTNAME,
+      path: '/',
+      secure: true,
+      sameSite: 'None',
+      partitionKey: `https://${httpsServer.HOSTNAME}`,
+    },
+    {
+      name: 'keep_me',
+      value: '2',
+      domain: httpsServer.HOSTNAME,
+      path: '/',
+      secure: true,
+      sameSite: 'None',
+      partitionKey: `https://${httpsServer.HOSTNAME}`,
+    },
+  ]);
+  const before = await context.cookies();
+  expect(before).toEqual([
+    expect.objectContaining({ name: 'delete_me', partitionKey: `https://${httpsServer.HOSTNAME}` }),
+    expect.objectContaining({ name: 'keep_me', partitionKey: `https://${httpsServer.HOSTNAME}` }),
+  ]);
+
+  await context.clearCookies({ name: 'delete_me' });
+  expect(await context.cookies()).toEqual([
+    expect.objectContaining({ name: 'keep_me', partitionKey: `https://${httpsServer.HOSTNAME}` }),
+  ]);
+  await context.close();
+});
+
+it('CO-051 should remove nameless cookies by empty name', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43112' },
+}, async ({ context }) => {
+  await context.addCookies([
+    { name: '', value: 'nameless', domain: 'example.com', path: '/' },
+    { name: 'session', value: 'secret', domain: 'example.com', path: '/' },
+  ]);
+  await context.clearCookies({ name: '' });
+  expect((await context.cookies()).map(cookie => cookie.name)).toEqual(['session']);
 });

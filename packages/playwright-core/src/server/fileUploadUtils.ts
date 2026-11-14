@@ -14,30 +14,39 @@
  * limitations under the License.
  */
 
-import type * as channels from '@protocol/channels';
 import fs from 'fs';
 import path from 'path';
-import { assert, fileUploadSizeLimit } from '../utils';
-import { mime } from '../utilsBundle';
+
+import mime from 'mime';
+import { assert } from '@isomorphic/assert';
 import type { WritableStreamDispatcher } from './dispatchers/writableStreamDispatcher';
 import type { InputFilesItems } from './dom';
 import type { Frame } from './frames';
 import type * as types from './types';
+import type * as channels from './channels';
+
+// Keep in sync with the client.
+export const fileUploadSizeLimit = 50 * 1024 * 1024;
 
 async function filesExceedUploadLimit(files: string[]) {
   const sizes = await Promise.all(files.map(async file => (await fs.promises.stat(file)).size));
   return sizes.reduce((total, size) => total + size, 0) >= fileUploadSizeLimit;
 }
 
-export async function prepareFilesForUpload(frame: Frame, params: channels.ElementHandleSetInputFilesParams): Promise<InputFilesItems> {
-  const { payloads, streams } = params;
-  let { localPaths } = params;
+export async function prepareFilesForUpload(frame: Frame, params: Omit<channels.ElementHandleSetInputFilesParams, 'timeout'>): Promise<InputFilesItems> {
+  const { payloads, streams, directoryStream } = params;
+  let { localPaths, localDirectory } = params;
+  if (localPaths && !frame.attribution.playwright.options.isClientCollocatedWithServer)
+    throw new Error('localPaths are not allowed when the client is not local');
 
-  if ([payloads, localPaths, streams].filter(Boolean).length !== 1)
+  if ([payloads, localPaths, localDirectory, streams, directoryStream].filter(Boolean).length !== 1)
     throw new Error('Exactly one of payloads, localPaths and streams must be provided');
 
   if (streams)
     localPaths = streams.map(c => (c as WritableStreamDispatcher).path());
+  if (directoryStream)
+    localDirectory = (directoryStream as WritableStreamDispatcher).path();
+
   if (localPaths) {
     for (const p of localPaths)
       assert(path.isAbsolute(p) && path.resolve(p) === p, 'Paths provided to localPaths must be absolute and fully resolved.');
@@ -50,7 +59,7 @@ export async function prepareFilesForUpload(frame: Frame, params: channels.Eleme
     lastModifiedMs?: number,
   }[] | undefined = payloads;
 
-  if (!frame._page._browserContext._browser._isCollocatedWithServer) {
+  if (!frame._page.browserContext._browser._isBrowserCollocatedWithServer) {
     // If the browser is on a different machine read files into buffers.
     if (localPaths) {
       if (await filesExceedUploadLimit(localPaths))
@@ -73,5 +82,5 @@ export async function prepareFilesForUpload(frame: Frame, params: channels.Eleme
     lastModifiedMs: payload.lastModifiedMs
   }));
 
-  return { localPaths, filePayloads };
+  return { localPaths, localDirectory, filePayloads };
 }

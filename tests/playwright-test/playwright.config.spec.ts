@@ -19,7 +19,7 @@ import { test, expect } from './playwright-test-fixtures';
 test('should fall back to launchOptions', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         use: {
           launchOptions: {
             headless: false,
@@ -44,7 +44,7 @@ test('should fall back to launchOptions', async ({ runInlineTest }) => {
 test('should override launchOptions', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         use: {
           headless: false,
           channel: 'chrome',
@@ -71,7 +71,7 @@ test('should override launchOptions', async ({ runInlineTest }) => {
 test('should respect contextOptions', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         use: {
           contextOptions: {
             acceptDownloads: false,
@@ -84,6 +84,7 @@ test('should respect contextOptions', async ({ runInlineTest }) => {
             isMobile: true,
             javaScriptEnabled: true,
             locale: 'fr-FR',
+            locateOnlyVisible: true,
             offline: true,
             permissions: ['geolocation'],
             timezoneId: 'TIMEZONE',
@@ -95,7 +96,7 @@ test('should respect contextOptions', async ({ runInlineTest }) => {
     `,
     'a.test.ts': `
       import { test, expect } from '@playwright/test';
-      test('pass', async ({ acceptDownloads, bypassCSP, colorScheme, deviceScaleFactor, extraHTTPHeaders, hasTouch, ignoreHTTPSErrors, isMobile, javaScriptEnabled, locale, offline, permissions, timezoneId, userAgent, viewport }) => {
+      test('pass', async ({ acceptDownloads, bypassCSP, colorScheme, deviceScaleFactor, extraHTTPHeaders, hasTouch, ignoreHTTPSErrors, isMobile, javaScriptEnabled, locale, locateOnlyVisible, offline, permissions, timezoneId, userAgent, viewport }) => {
         expect.soft(acceptDownloads).toBe(false);
         expect.soft(bypassCSP).toBe(true);
         expect.soft(colorScheme).toBe('dark');
@@ -106,6 +107,7 @@ test('should respect contextOptions', async ({ runInlineTest }) => {
         expect.soft(isMobile).toBe(true);
         expect.soft(javaScriptEnabled).toBe(true);
         expect.soft(locale).toBe('fr-FR');
+        expect.soft(locateOnlyVisible).toBe(true);
         expect.soft(offline).toBe(true);
         expect.soft(permissions).toEqual(['geolocation']);
         expect.soft(timezoneId).toBe('TIMEZONE');
@@ -122,20 +124,24 @@ test('should respect contextOptions', async ({ runInlineTest }) => {
 test('should override contextOptions', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         use: {
         acceptDownloads: false,
         bypassCSP: true,
         colorScheme: 'dark',
+        contrast: 'more',
         deviceScaleFactor: 2,
         extraHTTPHeaders: {'foo': 'bar'},
+        forcedColors: 'active',
         hasTouch: true,
         ignoreHTTPSErrors: true,
         isMobile: true,
         javaScriptEnabled: true,
         locale: 'fr-FR',
+        locateOnlyVisible: false,
         offline: true,
         permissions: ['geolocation'],
+        reducedMotion: 'reduce',
         timezoneId: 'TIMEZONE',
         userAgent: 'UA',
         viewport: null,
@@ -143,15 +149,19 @@ test('should override contextOptions', async ({ runInlineTest }) => {
             acceptDownloads: true,
             bypassCSP: false,
             colorScheme: 'light',
+            contrast: 'no-preference',
             deviceScaleFactor: 1,
             extraHTTPHeaders: {'foo': 'bar2'},
+            forcedColors: 'none',
             hasTouch: false,
             ignoreHTTPSErrors: false,
             isMobile: false,
             javaScriptEnabled: false,
             locale: 'en-US',
+            locateOnlyVisible: true,
             offline: false,
             permissions: [],
+            reducedMotion: 'no-preference',
             timezoneId: 'TIMEZONE 2',
             userAgent: 'UA 2',
             viewport: { width: 500, height: 500 }
@@ -161,19 +171,23 @@ test('should override contextOptions', async ({ runInlineTest }) => {
     `,
     'a.test.ts': `
       import { test, expect } from '@playwright/test';
-      test('pass', async ({ acceptDownloads, bypassCSP, colorScheme, deviceScaleFactor, extraHTTPHeaders, hasTouch, ignoreHTTPSErrors, isMobile, javaScriptEnabled, locale, offline, permissions, timezoneId, userAgent, viewport }) => {
+      test('pass', async ({ acceptDownloads, bypassCSP, colorScheme, contrast, deviceScaleFactor, extraHTTPHeaders, forcedColors, hasTouch, ignoreHTTPSErrors, isMobile, javaScriptEnabled, locale, locateOnlyVisible, offline, permissions, reducedMotion, timezoneId, userAgent, viewport }) => {
         expect.soft(acceptDownloads).toBe(false);
         expect.soft(bypassCSP).toBe(true);
         expect.soft(colorScheme).toBe('dark');
+        expect.soft(contrast).toBe('more');
         expect.soft(deviceScaleFactor).toBe(2);
         expect.soft(extraHTTPHeaders).toEqual({'foo': 'bar'});
+        expect.soft(forcedColors).toBe('active');
         expect.soft(hasTouch).toBe(true);
         expect.soft(ignoreHTTPSErrors).toBe(true);
         expect.soft(isMobile).toBe(true);
         expect.soft(javaScriptEnabled).toBe(true);
         expect.soft(locale).toBe('fr-FR');
+        expect.soft(locateOnlyVisible).toBe(false);
         expect.soft(offline).toBe(true);
         expect.soft(permissions).toEqual(['geolocation']);
+        expect.soft(reducedMotion).toBe('reduce');
         expect.soft(timezoneId).toBe('TIMEZONE');
         expect.soft(userAgent).toBe('UA');
         expect.soft(viewport).toBe(null);
@@ -185,20 +199,50 @@ test('should override contextOptions', async ({ runInlineTest }) => {
   expect(result.passed).toBe(1);
 });
 
-test('should respect testIdAttribute', async ({ runInlineTest }) => {
+test('should respect testIdAttribute and locateOnlyVisible', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         use: {
           testIdAttribute: 'data-pw',
+          locateOnlyVisible: true,
         }
       };
     `,
     'a.test.ts': `
       import { test, expect } from '@playwright/test';
       test('pass', async ({ page }) => {
-        await page.setContent('<div data-pw="myid">Hi</div>');
+        await page.setContent('<button data-pw="myid" hidden>Hi</button><button data-pw="myid" onclick="this.textContent = \\'Clicked\\'">Hi</button>');
         await expect(page.getByTestId('myid')).toHaveCount(1);
+        await page.getByTestId('myid').click();
+        await expect(page.getByTestId('myid')).toHaveText('Clicked');
+      });
+    `,
+  }, { workers: 1 });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should respect testIdAttribute with multiple comma-separated names', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      export default {
+        use: {
+          testIdAttribute: 'data-pw,data-ti',
+        }
+      };
+    `,
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({ page }) => {
+        await page.setContent(\`
+          <div data-pw="myid">A</div>
+          <div data-ti="myid">B</div>
+          <div data-testid="myid">C</div>
+        \`);
+        await expect(page.getByTestId('myid')).toHaveCount(2);
+        await expect(page.getByTestId('myid')).toHaveText(['A', 'B']);
       });
     `,
   }, { workers: 1 });

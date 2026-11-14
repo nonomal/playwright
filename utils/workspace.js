@@ -57,6 +57,21 @@ class Workspace {
     return this._packages;
   }
 
+  /**
+   * Public packages, each listed after the workspace packages it depends on.
+   * @returns {PWPackage[]}
+   */
+  publicPackagesInDependencyOrder() {
+    const ordered = new Set();
+    const visit = pkg => {
+      for (const dep of Object.keys(pkg.packageJSON.dependencies || {}))
+        this._packages.filter(p => p.name === dep).forEach(visit);
+      ordered.add(pkg);
+    };
+    this._packages.forEach(visit);
+    return [...ordered].filter(pkg => !pkg.isPrivate);
+  }
+
   async version() {
     const workspacePackageJSON = await readJSON(path.join(this._rootDir, 'package.json'));
     return workspacePackageJSON.version;
@@ -125,9 +140,16 @@ class Workspace {
       }
       await maybeWriteJSON(pkg.packageJSONPath, pkg.packageJSON);
     }
-  
+
     // Re-run npm i to make package-lock dirty.
-    child_process.execSync('npm i');
+    child_process.execSync('npm i', {
+      env: {
+        ...process.env,
+        // Playwright would download the browsers because it has e.g. @playwright/browser-chromium or playwright-chromium
+        // in the workspace. We don't want to download browsers here.
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
+      }
+    });
     return hasChanges;
   }
 }
@@ -168,6 +190,11 @@ const workspace = new Workspace(ROOT_PATH, [
     files: LICENCE_FILES,
   }),
   new PWPackage({
+    name: '@playwright/client',
+    path: path.join(ROOT_PATH, 'packages', 'playwright-client'),
+    files: LICENCE_FILES,
+  }),
+  new PWPackage({
     name: '@playwright/browser-webkit',
     path: path.join(ROOT_PATH, 'packages', 'playwright-browser-webkit'),
     files: LICENCE_FILES,
@@ -181,41 +208,6 @@ const workspace = new Workspace(ROOT_PATH, [
     name: '@playwright/browser-chromium',
     path: path.join(ROOT_PATH, 'packages', 'playwright-browser-chromium'),
     files: LICENCE_FILES,
-  }),
-  new PWPackage({
-    name: '@playwright/experimental-ct-core',
-    path: path.join(ROOT_PATH, 'packages', 'playwright-ct-core'),
-    files: ['LICENSE'],
-  }),
-  new PWPackage({
-    name: '@playwright/experimental-ct-react',
-    path: path.join(ROOT_PATH, 'packages', 'playwright-ct-react'),
-    files: ['LICENSE'],
-  }),
-  new PWPackage({
-    name: '@playwright/experimental-ct-react17',
-    path: path.join(ROOT_PATH, 'packages', 'playwright-ct-react17'),
-    files: ['LICENSE'],
-  }),
-  new PWPackage({
-    name: '@playwright/experimental-ct-solid',
-    path: path.join(ROOT_PATH, 'packages', 'playwright-ct-solid'),
-    files: ['LICENSE'],
-  }),
-  new PWPackage({
-    name: '@playwright/experimental-ct-svelte',
-    path: path.join(ROOT_PATH, 'packages', 'playwright-ct-svelte'),
-    files: ['LICENSE'],
-  }),
-  new PWPackage({
-    name: '@playwright/experimental-ct-vue',
-    path: path.join(ROOT_PATH, 'packages', 'playwright-ct-vue'),
-    files: ['LICENSE'],
-  }),
-  new PWPackage({
-    name: '@playwright/experimental-ct-vue2',
-    path: path.join(ROOT_PATH, 'packages', 'playwright-ct-vue2'),
-    files: ['LICENSE'],
   }),
 ]);
 
@@ -242,10 +234,9 @@ async function parseCLI() {
         die(`\n  ERROR: package-lock.json lockfileVersion must be 3`);
     },
     '--list-public-package-paths': () => {
-      for (const pkg of workspace.packages()) {
-        if (!pkg.isPrivate)
-          console.log(pkg.path);
-      }
+      // Dependency order: packages are published, and their dist-tags moved, after their dependencies.
+      for (const pkg of workspace.publicPackagesInDependencyOrder())
+        console.log(pkg.path);
     },
     '--get-version': async (version) => {
       console.log(await workspace.version());

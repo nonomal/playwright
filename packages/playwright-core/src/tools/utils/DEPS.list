@@ -1,0 +1,15 @@
+[browserErrors.ts]
+"strict"
+
+[socketConnection.ts]
+"strict"
+
+[connect.ts]
+"strict"
+
+[extension.ts]
+"strict"
+
+[installSkills.ts]
+"strict"
+../../package.ts

@@ -22,8 +22,8 @@ test.skip(({ mode }) => mode !== 'default');
 
 async function getNameAndRole(page: Page, selector: string) {
   return await page.$eval(selector, e => {
-    const name = (window as any).__injectedScript.getElementAccessibleName(e);
-    const role = (window as any).__injectedScript.getAriaRole(e);
+    const name = (window as any).__injectedScript.utils.getElementAccessibleNameText(e);
+    const role = (window as any).__injectedScript.utils.getAriaRole(e);
     return { name, role };
   });
 }
@@ -35,22 +35,18 @@ const ranges = [
 ];
 
 for (let range = 0; range <= ranges.length; range++) {
-  test('wpt accname #' + range, async ({ page, asset, server, browserName }) => {
+  test('AR-143 wpt accname #' + range, async ({ page, asset, server, browserName }) => {
     const skipped = [
       // This test expects ::before + title + ::after, which is neither 2F nor 2I.
       'name_test_case_659-manual.html',
       // This test expects ::before + title + ::after, which is neither 2F nor 2I.
       'name_test_case_660-manual.html',
+      // These two tests expect <input type=file title=...> to respect the title, but browsers do not.
+      'name_test_case_751-manual.html',
+      'name_file-title-manual.html',
       // Spec says role=combobox should use selected options, not a title attribute.
       'description_1.0_combobox-focusable-manual.html',
     ];
-    if (browserName === 'firefox') {
-      // This test contains the following style:
-      //   [data-after]:after { content: attr(data-after); }
-      // In firefox, content is returned as "attr(data-after)"
-      // instead of being resolved to the actual value.
-      skipped.push('name_test_case_553-manual.html');
-    }
 
     await page.addInitScript(() => {
       const self = window as any;
@@ -89,7 +85,7 @@ for (let range = 0; range <= ranges.length; range++) {
             if (!element)
               throw new Error(`Unable to resolve "${step.selector}"`);
             const injected = (window as any).__injectedScript;
-            const received = step.property === 'name' ? injected.getElementAccessibleName(element) : injected.getElementAccessibleDescription(element);
+            const received = step.property === 'name' ? injected.utils.getElementAccessibleNameText(element) : injected.utils.getElementAccessibleDescription(element).text;
             result.push({ selector: step.selector, expected: step.value, received });
           }
           return result;
@@ -101,7 +97,7 @@ for (let range = 0; range <= ranges.length; range++) {
   });
 }
 
-test('wpt accname non-manual', async ({ page, asset, server }) => {
+test('AR-144 wpt accname non-manual', async ({ page, asset, server, browserName }) => {
   await page.addInitScript(() => {
     const self = window as any;
     self.AriaUtils = {};
@@ -119,14 +115,6 @@ test('wpt accname non-manual', async ({ page, asset, server }) => {
     // TODO: dd/dt elements have roles that prohibit naming. However, both Chromium and Safari still support naming.
     'label valid on dd element',
     'label valid on dt element',
-
-    // TODO: support Alternative Text syntax in ::before and ::after.
-    'button name from fallback content with ::before and ::after',
-    'heading name from fallback content with ::before and ::after',
-    'link name from fallback content with ::before and ::after',
-    'button name from fallback content mixing attr() and strings with ::before and ::after',
-    'heading name from fallback content mixing attr() and strings with ::before and ::after',
-    'link name from fallback content mixing attr() and strings with ::before and ::after',
 
     // TODO: recursive bugs
     'heading with link referencing image using aria-labelledby, that in turn references text element via aria-labelledby',
@@ -152,7 +140,7 @@ test('wpt accname non-manual', async ({ page, asset, server }) => {
           const injected = (window as any).__injectedScript;
           const title = element.getAttribute('data-testname');
           const expected = element.getAttribute('data-expectedlabel');
-          const received = injected.getElementAccessibleName(element);
+          const received = injected.utils.getElementAccessibleNameText(element);
           result.push({ title, expected, received });
         }
         return result;
@@ -165,7 +153,7 @@ test('wpt accname non-manual', async ({ page, asset, server }) => {
   }
 });
 
-test('axe-core implicit-role', async ({ page, asset, server }) => {
+test('AR-145 axe-core implicit-role', async ({ page, asset, server }) => {
   await page.goto(server.EMPTY_PAGE);
   const testCases = require(asset('axe-core/implicit-role'));
   for (const testCase of testCases) {
@@ -180,14 +168,14 @@ test('axe-core implicit-role', async ({ page, asset, server }) => {
         const element = document.querySelector(selector);
         if (!element)
           throw new Error(`Unable to resolve "${selector}"`);
-        return (window as any).__injectedScript.getAriaRole(element);
+        return (window as any).__injectedScript.utils.getAriaRole(element);
       }, testCase.target);
       expect.soft(received, `checking ${JSON.stringify(testCase)}`).toBe(testCase.role);
     });
   }
 });
 
-test('axe-core accessible-text', async ({ page, asset, server }) => {
+test('AR-146 axe-core accessible-text', async ({ page, asset, server }) => {
   await page.goto(server.EMPTY_PAGE);
   const testCases = require(asset('axe-core/accessible-text'));
   for (const testCase of testCases) {
@@ -213,7 +201,7 @@ test('axe-core accessible-text', async ({ page, asset, server }) => {
           const element = injected.querySelector(injected.parseSelector('css=' + selector), document, false);
           if (!element)
             throw new Error(`Unable to resolve "${selector}"`);
-          return injected.getElementAccessibleName(element);
+          return injected.utils.getElementAccessibleNameText(element);
         });
       }, targets);
       expect.soft(received, `checking ${JSON.stringify(testCase)}`).toEqual(expected);
@@ -221,7 +209,7 @@ test('axe-core accessible-text', async ({ page, asset, server }) => {
   }
 });
 
-test('accessible name with slots', async ({ page }) => {
+test('AR-147 accessible name with slots', async ({ page }) => {
   // Text "foo" is assigned to the slot, should not be used twice.
   await page.setContent(`
     <button><div>foo</div></button>
@@ -273,9 +261,35 @@ test('accessible name with slots', async ({ page }) => {
     </script>
   `);
   expect.soft(await getNameAndRole(page, 'button')).toEqual({ role: 'button', name: 'pre' });
+
+  // Text "foo" is not assigned to any slot, should not be used.
+  await page.setContent(`
+    <div role=button>foo</div>
+    <script>
+      (() => {
+        const container = document.querySelector('div');
+        const shadow = container.attachShadow({ mode: 'open' });
+        shadow.appendChild(document.createTextNode('bar'));
+      })();
+    </script>
+  `);
+  expect.soft(await getNameAndRole(page, 'div')).toEqual({ role: 'button', name: 'bar' });
 });
 
-test('accessible name nested treeitem', async ({ page }) => {
+test('AR-148 accessible name with closed details', async ({ page }) => {
+  await page.setContent(`
+    <button aria-labelledby="details"></button>
+    <details id="details">
+      <summary>Summary</summary>
+      Details
+    </details>
+  `);
+  expect.soft(await getNameAndRole(page, 'button')).toEqual({ role: 'button', name: 'Summary' });
+  await page.$eval('details', details => details.open = true);
+  expect.soft(await getNameAndRole(page, 'button')).toEqual({ role: 'button', name: 'Summary Details' });
+});
+
+test('AR-149 accessible name nested treeitem', async ({ page }) => {
   await page.setContent(`
     <div role=treeitem id=target>
       <span>Top-level</span>
@@ -288,7 +302,7 @@ test('accessible name nested treeitem', async ({ page }) => {
   expect.soft(await getNameAndRole(page, '#target')).toEqual({ role: 'treeitem', name: 'Top-level' });
 });
 
-test('svg title', async ({ page }) => {
+test('AR-150 svg title', async ({ page }) => {
   await page.setContent(`
     <div>
       <svg width="162" height="30" viewBox="0 0 162 30" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -306,11 +320,12 @@ test('svg title', async ({ page }) => {
   expect.soft(await getNameAndRole(page, 'a')).toEqual({ role: 'link', name: 'a link' });
 });
 
-test('native controls', async ({ page }) => {
+test('AR-151 native controls', async ({ page }) => {
   await page.setContent(`
     <label for="text1">TEXT1</label><input id="text1" type=text>
     <input id="text2" type=text title="TEXT2">
     <input id="text3" type=text placeholder="TEXT3">
+    <input id="number1" type=number placeholder="NUMBER1">
 
     <label for="image1">IMAGE1</label><input id="image1" type=image>
     <input id="image2" type=image alt="IMAGE2">
@@ -320,11 +335,15 @@ test('native controls', async ({ page }) => {
     <button id="button2" role="combobox">BUTTON2</button>
     <button id="button3">BUTTON3</button>
     <button id="button4" title="BUTTON4"></button>
+
+    <input id="file1" type=file>
+    <label for="file2">FILE2</label><input id="file2" type=file>
   `);
 
   expect.soft(await getNameAndRole(page, '#text1')).toEqual({ role: 'textbox', name: 'TEXT1' });
   expect.soft(await getNameAndRole(page, '#text2')).toEqual({ role: 'textbox', name: 'TEXT2' });
   expect.soft(await getNameAndRole(page, '#text3')).toEqual({ role: 'textbox', name: 'TEXT3' });
+  expect.soft(await getNameAndRole(page, '#number1')).toEqual({ role: 'spinbutton', name: 'NUMBER1' });
   expect.soft(await getNameAndRole(page, '#image1')).toEqual({ role: 'button', name: 'IMAGE1' });
   expect.soft(await getNameAndRole(page, '#image2')).toEqual({ role: 'button', name: 'IMAGE2' });
   expect.soft(await getNameAndRole(page, '#image3')).toEqual({ role: 'button', name: 'IMAGE3' });
@@ -332,9 +351,41 @@ test('native controls', async ({ page }) => {
   expect.soft(await getNameAndRole(page, '#button2')).toEqual({ role: 'combobox', name: '' });
   expect.soft(await getNameAndRole(page, '#button3')).toEqual({ role: 'button', name: 'BUTTON3' });
   expect.soft(await getNameAndRole(page, '#button4')).toEqual({ role: 'button', name: 'BUTTON4' });
+  expect.soft(await getNameAndRole(page, '#file1')).toEqual({ role: 'button', name: 'Choose File' });
+  expect.soft(await getNameAndRole(page, '#file2')).toEqual({ role: 'button', name: 'FILE2' });
 });
 
-test('native controls labelled-by', async ({ page }) => {
+test('AR-152 input type=search maps to searchbox unless list points at a datalist', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/41899' },
+}, async ({ page }) => {
+  await page.setContent(`
+    <input id="search1" type=search>
+    <input id="search2" type=search list=nope>
+    <input id="search3" type=search list=dv><div id=dv></div>
+    <input id="search4" type=search list=dl><datalist id=dl></datalist>
+  `);
+  expect.soft(await getNameAndRole(page, '#search1')).toEqual({ role: 'searchbox', name: '' });
+  expect.soft(await getNameAndRole(page, '#search2')).toEqual({ role: 'searchbox', name: '' });
+  expect.soft(await getNameAndRole(page, '#search3')).toEqual({ role: 'searchbox', name: '' });
+  expect.soft(await getNameAndRole(page, '#search4')).toEqual({ role: 'combobox', name: '' });
+});
+
+test('AR-153 meter and progress get their name from an associated label', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/41891' },
+}, async ({ page }) => {
+  await page.setContent(`
+    <label for="meter1">Battery</label><meter id="meter1" value=0.5></meter>
+    <label for="progress1">Loading</label><progress id="progress1" value=0.3></progress>
+    <label>Charge <meter id="meter2" value=0.5></meter></label>
+    <label for="meter3">Ignored</label><meter id="meter3" aria-label="Overridden" value=0.5></meter>
+  `);
+  expect.soft(await getNameAndRole(page, '#meter1')).toEqual({ role: 'meter', name: 'Battery' });
+  expect.soft(await getNameAndRole(page, '#progress1')).toEqual({ role: 'progressbar', name: 'Loading' });
+  expect.soft(await getNameAndRole(page, '#meter2')).toEqual({ role: 'meter', name: 'Charge' });
+  expect.soft(await getNameAndRole(page, '#meter3')).toEqual({ role: 'meter', name: 'Overridden' });
+});
+
+test('AR-154 native controls labelled-by', async ({ page }) => {
   await page.setContent(`
     <label id="for-text1">TEXT1</label><input aria-labelledby="for-text1" id="text1" type=text>
     <label id="for-text2">TEXT2</label><input aria-labelledby="for-text2 text2" id="text2" type=text>
@@ -348,6 +399,7 @@ test('native controls labelled-by', async ({ page }) => {
     <label id="for-button2">BUTTON2</label><button aria-labelledby="for-button2 button2" id="button2">MORE2</button>
     <label id="for-button3" for="button3">BUTTON3</label><button aria-labelledby="for-button3 button3" id="button3">MORE3</button>
     <label id="for-button4" for="button4">BUTTON4</label><button aria-labelledby="for-button4" id="button4">MORE4</button>
+    <label id="for\u00a0button5">BUTTON5</label><button aria-labelledby="for\u00a0button5\n\tbutton5" id="button5">MORE5</button>
 
     <label id="for-textarea1" for="textarea1">TEXTAREA1</label><textarea aria-labelledby="for-textarea1 textarea1" id="textarea1" placeholder="MORE1">MORE2</textarea>
   `);
@@ -362,17 +414,25 @@ test('native controls labelled-by', async ({ page }) => {
   expect.soft(await getNameAndRole(page, '#button2')).toEqual({ role: 'button', name: 'BUTTON2 MORE2' });
   expect.soft(await getNameAndRole(page, '#button3')).toEqual({ role: 'button', name: 'BUTTON3 MORE3' });
   expect.soft(await getNameAndRole(page, '#button4')).toEqual({ role: 'button', name: 'BUTTON4' });
+  expect.soft(await getNameAndRole(page, '#button5')).toEqual({ role: 'button', name: 'BUTTON5 MORE5' });
   expect.soft(await getNameAndRole(page, '#textarea1')).toEqual({ role: 'textbox', name: 'TEXTAREA1 MORE2' });
 });
 
-test('display:contents should be visible when contents are visible', async ({ page }) => {
+test('AR-155 display:contents should be visible when contents are visible', async ({ page }) => {
   await page.setContent(`
     <button style='display: contents;'>yo</button>
   `);
   await expect(page.getByRole('button')).toHaveCount(1);
 });
 
-test('label/labelled-by aria-hidden with descendants', async ({ page }) => {
+test('AR-156 should remove soft hyphens and zero-width spaces', async ({ page }) => {
+  await page.setContent(`
+    <button>1\u00ad2\u200b3</button>
+  `);
+  expect.soft(await getNameAndRole(page, 'button')).toEqual({ role: 'button', name: '123' });
+});
+
+test('AR-157 label/labelled-by aria-hidden with descendants', async ({ page }) => {
   test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29796' });
 
   await page.setContent(`
@@ -394,7 +454,7 @@ test('label/labelled-by aria-hidden with descendants', async ({ page }) => {
   expect.soft(await getNameAndRole(page, '#case2 button')).toEqual({ role: 'button', name: 'Label2' });
 });
 
-test('own aria-label concatenated with aria-labelledby', async ({ page }) => {
+test('AR-158 own aria-label concatenated with aria-labelledby', async ({ page }) => {
   // This is taken from https://w3c.github.io/accname/#example-5-0
 
   await page.setContent(`
@@ -414,7 +474,7 @@ test('own aria-label concatenated with aria-labelledby', async ({ page }) => {
   expect.soft(await getNameAndRole(page, '#del_row2')).toEqual({ role: 'button', name: 'Delete HolidayLetter.pdf' });
 });
 
-test('control embedded in a label', async ({ page }) => {
+test('AR-159 control embedded in a label', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43785' } }, async ({ page }) => {
   test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28848' });
 
   await page.setContent(`
@@ -426,9 +486,27 @@ test('control embedded in a label', async ({ page }) => {
   expect.soft(await getNameAndRole(page, 'input')).toEqual({ role: 'checkbox', name: 'Flash the screen 5 times.' });
   expect.soft(await getNameAndRole(page, 'span')).toEqual({ role: 'textbox', name: 'number of times' });
   expect.soft(await getNameAndRole(page, 'label')).toEqual({ role: null, name: '' });
+
+  await page.setContent(`
+    <input type="text" id="flash">
+    <label for="flash">
+      Flash the screen
+      <div role="combobox">
+        <div role="textbox"></div>
+        <ul role="listbox" style="list-style-type: none">
+          <li role="option" aria-selected="True">1</li>
+          <li role="option" aria-selected="false">2</li>
+          <li role="option">3</li>
+        </ul>
+      </div>
+      times.
+    </label>
+  `);
+  expect.soft(await page.locator('#flash').ariaSnapshot()).toBe('- textbox "Flash the screen 1 times."');
+  await expect(page.getByRole('textbox', { name: 'Flash the screen 1 times.', exact: true })).toHaveAttribute('id', 'flash');
 });
 
-test('control embedded in a target element', async ({ page }) => {
+test('AR-160 control embedded in a target element', async ({ page }) => {
   test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28848' });
 
   await page.setContent(`
@@ -439,18 +517,35 @@ test('control embedded in a target element', async ({ page }) => {
   expect.soft(await getNameAndRole(page, 'h1')).toEqual({ role: 'heading', name: 'Foo bar' });
 });
 
-test('svg role=presentation', async ({ page }) => {
-  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/26809' });
+test('AR-161 searchbox embedded control should contribute its value', async ({ page }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/42341' });
 
   await page.setContent(`
-		<img src="http://example.com/image.png" alt="Code is Poetry." />
+    <button id="b1" aria-labelledby="l1"></button><div id="l1" hidden><input type="text" value="Query"></div>
+    <button id="b2" aria-labelledby="l2"></button><div id="l2" hidden><input type="search" value="Query"></div>
+    <label for="c1">Flash the screen <input type="search" value="5"> times.</label>
+    <input type="checkbox" id="c1">
+    <h1><input type="search" value="Foo bar"></h1>
+  `);
+  expect.soft(await getNameAndRole(page, '#b1')).toEqual({ role: 'button', name: 'Query' });
+  expect.soft(await getNameAndRole(page, '#b2')).toEqual({ role: 'button', name: 'Query' });
+  expect.soft(await getNameAndRole(page, '#c1')).toEqual({ role: 'checkbox', name: 'Flash the screen 5 times.' });
+  expect.soft(await getNameAndRole(page, 'h1')).toEqual({ role: 'heading', name: 'Foo bar' });
+});
+
+test('AR-162 svg role=presentation', async ({ page, server }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/26809' });
+
+  await page.goto(server.EMPTY_PAGE);
+  await page.setContent(`
+		<img src="pptr.png" alt="Code is Poetry." />
 		<svg viewBox="0 0 100 100" width="16" height="16" xmlns="http://www.w3.org/2000/svg" role="presentation" focusable="false"><circle cx="50" cy="50" r="50"></circle></svg>
   `);
   expect.soft(await getNameAndRole(page, 'img')).toEqual({ role: 'img', name: 'Code is Poetry.' });
   expect.soft(await getNameAndRole(page, 'svg')).toEqual({ role: 'presentation', name: '' });
 });
 
-test('should work with form and tricky input names', async ({ page }) => {
+test('AR-163 should work with form and tricky input names', async ({ page }) => {
   test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30616' });
 
   await page.setContent(`
@@ -460,6 +555,107 @@ test('should work with form and tricky input names', async ({ page }) => {
     </form>
   `);
   expect.soft(await getNameAndRole(page, 'form')).toEqual({ role: 'form', name: 'my form' });
+});
+
+test('AR-164 should ignore stylesheet from hidden aria-labelledby subtree', async ({ page }) => {
+  await page.setContent(`
+    <div id=mylabel style="display:none">
+      <template shadowrootmode=open>
+        <style>span { color: red; }</style>
+        <span>hello</span>
+      </template>
+    </div>
+    <input aria-labelledby=mylabel type=text>
+  `);
+  expect.soft(await getNameAndRole(page, 'input')).toEqual({ role: 'textbox', name: 'hello' });
+});
+
+test('AR-165 should not include hidden pseudo into accessible name', async ({ page }) => {
+  await page.setContent(`
+    <style>
+      span:before {
+        content: 'world';
+        display: none;
+      }
+      div:after {
+        content: 'bye';
+        visibility: hidden;
+      }
+    </style>
+    <a href="http://example.com">
+      <span>hello</span>
+      <div>hello</div>
+    </a>
+  `);
+  expect.soft(await getNameAndRole(page, 'a')).toEqual({ role: 'link', name: 'hello hello' });
+});
+
+test('AR-166 should resolve pseudo content from attr', async ({ page }) => {
+  await page.setContent(`
+    <style>
+    .stars:before {
+      display: block;
+      content: attr(data-hello);
+    }
+    </style>
+    <a href="http://example.com">
+      <div class="stars" data-hello="hello">world</div>
+    </a>
+  `);
+  expect(await getNameAndRole(page, 'a')).toEqual({ role: 'link', name: 'hello world' });
+});
+
+test('AR-167 should resolve pseudo content alternative text', async ({ page }) => {
+  await page.setContent(`
+    <style>
+      .with-content:before {
+        content: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'></svg>") / "alternative text";
+      }
+    </style>
+    <div role="button" class="with-content"> inner text</div>
+  `);
+  expect(await getNameAndRole(page, 'div')).toEqual({ role: 'button', name: 'alternative text inner text' });
+});
+
+test('AR-168 should resolve css content property for an element', async ({ page }) => {
+  await page.setContent(`
+    <style>
+      .with-content-1 {
+        content: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'></svg>") / "alternative text";
+      }
+      .with-content-2 {
+        content: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'></svg>");
+      }
+    </style>
+    <div id="button1" role="button" class="with-content-1">inner text</div>
+    <div id="button2" role="button" class="with-content-2">inner text</div>
+  `);
+  expect(await getNameAndRole(page, '#button1')).toEqual({ role: 'button', name: 'alternative text' });
+  expect(await getNameAndRole(page, '#button2')).toEqual({ role: 'button', name: 'inner text' });
+});
+
+test('AR-169 should ignore invalid aria-labelledby', async ({ page }) => {
+  await page.setContent(`
+    <label>
+      <span>Text here</span>
+      <input type=text aria-labelledby="does-not-exist">
+    </label>
+  `);
+  expect.soft(await getNameAndRole(page, 'input')).toEqual({ role: 'textbox', name: 'Text here' });
+});
+
+test('AR-170 should support search element', async ({ page }) => {
+  await page.setContent(`
+    <search id=search1 aria-label="example">
+      Hello
+    </search>
+    <search id=search2>
+      World
+    </search>
+  `);
+  expect.soft(await getNameAndRole(page, '#search1')).toEqual({ role: 'search', name: 'example' });
+  expect.soft(await getNameAndRole(page, '#search2')).toEqual({ role: 'search', name: '' });
+  await expect.soft(page.getByRole('search', { name: 'example' })).toBeVisible();
 });
 
 function toArray(x: any): any[] {

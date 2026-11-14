@@ -16,42 +16,33 @@
 
 import fs from 'fs';
 import path from 'path';
-import { ManualPromise, calculateSha1, createGuid, getUserAgent, removeFolders, sanitizeForFilePath } from 'playwright-core/lib/utils';
-import { mime } from 'playwright-core/lib/utilsBundle';
 import { Readable } from 'stream';
-import type { EventEmitter } from 'events';
-import type { FullConfig, FullResult, TestResult } from '../../types/testReporter';
-import type { JsonAttachment, JsonEvent } from '../isomorphic/teleReceiver';
-import { TeleReporterEmitter } from './teleEmitter';
-import { yazl } from 'playwright-core/lib/zipBundle';
-import { resolveOutputFile } from './base';
 
-type BlobReporterOptions = {
-  configDir: string;
-  outputDir?: string;
-  fileName?: string;
-  outputFile?: string;
-  _commandHash: string;
-};
+import mime from 'mime';
+import * as yazl from 'yazl';
+import { ManualPromise } from '@isomorphic/manualPromise';
+import { calculateSha1, createGuid } from '@utils/crypto';
+import { removeFolders, sanitizeForFilePath } from '@utils/fileUtils';
+import { getUserAgent } from 'playwright-core/lib/coreBundle';
+
+import { resolveOutputFile, CommonReporterOptions } from './base';
+import { TeleReporterEmitter } from './teleEmitter';
+
+import type { BlobReporterOptions } from '../../types/test';
+import type { FullConfig, FullResult, TestResult } from '../../types/testReporter';
+import type { BlobReportMetadata, JsonAttachment, JsonEvent } from '../isomorphic/teleReceiver';
+import type { EventEmitter } from 'events';
 
 export const currentBlobReportVersion = 2;
-
-export type BlobReportMetadata = {
-  version: number;
-  userAgent: string;
-  name?: string;
-  shard?: { total: number, current: number };
-  pathSeparator?: string;
-};
 
 export class BlobReporter extends TeleReporterEmitter {
   private readonly _messages: JsonEvent[] = [];
   private readonly _attachments: { originalPath: string, zipEntryPath: string }[] = [];
-  private readonly _options: BlobReporterOptions;
+  private readonly _options: BlobReporterOptions & CommonReporterOptions;
   private readonly _salt: string;
   private _config!: FullConfig;
 
-  constructor(options: BlobReporterOptions) {
+  constructor(options: BlobReporterOptions & CommonReporterOptions) {
     super(message => this._messages.push(message));
     this._options = options;
     if (this._options.fileName && !this._options.fileName.endsWith('.zip'))
@@ -63,6 +54,7 @@ export class BlobReporter extends TeleReporterEmitter {
     const metadata: BlobReportMetadata = {
       version: currentBlobReportVersion,
       userAgent: getUserAgent(),
+      // TODO: remove after some time, recommend config.tag instead.
       name: process.env.PWTEST_BOT_NAME,
       shard: config.shard ?? undefined,
       pathSeparator: path.sep,
@@ -92,9 +84,13 @@ export class BlobReporter extends TeleReporterEmitter {
       zipFinishPromise.resolve(undefined);
     }).on('error', error => zipFinishPromise.reject(error));
 
+    const addedEntries = new Set<string>();
     for (const { originalPath, zipEntryPath } of this._attachments) {
+      if (addedEntries.has(zipEntryPath))
+        continue;
       if (!fs.statSync(originalPath, { throwIfNoEntry: false })?.isFile())
         continue;
+      addedEntries.add(zipEntryPath);
       zipFile.addFile(originalPath, zipEntryPath);
     }
 

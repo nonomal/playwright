@@ -7,13 +7,11 @@ const Ci = Components.interfaces;
 const Cr = Components.results;
 const Cu = Components.utils;
 
-const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
-const {SimpleChannel} = ChromeUtils.import('chrome://juggler/content/SimpleChannel.js');
-const {Runtime} = ChromeUtils.import('chrome://juggler/content/content/Runtime.js');
+const {Helper} = ChromeUtils.importESModule('chrome://juggler/content/Helper.js');
 
 const helper = new Helper();
 
-class FrameTree {
+export class FrameTree {
   constructor(rootBrowsingContext) {
     helper.decorateAsEventEmitter(this);
 
@@ -34,6 +32,7 @@ class FrameTree {
     this._frameIdToFrame = new Map();
     this._pageReady = false;
     this._javaScriptDisabled = false;
+    this._isolatedWorldExtendedPrincipal = false;
     for (const browsingContext of helper.collectAllBrowsingContexts(rootBrowsingContext))
       this._createFrame(browsingContext);
     this._mainFrame = this.frameForBrowsingContext(rootBrowsingContext);
@@ -46,9 +45,7 @@ class FrameTree {
       Ci.nsISupportsWeakReference,
     ]);
 
-    this._addedScrollbarsStylesheetSymbol = Symbol('_addedScrollbarsStylesheetSymbol');
-
-    this._wdm = Cc["@mozilla.org/dom/workers/workerdebuggermanager;1"].createInstance(Ci.nsIWorkerDebuggerManager);
+    this._wdm = Cc["@mozilla.org/dom/workers/workerdebuggermanager;1"].getService(Ci.nsIWorkerDebuggerManager);
     this._wdmListener = {
       QueryInterface: ChromeUtils.generateQI([Ci.nsIWorkerDebuggerManagerListener]),
       onRegister: this._onWorkerCreated.bind(this),
@@ -61,7 +58,8 @@ class FrameTree {
     const flags = Ci.nsIWebProgress.NOTIFY_STATE_DOCUMENT |
                   Ci.nsIWebProgress.NOTIFY_LOCATION;
     this._eventListeners = [
-      helper.addObserver((docShell, topic, loadIdentifier) => {
+      helper.addObserver((subject, topic, loadIdentifier) => {
+        const docShell = subject.QueryInterface(Ci.nsIDocShell);
         const frame = this.frameForDocShell(docShell);
         if (!frame)
           return;
@@ -69,17 +67,12 @@ class FrameTree {
         this.emit(FrameTree.Events.NavigationStarted, frame);
       }, 'juggler-navigation-started-renderer'),
       helper.addObserver(this._onDOMWindowCreated.bind(this), 'content-document-global-created'),
-      helper.addObserver(this._onDOMWindowCreated.bind(this), 'juggler-dom-window-reused'),
       helper.addObserver((browsingContext, topic, why) => {
         this._onBrowsingContextAttached(browsingContext);
       }, 'browsing-context-attached'),
       helper.addObserver((browsingContext, topic, why) => {
         this._onBrowsingContextDetached(browsingContext);
       }, 'browsing-context-discarded'),
-      helper.addObserver((subject, topic, eventInfo) => {
-        const [type, jugglerEventId] = eventInfo.split(' ');
-        this.emit(FrameTree.Events.InputEvent, { type, jugglerEventId: +(jugglerEventId ?? '0') });
-      }, 'juggler-mouse-event-hit-renderer'),
       helper.addProgressListener(webProgress, this, flags),
     ];
 
@@ -87,7 +80,7 @@ class FrameTree {
   }
 
   workers() {
-    return [...this._workers.values()];
+    return [...this._workers.values()].filter(worker => worker.isInitialized());
   }
 
   runtime() {
@@ -130,28 +123,20 @@ class FrameTree {
   }
 
   _onDOMWindowCreated(window) {
-    if (!window[this._addedScrollbarsStylesheetSymbol] && this.scrollbarsHidden) {
-      const styleSheetService = Cc["@mozilla.org/content/style-sheet-service;1"].getService(Components.interfaces.nsIStyleSheetService);
-      const ioService = Cc["@mozilla.org/network/io-service;1"].getService(Components.interfaces.nsIIOService);
-      const uri = ioService.newURI('chrome://juggler/content/content/hidden-scrollbars.css', null, null);
-      const sheet = styleSheetService.preloadSheet(uri, styleSheetService.AGENT_SHEET);
-      window.windowUtils.addSheet(sheet, styleSheetService.AGENT_SHEET);
-      window[this._addedScrollbarsStylesheetSymbol] = true;
-    }
     const frame = this.frameForDocShell(window.docShell);
     if (!frame)
       return;
     frame._onGlobalObjectCleared();
   }
 
-  setScrollbarsHidden(hidden) {
-    this.scrollbarsHidden = hidden;
-  }
-
   setJavaScriptDisabled(javaScriptDisabled) {
     this._javaScriptDisabled = javaScriptDisabled;
     for (const frame of this.frames())
       frame._updateJavaScriptDisabled();
+  }
+
+  setIsolatedWorldExtendedPrincipal(extendedPrincipal) {
+    this._isolatedWorldExtendedPrincipal = extendedPrincipal;
   }
 
   _onWorkerCreated(workerDebugger) {
@@ -161,9 +146,11 @@ class FrameTree {
     const frame = this._frameForWorker(workerDebugger);
     if (!frame)
       return;
-    const worker = new Worker(frame, workerDebugger);
+    const worker = new Worker(frame, workerDebugger, () => {
+      if (this._workers.has(workerDebugger))
+        this.emit(FrameTree.Events.WorkerCreated, worker);
+    });
     this._workers.set(workerDebugger, worker);
-    this.emit(FrameTree.Events.WorkerCreated, worker);
   }
 
   _onWorkerDestroyed(workerDebugger) {
@@ -172,7 +159,8 @@ class FrameTree {
       return;
     worker.dispose();
     this._workers.delete(workerDebugger);
-    this.emit(FrameTree.Events.WorkerDestroyed, worker);
+    if (worker.isInitialized())
+      this.emit(FrameTree.Events.WorkerDestroyed, worker);
   }
 
   allFramesInBrowsingContextGroup(group) {
@@ -256,10 +244,10 @@ class FrameTree {
   }
 
   onWindowEvent(event) {
-    if (event.type !== 'DOMDocElementInserted' || !event.target.ownerGlobal)
+    if (event.type !== 'DOMDocElementInserted' || !event.target.documentGlobal)
       return;
 
-    const docShell = event.target.ownerGlobal.docShell;
+    const docShell = event.target.documentGlobal.docShell;
     const frame = this.frameForDocShell(docShell);
     if (!frame) {
       dump(`WARNING: ${event.type} for unknown frame ${helper.browsingContextToFrameId(docShell.browsingContext)}\n`);
@@ -269,7 +257,6 @@ class FrameTree {
       docShell.QueryInterface(Ci.nsIWebNavigation);
       this._frameNavigationCommitted(frame, docShell.currentURI.spec);
     }
-
     if (frame === this._mainFrame) {
       helper.removeListeners(this._dragEventListeners);
       const chromeEventHandler = docShell.chromeEventHandler;
@@ -277,9 +264,7 @@ class FrameTree {
         mozSystemGroup: true,
         capture: true,
       };
-      const emitInputEvent = (event) => this.emit(FrameTree.Events.InputEvent, { type: event.type, jugglerEventId: 0 });
-      // Drag events are dispatched from content process, so these we don't see in the
-      // `juggler-mouse-event-hit-renderer` instrumentation.
+      const emitInputEvent = (event) => this.emit(FrameTree.Events.InputEvent, { type: event.type });
       this._dragEventListeners = [
         helper.addEventListener(chromeEventHandler, 'dragstart', emitInputEvent, options),
         helper.addEventListener(chromeEventHandler, 'dragover', emitInputEvent, options),
@@ -295,6 +280,7 @@ class FrameTree {
     frame._lastCommittedNavigationId = navigationId;
     frame._url = url;
     this.emit(FrameTree.Events.NavigationCommitted, frame);
+    frame._initializeExecutionContexts();
     if (frame === this._mainFrame)
       this.forcePageReady();
   }
@@ -444,6 +430,7 @@ class Frame {
       wsid: webSocketSerialID + '',
       opcode: frame.opCode,
       data: frame.opCode !== 1 ? btoa(frame.payload) : frame.payload,
+      timestamp: frame.timeStamp / 1_000_000,
     });
     this._webSocketListener = {
       QueryInterface: ChromeUtils.generateQI([Ci.nsIWebSocketEventListener, ]),
@@ -477,7 +464,7 @@ class Frame {
         // We don't use this event.
       },
 
-      webSocketClosed: (webSocketSerialID, wasClean, code, reason) => {
+      webSocketClosed: (webSocketSerialID, httpChannelId, wasClean, code, reason) => {
         this._webSocketInfos.delete(webSocketSerialID);
         let error = '';
         if (!wasClean) {
@@ -494,7 +481,7 @@ class Frame {
         });
       },
 
-      frameReceived: (webSocketSerialID, frame) => {
+      frameReceived: (webSocketSerialID, httpChannelId, frame) => {
         // Report only text and binary frames.
         if (frame.opCode !== 1 && frame.opCode !== 2)
           return;
@@ -505,7 +492,7 @@ class Frame {
           info.pendingIncomingFrames.push(frame);
       },
 
-      frameSent: (webSocketSerialID, frame) => {
+      frameSent: (webSocketSerialID, httpChannelId, frame) => {
         // Report only text and binary frames.
         if (frame.opCode !== 1 && frame.opCode !== 2)
           return;
@@ -514,13 +501,14 @@ class Frame {
           wsid: webSocketSerialID + '',
           opcode: frame.opCode,
           data: frame.opCode !== 1 ? btoa(frame.payload) : frame.payload,
+          timestamp: frame.timeStamp / 1_000_000,
         });
       },
     };
   }
 
   _createIsolatedContext(name) {
-    const principal = [this.domWindow()]; // extended principal
+    const principal = this._frameTree._isolatedWorldExtendedPrincipal ? [this.domWindow()] : this.domWindow();
     const sandbox = Cu.Sandbox(principal, {
       sandboxPrototype: this.domWindow(),
       wantComponents: false,
@@ -569,6 +557,21 @@ class Frame {
       this._runtime.destroyExecutionContext(context);
     this._worldNameToContext.clear();
 
+    if (this.domWindow().document?.documentElement) {
+      // Sometimes FrameTree is created too early, before the location has been set.
+      this._url = this.domWindow().location?.href;
+      this._frameTree.emit(FrameTree.Events.NavigationCommitted, this);
+      this._initializeExecutionContexts();
+    }
+
+    this._updateJavaScriptDisabled();
+  }
+
+  _initializeExecutionContexts() {
+    // A global object may see multiple document element insertions and/or commits
+    // (document.open/write, initial about:blank) - only initialize once.
+    if (this._worldNameToContext.has(''))
+      return;
     this._worldNameToContext.set('', this._runtime.createExecutionContext(this.domWindow(), this.domWindow(), {
       frameId: this._frameId,
       name: '',
@@ -583,15 +586,6 @@ class Frame {
       for (const script of world._scriptsToEvaluateOnNewDocument)
         executionContext.evaluateScriptSafely(script);
     }
-
-    const url = this.domWindow().location?.href;
-    if (url === 'about:blank' && !this._url) {
-      // Sometimes FrameTree is created too early, before the location has been set.
-      this._url = url;
-      this._frameTree.emit(FrameTree.Events.NavigationCommitted, this);
-    }
-
-    this._updateJavaScriptDisabled();
   }
 
   _updateJavaScriptDisabled() {
@@ -650,10 +644,11 @@ class Frame {
 }
 
 class Worker {
-  constructor(frame, workerDebugger) {
+  constructor(frame, workerDebugger, onReady) {
     this._frame = frame;
     this._workerId = helper.generateId();
     this._workerDebugger = workerDebugger;
+    this._initialized = false;
 
     workerDebugger.initialize('chrome://juggler/content/content/WorkerMain.js');
 
@@ -661,6 +656,12 @@ class Worker {
     this._channel.setTransport({
       sendMessage: obj => workerDebugger.postMessage(JSON.stringify(obj)),
       dispose: () => {},
+    });
+    this._channel.register('worker', {
+      ready: () => {
+        this._initialized = true;
+        onReady();
+      },
     });
     this._workerDebuggerListener = {
       QueryInterface: ChromeUtils.generateQI([Ci.nsIWorkerDebuggerListener]),
@@ -671,6 +672,10 @@ class Worker {
       },
     };
     workerDebugger.addListener(this._workerDebuggerListener);
+  }
+
+  isInitialized() {
+    return this._initialized;
   }
 
   channel() {
@@ -703,7 +708,4 @@ function channelId(channel) {
   return helper.generateId();
 }
 
-
-var EXPORTED_SYMBOLS = ['FrameTree'];
-this.FrameTree = FrameTree;
 

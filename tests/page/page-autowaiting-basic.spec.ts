@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+import { stripAnsi } from '../config/utils';
 import type { TestServer } from '../config/testserver';
 import { test as it, expect } from './pageTest';
 
@@ -28,7 +29,7 @@ function initServer(server: TestServer): string[] {
   return messages;
 }
 
-it('should await navigation when clicking anchor', async ({ page, server }) => {
+it('AW-001 should await navigation when clicking anchor', async ({ page, server }) => {
   const messages = initServer(server);
   await page.setContent(`<a id="anchor" href="${server.EMPTY_PAGE}">empty.html</a>`);
   await Promise.all([
@@ -38,12 +39,12 @@ it('should await navigation when clicking anchor', async ({ page, server }) => {
   expect(messages.join('|')).toBe('route|navigated|click');
 });
 
-it('should not stall on JS navigation link', async ({ page, browserName }) => {
+it('AW-002 should not stall on JS navigation link', async ({ page, browserName }) => {
   await page.setContent(`<a href="javascript:console.log(1)">console.log</a>`);
   await page.click('a');
 });
 
-it('should await cross-process navigation when clicking anchor', async ({ page, server }) => {
+it('AW-003 should await cross-process navigation when clicking anchor', async ({ page, server }) => {
   const messages = initServer(server);
   await page.setContent(`<a href="${server.CROSS_PROCESS_PREFIX + '/empty.html'}">empty.html</a>`);
 
@@ -54,7 +55,7 @@ it('should await cross-process navigation when clicking anchor', async ({ page, 
   expect(messages.join('|')).toBe('route|navigated|click');
 });
 
-it('should await form-get on click', async ({ page, server }) => {
+it('AW-004 should await form-get on click', async ({ page, server }) => {
   const messages = [];
   server.setRoute('/empty.html?foo=bar', async (req, res) => {
     messages.push('route');
@@ -75,7 +76,7 @@ it('should await form-get on click', async ({ page, server }) => {
   expect(messages.join('|')).toBe('route|navigated|click');
 });
 
-it('should await form-post on click', async ({ page, server }) => {
+it('AW-005 should await form-post on click', async ({ page, server }) => {
   const messages = initServer(server);
   await page.setContent(`
     <form action="${server.EMPTY_PAGE}" method="post">
@@ -90,19 +91,19 @@ it('should await form-post on click', async ({ page, server }) => {
   expect(messages.join('|')).toBe('route|navigated|click');
 });
 
-it('should work with noWaitAfter: true', async ({ page, server }) => {
+it('AW-006 should work with noWaitAfter: true', async ({ page, server }) => {
   server.setRoute('/empty.html', async () => {});
   await page.setContent(`<a id="anchor" href="${server.EMPTY_PAGE}">empty.html</a>`);
   await page.click('a', { noWaitAfter: true });
 });
 
-it('should work with dblclick noWaitAfter: true', async ({ page, server }) => {
+it('AW-007 should work with dblclick without noWaitAfter when navigation is stalled', async ({ page, server }) => {
   server.setRoute('/empty.html', async () => {});
   await page.setContent(`<a id="anchor" href="${server.EMPTY_PAGE}">empty.html</a>`);
-  await page.dblclick('a', { noWaitAfter: true });
+  await page.dblclick('a');
 });
 
-it('should work with waitForLoadState(load)', async ({ page, server }) => {
+it('AW-008 should work with waitForLoadState(load)', async ({ page, server }) => {
   const messages = initServer(server);
   await page.setContent(`<a id="anchor" href="${server.EMPTY_PAGE}">empty.html</a>`);
   await Promise.all([
@@ -112,7 +113,7 @@ it('should work with waitForLoadState(load)', async ({ page, server }) => {
   expect(messages.join('|')).toBe('route|load|clickload');
 });
 
-it('should work with goto following click', async ({ page, server }) => {
+it('AW-009 should work with goto following click', async ({ page, server }) => {
   server.setRoute('/login.html', async (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.end(`You are logged in`);
@@ -129,7 +130,7 @@ it('should work with goto following click', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
 });
 
-it('should report navigation in the log when clicking anchor', async ({ page, server, mode }) => {
+it('AW-010 should report navigation in the log when clicking anchor', async ({ page, server, mode }) => {
   it.skip(mode !== 'default');
 
   await page.setContent(`<a href="${server.PREFIX + '/frames/one-frame.html'}">click me</a>`);
@@ -138,4 +139,22 @@ it('should report navigation in the log when clicking anchor', async ({ page, se
   expect(error.message).toContain('page.click: Timeout 5000ms exceeded.');
   expect(error.message).toContain('waiting for scheduled navigations to finish');
   expect(error.message).toContain(`navigated to "${server.PREFIX + '/frames/one-frame.html'}"`);
+});
+
+it('AW-011 should report and collapse log in action', async ({ page, server, mode }) => {
+  await page.setContent(`<input id='checkbox' type='checkbox' style="visibility: hidden"></input>`);
+  const error = await page.locator('input').click({ timeout: 5000 }).catch(e => e);
+  const message = stripAnsi(error.message);
+  expect(message).toContain(`Call log:`);
+  expect(message).toMatch(/\d+ × waiting for/);
+  const logLines = message.substring(message.indexOf('Call log:')).split('\n');
+  expect(logLines.length).toBeLessThan(30);
+});
+
+it('AW-012 should report and collapse log in expect', async ({ page, server, mode }) => {
+  await page.setContent(`<input id='checkbox' type='checkbox' style="visibility: hidden"></input>`);
+  const error = await expect(page.locator('input')).toBeVisible({ timeout: 5000 }).catch(e => e);
+  const message = stripAnsi(error.message);
+  expect(message).toContain(`Call log:`);
+  expect(message).toMatch(/\d+ × locator resolved to/);
 });

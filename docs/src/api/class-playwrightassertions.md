@@ -35,14 +35,13 @@ def test_status_becomes_submitted(page: Page) -> None:
 ```
 
 ```java
-...
 import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
 
 public class TestExample {
-  ...
+  // ...
   @Test
   void statusBecomesSubmitted() {
-    ...
+    // ...
     page.locator("#submit-button").click();
     assertThat(page.locator(".status")).hasText("Submitted");
   }
@@ -50,19 +49,18 @@ public class TestExample {
 ```
 
 ```csharp
-using System.Threading.Tasks;
-using Microsoft.Playwright.NUnit;
-using NUnit.Framework;
+using Microsoft.Playwright;
+using Microsoft.Playwright.MSTest;
 
 namespace PlaywrightTests;
 
-[TestFixture]
+[TestClass]
 public class ExampleTests : PageTest
 {
-    [Test]
+    [TestMethod]
     public async Task StatusBecomesSubmitted()
     {
-        await Page.Locator("#submit-button").ClickAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Submit" }).ClickAsync();
         await Expect(Page.Locator(".status")).ToHaveTextAsync("Submitted");
     }
 }
@@ -96,6 +94,30 @@ PlaywrightAssertions.assertThat(response).isOK();
 - `response` <[APIResponse]>
 
 [APIResponse] object to use for assertions.
+
+## method: PlaywrightAssertions.expectFunction
+* since: v1.66
+* langs: csharp
+  - alias-csharp: Expect
+- returns: <[FunctionAssertions]>
+
+Creates a [FunctionAssertions] object for the given callback.
+
+**Usage**
+
+```csharp
+await Expect(async () =>
+{
+    var response = await Page.APIRequest.GetAsync("https://api.example.com");
+    Assert.AreEqual(200, response.Status);
+}).ToPassAsync();
+```
+
+### param: PlaywrightAssertions.expectFunction.callback
+* since: v1.66
+- `callback` <[Func<Task>]>
+
+Callback to retry. A synchronous `Action` is accepted as well.
 
 ## method: PlaywrightAssertions.expectGeneric
 * since: v1.9

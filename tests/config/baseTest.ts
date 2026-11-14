@@ -22,6 +22,7 @@ import type { ServerFixtures, ServerWorkerOptions } from './serverFixtures';
 import { serverFixtures } from './serverFixtures';
 import { platformTest } from './platformFixtures';
 import { testModeTest } from './testModeFixtures';
+import type { Builtins } from '../../packages/injected/src/utilityScript';
 
 export const base = test;
 
@@ -40,4 +41,10 @@ export function step<This extends Object, Args extends any[], Return>(
     });
   }
   return replacementMethod;
+}
+
+declare global {
+  interface Window {
+    builtins: Builtins;
+  }
 }

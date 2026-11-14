@@ -18,7 +18,7 @@
 import { browserTest as it, expect } from '../config/browserTest';
 import type { Request, Response } from '@playwright/test';
 
-it('BrowserContext.Events.Request', async ({ context, server }) => {
+it('NE-121 BrowserContext.Events.Request', async ({ context, server }) => {
   const page = await context.newPage();
   const requests: Request[] = [];
   context.on('request', request => requests.push(request));
@@ -37,7 +37,7 @@ it('BrowserContext.Events.Request', async ({ context, server }) => {
   ]);
 });
 
-it('BrowserContext.Events.Response', async ({ context, server }) => {
+it('NE-122 BrowserContext.Events.Response', async ({ context, server }) => {
   const page = await context.newPage();
   const responses: Response[] = [];
   context.on('response', response => responses.push(response));
@@ -56,7 +56,7 @@ it('BrowserContext.Events.Response', async ({ context, server }) => {
   ]);
 });
 
-it('BrowserContext.Events.RequestFailed', async ({ context, server }) => {
+it('NE-123 BrowserContext.Events.RequestFailed', async ({ context, server }) => {
   server.setRoute('/one-style.css', (_, res) => {
     res.setHeader('Content-Type', 'text/css');
     res.connection!.destroy();
@@ -73,7 +73,7 @@ it('BrowserContext.Events.RequestFailed', async ({ context, server }) => {
 });
 
 
-it('BrowserContext.Events.RequestFinished', async ({ context, server }) => {
+it('NE-124 BrowserContext.Events.RequestFinished', async ({ context, server }) => {
   const page = await context.newPage();
   const [response] = await Promise.all([
     page.goto(server.EMPTY_PAGE),
@@ -87,7 +87,7 @@ it('BrowserContext.Events.RequestFinished', async ({ context, server }) => {
   expect(request.failure()).toBe(null);
 });
 
-it('should fire events in proper order', async ({ context, server }) => {
+it('NE-125 should fire events in proper order', async ({ context, server }) => {
   const page = await context.newPage();
   const events: string[] = [];
   context.on('request', () => events.push('request'));
@@ -104,9 +104,9 @@ it('should fire events in proper order', async ({ context, server }) => {
   ]);
 });
 
-it('should not fire events for favicon or favicon redirects', async ({ context, page, server, browserName, channel, headless }) => {
+it('NE-126 should not fire events for favicon or favicon redirects', async ({ context, page, server, browserName, headless, channel }) => {
   it.skip(headless && browserName !== 'firefox', 'headless browsers, except firefox, do not request favicons');
-  it.skip(!headless && browserName === 'webkit' && !channel, 'headed webkit does not have a favicon feature');
+  it.skip(!headless && browserName === 'webkit', 'headed webkit does not have a favicon feature');
   const favicon = `/no-cache/favicon.ico`;
   const hashedFaviconUrl = `/favicon-hashed.ico`;
   const imagePath = `/fakeimage.png`;
@@ -143,4 +143,49 @@ it('should not fire events for favicon or favicon redirects', async ({ context, 
   expect(events).toEqual(expect.arrayContaining([expect.stringContaining(imagePath)]));
   expect(events).not.toEqual(expect.arrayContaining([expect.stringContaining(favicon)]));
   expect(events).not.toEqual(expect.arrayContaining([expect.stringContaining(hashedFaviconUrl)]));
+});
+
+it('NE-127 should reject response.finished if context closes', async ({ page, server }) => {
+  await page.goto(server.EMPTY_PAGE);
+  server.setRoute('/get', (req, res) => {
+    // In Firefox, |fetch| will be hanging until it receives |Content-Type| header
+    // from server.
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.write('hello ');
+  });
+  // send request and wait for server response
+  const [pageResponse] = await Promise.all([
+    page.waitForEvent('response'),
+    page.evaluate(() => fetch('./get', { method: 'GET' })),
+  ]);
+
+  const finishPromise = pageResponse.finished().catch(e => e);
+  await page.context().close();
+  const error = await finishPromise;
+  expect(error.message).toContain('closed');
+});
+
+it('NE-144 should not wait for navigation after background cache revalidation', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43995' },
+}, async ({ context, server }) => {
+  server.setRoute('/swr.html', (req, res) => {
+    const headers = {
+      'Content-Type': 'text/html',
+      'Cache-Control': 's-maxage=900, stale-while-revalidate=31535100',
+      'ETag': '"v1"',
+    };
+    if (req.headers['if-none-match'] === '"v1"') {
+      res.writeHead(304, headers);
+      res.end();
+      return;
+    }
+    res.writeHead(200, headers);
+    res.end('<h1>Hello</h1>');
+  });
+  const page1 = await context.newPage();
+  await page1.goto(server.PREFIX + '/swr.html');
+  const page2 = await context.newPage();
+  await page2.goto(server.PREFIX + '/swr.html');
+  await page2.waitForTimeout(1000);
+  await expect(page2.locator('h1')).toHaveText('Hello');
 });

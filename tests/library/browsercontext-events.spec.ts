@@ -15,8 +15,9 @@
  */
 
 import { browserTest as test, expect } from '../config/browserTest';
+import type { ElementHandle } from 'playwright-core';
 
-test('console event should work @smoke', async ({ page }) => {
+test('BC-032 console event should work @smoke', async ({ page }) => {
   const [, message] = await Promise.all([
     page.evaluate(() => console.log('hello')),
     page.context().waitForEvent('console'),
@@ -26,7 +27,18 @@ test('console event should work @smoke', async ({ page }) => {
   expect(message.page()).toBe(page);
 });
 
-test('console event should work in popup', async ({ page }) => {
+test('BC-033 console event should work with element handles', async ({ page }) => {
+  await page.setContent('<body>hello</body>');
+  const [message] = await Promise.all([
+    page.context().waitForEvent('console'),
+    page.evaluate(() => console.log(document.body)),
+  ]);
+  const body = message.args()[0];
+  expect(await body.evaluate(x => x.nodeName)).toBe('BODY');
+  await (body as ElementHandle).click();
+});
+
+test('BC-034 console event should work in popup', async ({ page }) => {
   const [, message, popup] = await Promise.all([
     page.evaluate(() => {
       const win = window.open('');
@@ -40,13 +52,13 @@ test('console event should work in popup', async ({ page }) => {
   expect(message.page()).toBe(popup);
 });
 
-test('console event should work in popup 2', async ({ page, browserName }) => {
-  test.fixme(browserName === 'firefox', 'console message from javascript: url is not reported at all');
+test('BC-035 console event should work in popup 2', async ({ page, browserName, isBidi }) => {
+  test.fixme(browserName === 'firefox' && !isBidi, 'console message from javascript: url is not reported at all');
 
   const [, message, popup] = await Promise.all([
     page.evaluate(async () => {
       const win = window.open('javascript:console.log("hello")')!;
-      await new Promise(f => setTimeout(f, 0));
+      await new Promise(f => window.builtins.setTimeout(f, 0));
       win.close();
     }),
     page.context().waitForEvent('console', msg => msg.type() === 'log'),
@@ -57,8 +69,8 @@ test('console event should work in popup 2', async ({ page, browserName }) => {
   expect(message.page()).toBe(popup);
 });
 
-test('console event should work in immediately closed popup', async ({ page, browserName }) => {
-  test.fixme(browserName === 'firefox', 'console message is not reported at all');
+test('BC-036 console event should work in immediately closed popup', async ({ page, browserName, isBidi }) => {
+  test.fixme(browserName === 'firefox' && !isBidi, 'console message is not reported at all');
 
   const [, message, popup] = await Promise.all([
     page.evaluate(async () => {
@@ -74,7 +86,7 @@ test('console event should work in immediately closed popup', async ({ page, bro
   expect(message.page()).toBe(popup);
 });
 
-test('dialog event should work @smoke', async ({ page }) => {
+test('BC-037 dialog event should work @smoke', async ({ page }) => {
   const promise = page.evaluate(() => prompt('hey?'));
   const [dialog1, dialog2] = await Promise.all([
     page.context().waitForEvent('dialog'),
@@ -88,7 +100,20 @@ test('dialog event should work @smoke', async ({ page }) => {
   expect(await promise).toBe('hello');
 });
 
-test('dialog event should work in popup', async ({ page }) => {
+test('BC-038 dialogclosed event should work', async ({ page }) => {
+  const promise = page.evaluate(() => prompt('hey?'));
+  const dialog = await page.context().waitForEvent('dialog');
+  const [closed1, closed2] = await Promise.all([
+    page.context().waitForEvent('dialogclosed'),
+    page.waitForEvent('dialogclosed'),
+    dialog.accept('hello'),
+  ]);
+  expect(closed1).toBe(dialog);
+  expect(closed2).toBe(dialog);
+  expect(await promise).toBe('hello');
+});
+
+test('BC-039 dialog event should work in popup', async ({ page }) => {
   const promise = page.evaluate(() => {
     const win = window.open('');
     return (win as any).prompt('hey?');
@@ -105,7 +130,7 @@ test('dialog event should work in popup', async ({ page }) => {
   expect(await promise).toBe('hello');
 });
 
-test('dialog event should work in popup 2', async ({ page, browserName }) => {
+test('BC-040 dialog event should work in popup 2', async ({ page, browserName }) => {
   test.fixme(browserName === 'firefox', 'dialog from javascript: url is not reported at all');
 
   const promise = page.evaluate(async () => {
@@ -120,7 +145,7 @@ test('dialog event should work in popup 2', async ({ page, browserName }) => {
   await promise;
 });
 
-test('dialog event should work in immediately closed popup', async ({ page }) => {
+test('BC-041 dialog event should work in immediately closed popup', async ({ page }) => {
   const promise = page.evaluate(async () => {
     const win = window.open()!;
     const result = (win as any).prompt('hey?');
@@ -139,7 +164,7 @@ test('dialog event should work in immediately closed popup', async ({ page }) =>
   expect(await promise).toBe('hello');
 });
 
-test('dialog event should work with inline script tag', async ({ page, server }) => {
+test('BC-042 dialog event should work with inline script tag', async ({ page, server }) => {
   server.setRoute('/popup.html', (req, res) => {
     res.setHeader('content-type', 'text/html');
     res.end(`<script>window.result = prompt('hey?')</script>`);
@@ -161,11 +186,108 @@ test('dialog event should work with inline script tag', async ({ page, server })
   await expect.poll(() => popup.evaluate('window.result')).toBe('hello');
 });
 
-test('weberror event should work', async ({ page }) => {
+test('BC-043 weberror event should work', async ({ page }) => {
   const [webError] = await Promise.all([
     page.context().waitForEvent('weberror'),
     page.setContent('<script>throw new Error("boom")</script>'),
   ]);
   expect(webError.page()).toBe(page);
   expect(webError.error().stack).toContain('boom');
+});
+
+test('BC-044 weberror event should include location', async ({ page, server }) => {
+  server.setRoute('/error.js', (req, res) => {
+    res.setHeader('content-type', 'application/javascript');
+    res.end(`
+      function foo() {
+        throw new Error('boom');
+      }
+      foo();
+    `);
+  });
+
+  server.setRoute('/error.html', (req, res) => {
+    res.setHeader('content-type', 'text/html');
+    res.end('<script src="/error.js"></script>');
+  });
+
+  const [webError] = await Promise.all([
+    page.context().waitForEvent('weberror'),
+    page.goto(server.PREFIX + '/error.html'),
+  ]);
+
+  const location = webError.location();
+  expect(location.url).toBe(`${server.PREFIX}/error.js`);
+  expect(location.line).toBe(2);
+  expect(location.column).toBeGreaterThan(0); // column is not consistent across browsers
+});
+
+test('BC-045 pageload event should work @smoke', async ({ page, server }) => {
+  const [eventPage] = await Promise.all([
+    page.context().waitForEvent('pageload'),
+    page.goto(server.EMPTY_PAGE),
+  ]);
+  expect(eventPage).toBe(page);
+});
+
+test('BC-046 framenavigated event should work @smoke', async ({ page, server }) => {
+  const [frame] = await Promise.all([
+    page.context().waitForEvent('framenavigated'),
+    page.goto(server.EMPTY_PAGE),
+  ]);
+  expect(frame).toBe(page.mainFrame());
+  expect(frame.url()).toBe(server.EMPTY_PAGE);
+});
+
+test('BC-047 pageclose event should work @smoke', async ({ context }) => {
+  const page = await context.newPage();
+  const [closed] = await Promise.all([
+    context.waitForEvent('pageclose'),
+    page.close(),
+  ]);
+  expect(closed).toBe(page);
+});
+
+test('BC-048 frameattached event should work @smoke', async ({ page, server }) => {
+  await page.goto(server.EMPTY_PAGE);
+  const [frame] = await Promise.all([
+    page.context().waitForEvent('frameattached'),
+    page.evaluate(() => {
+      const iframe = document.createElement('iframe');
+      iframe.src = 'about:blank';
+      document.body.appendChild(iframe);
+    }),
+  ]);
+  expect(frame.parentFrame()).toBe(page.mainFrame());
+});
+
+test('BC-049 framedetached event should work @smoke', async ({ page, server }) => {
+  await page.goto(server.EMPTY_PAGE);
+  await page.evaluate(() => {
+    const iframe = document.createElement('iframe');
+    iframe.id = 'x';
+    iframe.src = 'about:blank';
+    document.body.appendChild(iframe);
+  });
+  await page.waitForSelector('iframe');
+  const [frame] = await Promise.all([
+    page.context().waitForEvent('framedetached'),
+    page.evaluate(() => document.getElementById('x')!.remove()),
+  ]);
+  expect(frame.parentFrame()).toBe(page.mainFrame());
+});
+
+test('BC-050 download event should work @smoke', async ({ page, server }) => {
+  server.setRoute('/download', (req, res) => {
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename=file.txt');
+    res.end('Hello world');
+  });
+  await page.setContent(`<a href="${server.PREFIX}/download">download</a>`);
+  const [download] = await Promise.all([
+    page.context().waitForEvent('download'),
+    page.click('a'),
+  ]);
+  expect(download.suggestedFilename()).toBe('file.txt');
+  expect(download.page()).toBe(page);
 });

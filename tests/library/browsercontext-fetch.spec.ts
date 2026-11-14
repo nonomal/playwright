@@ -17,12 +17,15 @@
 import type { LookupAddress } from 'dns';
 import formidable from 'formidable';
 import fs from 'fs';
+import http from 'http';
 import type { IncomingMessage } from 'http';
+import https from 'https';
 import { pipeline } from 'stream';
 import zlib from 'zlib';
 import { contextTest as it, expect } from '../config/browserTest';
 import { suppressCertificateWarning } from '../config/utils';
-import { kTargetClosedErrorMessage } from 'tests/config/errors';
+import { kTargetClosedErrorMessage } from '../config/errors';
+import { TestServer } from '../config/testserver';
 
 it.skip(({ mode }) => mode !== 'default');
 
@@ -33,7 +36,7 @@ const __testHookLookup = (hostname: string): LookupAddress[] => {
     throw new Error(`Failed to resolve hostname: ${hostname}`);
 };
 
-it('get should work @smoke', async ({ context, server, mode }) => {
+it('FE-088 get should work @smoke', async ({ context, server, mode }) => {
   const response = await context.request.get(server.PREFIX + '/simple.json');
   expect(response.url()).toBe(server.PREFIX + '/simple.json');
   expect(response.status()).toBe(200);
@@ -44,7 +47,7 @@ it('get should work @smoke', async ({ context, server, mode }) => {
   expect(await response.text()).toBe('{"foo": "bar"}\n');
 });
 
-it('fetch should work', async ({ context, server }) => {
+it('FE-089 fetch should work', async ({ context, server }) => {
   const response = await context.request.fetch(server.PREFIX + '/simple.json');
   expect(response.url()).toBe(server.PREFIX + '/simple.json');
   expect(response.status()).toBe(200);
@@ -55,7 +58,54 @@ it('fetch should work', async ({ context, server }) => {
   expect(await response.text()).toBe('{"foo": "bar"}\n');
 });
 
-it('should throw on network error', async ({ context, server }) => {
+it('FE-090 should return timing', async ({ context }) => {
+  // Create a fresh server to guarantee a new connection, because keep-alive
+  // sockets from other tests do not have dns/connect timings.
+  const httpServer = http.createServer((req, res) => res.end('Hello'));
+  const port = await new Promise<number>(resolve => httpServer.listen(0, () => resolve((httpServer.address() as any).port)));
+  try {
+    const response = await context.request.get(`http://localhost:${port}/`);
+    expect(response.ok()).toBeTruthy();
+    const timing = response.timing();
+    expect(timing.startTime).toBeCloseTo(Date.now(), -4);
+    expect(timing.domainLookupStart).toBe(0);
+    expect(timing.domainLookupEnd).toBeGreaterThanOrEqual(timing.domainLookupStart);
+    expect(timing.connectStart).toBe(timing.domainLookupEnd);
+    expect(timing.secureConnectionStart).toBe(-1);
+    expect(timing.connectEnd).toBeGreaterThanOrEqual(timing.connectStart);
+    expect(timing.requestStart).toBe(timing.connectEnd);
+    expect(timing.responseStart).toBeGreaterThanOrEqual(timing.requestStart);
+    expect(timing.responseEnd).toBeGreaterThanOrEqual(timing.responseStart);
+    expect(timing.responseEnd).toBeLessThan(60_000);
+  } finally {
+    await new Promise(resolve => httpServer.close(resolve));
+  }
+});
+
+it('FE-091 should return timing for https', async ({ context }) => {
+  // Create a fresh server to guarantee a new connection, because keep-alive
+  // sockets from other tests do not have dns/connect timings.
+  const httpsServer = https.createServer(await TestServer.certOptions(), (req, res) => res.end('Hello'));
+  const port = await new Promise<number>(resolve => httpsServer.listen(0, () => resolve((httpsServer.address() as any).port)));
+  try {
+    const response = await context.request.get(`https://localhost:${port}/`, { ignoreHTTPSErrors: true });
+    expect(response.ok()).toBeTruthy();
+    const timing = response.timing();
+    expect(timing.startTime).toBeCloseTo(Date.now(), -4);
+    expect(timing.domainLookupStart).toBe(0);
+    expect(timing.domainLookupEnd).toBeGreaterThanOrEqual(timing.domainLookupStart);
+    expect(timing.connectStart).toBe(timing.domainLookupEnd);
+    expect(timing.secureConnectionStart).toBeGreaterThanOrEqual(timing.connectStart);
+    expect(timing.connectEnd).toBeGreaterThanOrEqual(timing.secureConnectionStart);
+    expect(timing.requestStart).toBe(timing.connectEnd);
+    expect(timing.responseStart).toBeGreaterThanOrEqual(timing.requestStart);
+    expect(timing.responseEnd).toBeGreaterThanOrEqual(timing.responseStart);
+  } finally {
+    await new Promise(resolve => httpsServer.close(resolve));
+  }
+});
+
+it('FE-092 should throw on network error', async ({ context, server }) => {
   server.setRoute('/test', (req, res) => {
     req.socket.destroy();
   });
@@ -63,7 +113,7 @@ it('should throw on network error', async ({ context, server }) => {
   expect(error.message).toContain('apiRequestContext.get: socket hang up');
 });
 
-it('should throw on network error after redirect', async ({ context, server }) => {
+it('FE-093 should throw on network error after redirect', async ({ context, server }) => {
   server.setRedirect('/redirect', '/test');
   server.setRoute('/test', (req, res) => {
     req.socket.destroy();
@@ -72,7 +122,7 @@ it('should throw on network error after redirect', async ({ context, server }) =
   expect(error.message).toContain('apiRequestContext.get: socket hang up');
 });
 
-it('should throw on network error when sending body', async ({ context, server }) => {
+it('FE-094 should throw on network error when sending body', async ({ context, server }) => {
   server.setRoute('/test', (req, res) => {
     res.writeHead(200, {
       'content-length': 4096,
@@ -86,7 +136,7 @@ it('should throw on network error when sending body', async ({ context, server }
   expect(error.message).toContain('apiRequestContext.get: aborted');
 });
 
-it('should throw on network error when sending body after redirect', async ({ context, server }) => {
+it('FE-095 should throw on network error when sending body after redirect', async ({ context, server }) => {
   server.setRedirect('/redirect', '/test');
   server.setRoute('/test', (req, res) => {
     res.writeHead(200, {
@@ -101,7 +151,7 @@ it('should throw on network error when sending body after redirect', async ({ co
   expect(error.message).toContain('apiRequestContext.get: aborted');
 });
 
-it('should add session cookies to request', async ({ context, server }) => {
+it('FE-096 should add session cookies to request', async ({ context, server }) => {
   await context.addCookies([{
     name: 'username',
     value: 'John Doe',
@@ -121,39 +171,129 @@ it('should add session cookies to request', async ({ context, server }) => {
   expect(req.headers.cookie).toEqual('username=John Doe');
 });
 
+it('FE-097 should filter cookies by domain', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/36069' }
+}, async ({ context, server }) => {
+  await context.addCookies([{
+    name: 'first',
+    value: '1',
+    domain: 'playwright.dev',
+    path: '/',
+    expires: -1,
+    httpOnly: false,
+    secure: false,
+    sameSite: 'Lax',
+  }, {
+    name: 'second',
+    value: '2',
+    domain: '.playwright.dev',
+    path: '/',
+    expires: -1,
+    httpOnly: false,
+    secure: false,
+    sameSite: 'Lax',
+  }]);
+  const [req] = await Promise.all([
+    server.waitForRequest('/simple.json'),
+    context.request.get(`http://my.playwright.dev:${server.PORT}/simple.json`, {
+      __testHookLookup
+    } as any),
+  ]);
+  expect(req.headers.cookie).toEqual('second=2');
+});
+
 for (const method of ['fetch', 'delete', 'get', 'head', 'patch', 'post', 'put'] as const) {
-  it(`${method} should support queryParams`, async ({ context, server }) => {
+  it(`FE-098 ${method} should support params passed as object`, async ({ context, server }) => {
     const url = new URL(server.EMPTY_PAGE);
-    url.searchParams.set('p1', 'v1');
+    url.searchParams.set('param1', 'value1');
     url.searchParams.set('парам2', 'знач2');
-    const [request] = await Promise.all([
+
+    const [request, response] = await Promise.all([
       server.waitForRequest(url.pathname + url.search),
-      context.request[method](server.EMPTY_PAGE + '?p1=foo', {
+      context.request[method](server.EMPTY_PAGE, {
         params: {
-          'p1': 'v1',
+          'param1': 'value1',
           'парам2': 'знач2',
         }
       }),
     ]);
-    const params = new URLSearchParams(request.url!.substr(request.url!.indexOf('?')));
-    expect(params.get('p1')).toEqual('v1');
-    expect(params.get('парам2')).toEqual('знач2');
+
+    const requestParams = new URLSearchParams(request.url.slice(request.url.indexOf('?')));
+    expect(requestParams.get('param1')).toEqual('value1');
+    expect(requestParams.get('парам2')).toBe('знач2');
+
+    const responseParams = new URL(response.url()).searchParams;
+    expect(responseParams.get('param1')).toEqual('value1');
+    expect(responseParams.get('парам2')).toBe('знач2');
   });
 
-  it(`${method} should support failOnStatusCode`, async ({ context, server }) => {
+  it(`FE-099 ${method} should support params passed as URLSearchParams`, async ({ context, server }) => {
+    const url = new URL(server.EMPTY_PAGE);
+    const searchParams = new URLSearchParams();
+    searchParams.append('param1', 'value1');
+    searchParams.append('param1', 'value2');
+    searchParams.set('парам2', 'знач2');
+
+    const [request, response] = await Promise.all([
+      server.waitForRequest(url.pathname + '?' + searchParams),
+      context.request[method](server.EMPTY_PAGE, { params: searchParams }),
+    ]);
+
+    const requestParams = new URLSearchParams(request.url.slice(request.url.indexOf('?')));
+    expect(requestParams.getAll('param1')).toEqual(['value1', 'value2']);
+    expect(requestParams.get('парам2')).toBe('знач2');
+
+    const responseParams = new URL(response.url()).searchParams;
+    expect(responseParams.getAll('param1')).toEqual(['value1', 'value2']);
+    expect(responseParams.get('парам2')).toBe('знач2');
+  });
+
+  it(`FE-100 ${method} should support params passed as string`, async ({ context, server }) => {
+    const url = new URL(server.EMPTY_PAGE);
+    const params = '?param1=value1&param1=value2&парам2=знач2';
+
+    const [request, response] = await Promise.all([
+      server.waitForRequest(url.pathname + encodeURI(params)),
+      context.request[method](server.EMPTY_PAGE, { params }),
+    ]);
+
+    const requestParams = new URLSearchParams(request.url.slice(request.url.indexOf('?')));
+    expect(requestParams.getAll('param1')).toEqual(['value1', 'value2']);
+    expect(requestParams.get('парам2')).toBe('знач2');
+
+    const responseParams = new URL(response.url()).searchParams;
+    expect(responseParams.getAll('param1')).toEqual(['value1', 'value2']);
+    expect(responseParams.get('парам2')).toBe('знач2');
+  });
+
+  it(`FE-101 ${method} should append string and URLSearchParams params to the URL query`, {
+    annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43210' },
+  }, async ({ context, server }) => {
+    for (const params of ['q=cat', '?q=cat', new URLSearchParams({ q: 'cat' })]) {
+      const [request] = await Promise.all([
+        server.waitForRequest('/empty.html?page=2&q=cat'),
+        context.request[method](server.EMPTY_PAGE + '?page=2', { params }),
+      ]);
+      expect(request.url).toBe('/empty.html?page=2&q=cat');
+    }
+  });
+
+  it(`FE-102 ${method} should support failOnStatusCode`, async ({ context, server }) => {
     const error = await context.request[method](server.PREFIX + '/does-not-exist.html', {
       failOnStatusCode: true
     }).catch(e => e);
     expect(error.message).toContain('404 Not Found');
+    if (method !== 'head')
+      expect(error.message).toContain('Response text:\nFile not found:');
   });
 
-  it(`${method}should support ignoreHTTPSErrors option`, async ({ context, httpsServer }) => {
+  it(`FE-103 ${method}should support ignoreHTTPSErrors option`, async ({ context, httpsServer }) => {
     const response = await context.request[method](httpsServer.EMPTY_PAGE, { ignoreHTTPSErrors: true });
     expect(response.status()).toBe(200);
   });
 }
 
-it('should not add context cookie if cookie header passed as a parameter', async ({ context, server }) => {
+it('FE-104 should not add context cookie if cookie header passed as a parameter', async ({ context, server }) => {
   await context.addCookies([{
     name: 'username',
     value: 'John Doe',
@@ -176,7 +316,7 @@ it('should not add context cookie if cookie header passed as a parameter', async
   expect(req.headers.cookie).toEqual('foo=bar');
 });
 
-it('should follow redirects', async ({ context, server }) => {
+it('FE-105 should follow redirects', async ({ context, server }) => {
   server.setRedirect('/redirect1', '/redirect2');
   server.setRedirect('/redirect2', '/simple.json');
   await context.addCookies([{
@@ -198,7 +338,7 @@ it('should follow redirects', async ({ context, server }) => {
   expect(await response.json()).toEqual({ foo: 'bar' });
 });
 
-it('should follow redirects correctly when Location header contains UTF-8 characters', async ({ context, server }) => {
+it('FE-106 should follow redirects correctly when Location header contains UTF-8 characters', async ({ context, server }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30903' });
   server.setRoute('/redirect', (req, res) => {
     // Node.js only allows US-ASCII, so we can't send invalid headers directly. Sending it as a raw response instead.
@@ -212,7 +352,7 @@ it('should follow redirects correctly when Location header contains UTF-8 charac
   expect(response.url()).toBe(server.PREFIX + '/empty.html?' + new URLSearchParams({ message: 'マスクПривет' }));
 });
 
-it('should add cookies from Set-Cookie header', async ({ context, page, server }) => {
+it('FE-107 should add cookies from Set-Cookie header', async ({ context, page, server }) => {
   server.setRoute('/setcookie.html', (req, res) => {
     res.setHeader('Set-Cookie', ['session=value', 'foo=bar; max-age=3600']);
     res.end();
@@ -233,7 +373,51 @@ it('should add cookies from Set-Cookie header', async ({ context, page, server }
   expect((await page.evaluate(() => document.cookie)).split(';').map(s => s.trim()).sort()).toEqual(['foo=bar', 'session=value']);
 });
 
-it('should preserve cookie order from Set-Cookie header', async ({ context, page, server }) => {
+it('FE-108 page.request.addCookies should add cookies to the browser context', async ({ context, page, server }) => {
+  await page.request.addCookies([
+    { name: 'a', value: 'b', url: server.EMPTY_PAGE },
+    { name: 'c', value: 'd', domain: 'localhost', path: '/', expires: Date.now() / 1000 + 3600 },
+  ]);
+  expect((await context.cookies()).map(c => ({ name: c.name, value: c.value })).sort((a, b) => a.name.localeCompare(b.name))).toEqual([
+    { name: 'a', value: 'b' },
+    { name: 'c', value: 'd' },
+  ]);
+  const [req] = await Promise.all([
+    server.waitForRequest('/empty.html'),
+    context.request.get(server.EMPTY_PAGE),
+  ]);
+  expect(req.headers.cookie.split(';').map(s => s.trim()).sort()).toEqual(['a=b', 'c=d']);
+  await page.goto(server.EMPTY_PAGE);
+  expect((await page.evaluate(() => document.cookie)).split(';').map(s => s.trim()).sort()).toEqual(['a=b', 'c=d']);
+});
+
+it('FE-109 page.request.cookies should return browser context cookies', async ({ context, page, server }) => {
+  await context.addCookies([
+    { name: 'a', value: 'b', url: server.EMPTY_PAGE },
+    { name: 'c', value: 'd', domain: 'example.com', path: '/' },
+  ]);
+  expect((await page.request.cookies()).map(c => c.name).sort()).toEqual(['a', 'c']);
+  expect((await page.request.cookies(server.EMPTY_PAGE)).map(c => c.name)).toEqual(['a']);
+  expect(await page.request.cookies(server.EMPTY_PAGE)).toEqual(await context.cookies(server.EMPTY_PAGE));
+});
+
+it('FE-110 page.request.clearCookies should clear browser context cookies', async ({ context, page, server }) => {
+  await context.addCookies([
+    { name: 'a', value: 'b', url: server.EMPTY_PAGE },
+    { name: 'c', value: 'd', url: server.EMPTY_PAGE },
+  ]);
+  await page.request.clearCookies({ name: 'a' });
+  expect((await context.cookies()).map(c => c.name)).toEqual(['c']);
+  await page.request.clearCookies();
+  expect(await context.cookies()).toEqual([]);
+  const [req] = await Promise.all([
+    server.waitForRequest('/empty.html'),
+    page.request.get(server.EMPTY_PAGE),
+  ]);
+  expect(req.headers.cookie).toBeUndefined();
+});
+
+it('FE-111 should preserve cookie order from Set-Cookie header', async ({ context, page, server, browserName, isLinux }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/23390' });
   server.setRoute('/setcookie.html', (req, res) => {
     res.setHeader('Set-Cookie', ['cookie.0=foo', 'cookie.1=bar']);
@@ -259,7 +443,7 @@ it('should preserve cookie order from Set-Cookie header', async ({ context, page
   expect(request.headers.cookie).toEqual('cookie.0=foo; cookie.1=bar');
 });
 
-it('should support cookie with empty value', async ({ context, page, server }) => {
+it('FE-112 should support cookie with empty value', async ({ context, page, server }) => {
   server.setRoute('/setcookie.html', (req, res) => {
     res.setHeader('Set-Cookie', ['first=']);
     res.end();
@@ -276,7 +460,7 @@ it('should support cookie with empty value', async ({ context, page, server }) =
   ]);
 });
 
-it('should not lose body while handling Set-Cookie header', async ({ context, server }) => {
+it('FE-113 should not lose body while handling Set-Cookie header', async ({ context, server }) => {
   server.setRoute('/setcookie.html', (req, res) => {
     res.setHeader('Set-Cookie', ['session=value', 'foo=bar; max-age=3600']);
     res.end('text content');
@@ -285,7 +469,7 @@ it('should not lose body while handling Set-Cookie header', async ({ context, se
   expect(await response.text()).toBe('text content');
 });
 
-it('should remove cookie with negative max-age', async ({ page, server }) => {
+it('FE-114 should remove cookie with negative max-age', async ({ page, server }) => {
   server.setRoute('/setcookie.html', (req, res) => {
     res.setHeader('Set-Cookie', ['a=v; max-age=100000', `b=v; max-age=100000`, 'c=v']);
     res.end();
@@ -304,7 +488,7 @@ it('should remove cookie with negative max-age', async ({ page, server }) => {
   expect(serverRequest.headers.cookie).toBe('c=v');
 });
 
-it('should remove cookie with expires far in the past', async ({ page, server }) => {
+it('FE-115 should remove cookie with expires far in the past', async ({ page, server }) => {
   server.setRoute('/setcookie.html', (req, res) => {
     res.setHeader('Set-Cookie', ['a=v; max-age=1000000']);
     res.end();
@@ -322,7 +506,7 @@ it('should remove cookie with expires far in the past', async ({ page, server })
   expect(serverRequest.headers.cookie).toBeFalsy();
 });
 
-it('should handle cookies on redirects', async ({ context, server, browserName, isWindows }) => {
+it('FE-116 should handle cookies on redirects', async ({ context, server, browserName, isWindows, channel }) => {
   server.setRoute('/redirect1', (req, res) => {
     res.setHeader('Set-Cookie', 'r1=v1;SameSite=Lax');
     res.writeHead(301, { location: '/a/b/redirect2' });
@@ -358,20 +542,20 @@ it('should handle cookies on redirects', async ({ context, server, browserName, 
   const cookies = await context.cookies();
   expect(new Set(cookies)).toEqual(new Set([
     {
-      'sameSite': (browserName === 'webkit' && isWindows) ? 'None' : 'Lax',
+      'sameSite': (browserName === 'webkit' && isWindows && channel !== 'webkit-wsl') ? 'None' : 'Lax',
       'name': 'r2',
       'value': 'v2',
-      'domain': 'localhost',
+      'domain': server.HOSTNAME,
       'path': '/a/b',
       'expires': -1,
       'httpOnly': false,
       'secure': false
     },
     {
-      'sameSite': (browserName === 'webkit' && isWindows) ? 'None' : 'Lax',
+      'sameSite': (browserName === 'webkit' && isWindows && channel !== 'webkit-wsl') ? 'None' : 'Lax',
       'name': 'r1',
       'value': 'v1',
-      'domain': 'localhost',
+      'domain': server.HOSTNAME,
       'path': '/',
       'expires': -1,
       'httpOnly': false,
@@ -380,7 +564,7 @@ it('should handle cookies on redirects', async ({ context, server, browserName, 
   ]));
 });
 
-it('should return raw headers', async ({ context, page, server }) => {
+it('FE-117 should return raw headers', async ({ context, page, server }) => {
   server.setRoute('/headers', (req, res) => {
     // Headers array is only supported since Node v14.14.0 so we write directly to the socket.
     // res.writeHead(200, ['name-a', 'v1','name-b', 'v4','Name-a', 'v2', 'name-A', 'v3']);
@@ -403,7 +587,7 @@ it('should return raw headers', async ({ context, page, server }) => {
   expect(response.headers()['name-b']).toBe('v4');
 });
 
-it('should work with http credentials', async ({ context, server }) => {
+it('FE-118 should work with http credentials', async ({ context, server }) => {
   server.setAuth('/empty.html', 'user', 'pass');
 
   const [request, response] = await Promise.all([
@@ -418,7 +602,7 @@ it('should work with http credentials', async ({ context, server }) => {
   expect(request.url).toBe('/empty.html');
 });
 
-it('should work with setHTTPCredentials', async ({ context, server }) => {
+it('FE-119 should work with setHTTPCredentials', async ({ context, server }) => {
   server.setAuth('/empty.html', 'user', 'pass');
   const response1 = await context.request.get(server.EMPTY_PAGE);
   expect(response1.status()).toBe(401);
@@ -428,17 +612,32 @@ it('should work with setHTTPCredentials', async ({ context, server }) => {
   expect(response2.status()).toBe(200);
 });
 
-it('should return error with wrong credentials', async ({ context, server }) => {
+it('FE-120 should return error with wrong credentials', async ({ context, server }) => {
   server.setAuth('/empty.html', 'user', 'pass');
   await context.setHTTPCredentials({ username: 'user', password: 'wrong' });
   const response2 = await context.request.get(server.EMPTY_PAGE);
   expect(response2.status()).toBe(401);
 });
 
-it('should support HTTPCredentials.sendImmediately', async ({ contextFactory, server }) => {
+it('FE-121 should support multiple httpCredentials', async ({ contextFactory, server, browserName }) => {
+  server.setAuth('/empty.html', 'user1', 'pass1');
+  const context = await contextFactory({
+    httpCredentials: [
+      { username: 'user1', password: 'pass1', origin: server.PREFIX },
+      { username: 'user2', password: 'pass2', origin: server.CROSS_PROCESS_PREFIX },
+    ]
+  });
+  const response1 = await context.request.get(server.EMPTY_PAGE);
+  expect(response1.status()).toBe(200);
+  // Wrong credentials are picked for the other origin.
+  const response2 = await context.request.get(server.CROSS_PROCESS_PREFIX + '/empty.html');
+  expect(response2.status()).toBe(401);
+});
+
+it('FE-122 should support HTTPCredentials.send for newContext', async ({ contextFactory, server }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30534' });
   const context = await contextFactory({
-    httpCredentials: { username: 'user', password: 'pass', origin: server.PREFIX.toUpperCase(), sendImmediately: true }
+    httpCredentials: { username: 'user', password: 'pass', origin: server.PREFIX.toUpperCase(), send: 'always' }
   });
   {
     const [serverRequest, response] = await Promise.all([
@@ -459,7 +658,32 @@ it('should support HTTPCredentials.sendImmediately', async ({ contextFactory, se
   }
 });
 
-it('delete should support post data', async ({ context, server }) => {
+it('FE-123 should support HTTPCredentials.send for browser.newPage', async ({ contextFactory, server, browser }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30534' });
+  const page = await browser.newPage({
+    httpCredentials: { username: 'user', password: 'pass', origin: server.PREFIX.toUpperCase(), send: 'always' }
+  });
+  {
+    const [serverRequest, response] = await Promise.all([
+      server.waitForRequest('/empty.html'),
+      page.request.get(server.EMPTY_PAGE)
+    ]);
+    expect(serverRequest.headers.authorization).toBe('Basic ' + Buffer.from('user:pass').toString('base64'));
+    expect(response.status()).toBe(200);
+  }
+  {
+    const [serverRequest, response] = await Promise.all([
+      server.waitForRequest('/empty.html'),
+      page.request.get(server.CROSS_PROCESS_PREFIX + '/empty.html')
+    ]);
+    // Not sent to another origin.
+    expect(serverRequest.headers.authorization).toBe(undefined);
+    expect(response.status()).toBe(200);
+  }
+  await page.close();
+});
+
+it('FE-124 delete should support post data', async ({ context, server }) => {
   const [request, response] = await Promise.all([
     server.waitForRequest('/simple.json'),
     context.request.delete(`${server.PREFIX}/simple.json`, {
@@ -472,7 +696,7 @@ it('delete should support post data', async ({ context, server }) => {
   expect(request.url).toBe('/simple.json');
 });
 
-it('get should support post data', async ({ context, server }) => {
+it('FE-125 get should support post data', async ({ context, server }) => {
   const [request, response] = await Promise.all([
     server.waitForRequest('/simple.json'),
     context.request.get(`${server.PREFIX}/simple.json`, {
@@ -485,7 +709,7 @@ it('get should support post data', async ({ context, server }) => {
   expect(request.url).toBe('/simple.json');
 });
 
-it('head should support post data', async ({ context, server }) => {
+it('FE-126 head should support post data', async ({ context, server }) => {
   const [request, response] = await Promise.all([
     server.waitForRequest('/simple.json'),
     context.request.head(`${server.PREFIX}/simple.json`, {
@@ -498,7 +722,7 @@ it('head should support post data', async ({ context, server }) => {
   expect(request.url).toBe('/simple.json');
 });
 
-it('patch should support post data', async ({ context, server }) => {
+it('FE-127 patch should support post data', async ({ context, server }) => {
   const [request, response] = await Promise.all([
     server.waitForRequest('/simple.json'),
     context.request.patch(`${server.PREFIX}/simple.json`, {
@@ -511,7 +735,7 @@ it('patch should support post data', async ({ context, server }) => {
   expect(request.url).toBe('/simple.json');
 });
 
-it('post should support post data', async ({ context, server }) => {
+it('FE-128 post should support post data', async ({ context, server }) => {
   const [request, response] = await Promise.all([
     server.waitForRequest('/simple.json'),
     context.request.post(`${server.PREFIX}/simple.json`, {
@@ -524,7 +748,7 @@ it('post should support post data', async ({ context, server }) => {
   expect(request.url).toBe('/simple.json');
 });
 
-it('put should support post data', async ({ context, server }) => {
+it('FE-129 put should support post data', async ({ context, server }) => {
   const [request, response] = await Promise.all([
     server.waitForRequest('/simple.json'),
     context.request.put(`${server.PREFIX}/simple.json`, {
@@ -537,7 +761,7 @@ it('put should support post data', async ({ context, server }) => {
   expect(request.url).toBe('/simple.json');
 });
 
-it('should add default headers', async ({ context, server, page }) => {
+it('FE-130 should add default headers', async ({ context, server, page }) => {
   const [request] = await Promise.all([
     server.waitForRequest('/empty.html'),
     context.request.get(server.EMPTY_PAGE)
@@ -548,7 +772,7 @@ it('should add default headers', async ({ context, server, page }) => {
   expect(request.headers['accept-encoding']).toBe('gzip,deflate,br');
 });
 
-it('should send content-length', async function({ context, asset, server }) {
+it('FE-131 should send content-length', async function({ context, asset, server }) {
   const bytes = [];
   for (let i = 0; i < 256; i++)
     bytes.push(i);
@@ -562,7 +786,7 @@ it('should send content-length', async function({ context, asset, server }) {
   expect(request.headers['content-type']).toBe('application/octet-stream');
 });
 
-it('should add default headers to redirects', async ({ context, server, page }) => {
+it('FE-132 should add default headers to redirects', async ({ context, server, page }) => {
   server.setRedirect('/redirect', '/empty.html');
   const [request] = await Promise.all([
     server.waitForRequest('/empty.html'),
@@ -574,7 +798,7 @@ it('should add default headers to redirects', async ({ context, server, page }) 
   expect(request.headers['accept-encoding']).toBe('gzip,deflate,br');
 });
 
-it('should allow to override default headers', async ({ context, server, page }) => {
+it('FE-133 should allow to override default headers', async ({ context, server, page }) => {
   const [request] = await Promise.all([
     server.waitForRequest('/empty.html'),
     context.request.get(server.EMPTY_PAGE, {
@@ -590,7 +814,7 @@ it('should allow to override default headers', async ({ context, server, page })
   expect(request.headers['accept-encoding']).toBe('br');
 });
 
-it('should propagate custom headers with redirects', async ({ context, server }) => {
+it('FE-134 should propagate custom headers with redirects', async ({ context, server }) => {
   server.setRedirect('/a/redirect1', '/b/c/redirect2');
   server.setRedirect('/b/c/redirect2', '/simple.json');
   const [req1, req2, req3] = await Promise.all([
@@ -604,7 +828,7 @@ it('should propagate custom headers with redirects', async ({ context, server })
   expect(req3.headers['foo']).toBe('bar');
 });
 
-it('should propagate extra http headers with redirects', async ({ context, server }) => {
+it('FE-135 should propagate extra http headers with redirects', async ({ context, server }) => {
   server.setRedirect('/a/redirect1', '/b/c/redirect2');
   server.setRedirect('/b/c/redirect2', '/simple.json');
   await context.setExtraHTTPHeaders({ 'My-Secret': 'Value' });
@@ -619,7 +843,7 @@ it('should propagate extra http headers with redirects', async ({ context, serve
   expect(req3.headers['my-secret']).toBe('Value');
 });
 
-it('should throw on invalid header value', async ({ context, server }) => {
+it('FE-136 should throw on invalid header value', async ({ context, server }) => {
   const error = await context.request.get(`${server.PREFIX}/a/redirect1`, {
     headers: {
       'foo': 'недопустимое значение',
@@ -628,14 +852,14 @@ it('should throw on invalid header value', async ({ context, server }) => {
   expect(error.message).toContain('Invalid character in header content');
 });
 
-it('should throw on non-http(s) protocol', async ({ context }) => {
+it('FE-137 should throw on non-http(s) protocol', async ({ context }) => {
   const error1 = await context.request.get(`data:text/plain,test`).catch(e => e);
   expect(error1.message).toContain('Protocol "data:" not supported');
   const error2 = await context.request.get(`file:///tmp/foo`).catch(e => e);
   expect(error2.message).toContain('Protocol "file:" not supported');
 });
 
-it('should support https', async ({ context, httpsServer }) => {
+it('FE-138 should support https', async ({ context, httpsServer }) => {
   const oldValue = process.env['NODE_TLS_REJECT_UNAUTHORIZED'];
   // https://stackoverflow.com/a/21961005/552185
   process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
@@ -648,13 +872,13 @@ it('should support https', async ({ context, httpsServer }) => {
   }
 });
 
-it('should inherit ignoreHTTPSErrors from context', async ({ contextFactory, contextOptions, httpsServer }) => {
+it('FE-139 should inherit ignoreHTTPSErrors from context', async ({ contextFactory, contextOptions, httpsServer }) => {
   const context = await contextFactory({ ...contextOptions, ignoreHTTPSErrors: true });
   const response = await context.request.get(httpsServer.EMPTY_PAGE);
   expect(response.status()).toBe(200);
 });
 
-it('should resolve url relative to baseURL', async function({ server, contextFactory, contextOptions }) {
+it('FE-140 should resolve url relative to baseURL', async function({ server, contextFactory, contextOptions }) {
   const context = await contextFactory({
     ...contextOptions,
     baseURL: server.PREFIX,
@@ -663,7 +887,7 @@ it('should resolve url relative to baseURL', async function({ server, contextFac
   expect(response.url()).toBe(server.EMPTY_PAGE);
 });
 
-it('should support gzip compression', async function({ context, server }) {
+it('FE-141 should support gzip compression', async function({ context, server }) {
   server.setRoute('/compressed', (req, res) => {
     res.writeHead(200, {
       'Content-Encoding': 'gzip',
@@ -683,7 +907,27 @@ it('should support gzip compression', async function({ context, server }) {
   expect(await response.text()).toBe('Hello, world!');
 });
 
-it('should throw informative error on corrupted gzip body', async function({ context, server }) {
+it('FE-142 should support case-insensitive content-encoding', async function({ context, server }) {
+  server.setRoute('/compressed-uppercase', (req, res) => {
+    res.writeHead(200, {
+      'Content-Encoding': 'GZIP',
+      'Content-Type': 'text/plain',
+    });
+
+    const gzip = zlib.createGzip();
+    pipeline(gzip, res, err => {
+      if (err)
+        console.log(`Server error: ${err}`);
+    });
+    gzip.write('Hello, world!');
+    gzip.end();
+  });
+
+  const response = await context.request.get(server.PREFIX + '/compressed-uppercase');
+  expect(await response.text()).toBe('Hello, world!');
+});
+
+it('FE-143 should throw informative error on corrupted gzip body', async function({ context, server }) {
   server.setRoute('/corrupted', (req, res) => {
     res.writeHead(200, {
       'Content-Encoding': 'gzip',
@@ -697,7 +941,7 @@ it('should throw informative error on corrupted gzip body', async function({ con
   expect(error.message).toContain(`failed to decompress 'gzip' encoding`);
 });
 
-it('should support brotli compression', async function({ context, server }) {
+it('FE-144 should support brotli compression', async function({ context, server }) {
   server.setRoute('/compressed', (req, res) => {
     res.writeHead(200, {
       'Content-Encoding': 'br',
@@ -717,7 +961,7 @@ it('should support brotli compression', async function({ context, server }) {
   expect(await response.text()).toBe('Hello, world!');
 });
 
-it('should throw informative error on corrupted brotli body', async function({ context, server }) {
+it('FE-145 should throw informative error on corrupted brotli body', async function({ context, server }) {
   server.setRoute('/corrupted', (req, res) => {
     res.writeHead(200, {
       'Content-Encoding': 'br',
@@ -731,7 +975,7 @@ it('should throw informative error on corrupted brotli body', async function({ c
   expect(error.message).toContain(`failed to decompress 'br' encoding`);
 });
 
-it('should support deflate compression', async function({ context, server }) {
+it('FE-146 should support deflate compression', async function({ context, server }) {
   server.setRoute('/compressed', (req, res) => {
     res.writeHead(200, {
       'Content-Encoding': 'deflate',
@@ -751,7 +995,7 @@ it('should support deflate compression', async function({ context, server }) {
   expect(await response.text()).toBe('Hello, world!');
 });
 
-it('should throw informative error on corrupted deflate body', async function({ context, server }) {
+it('FE-147 should throw informative error on corrupted deflate body', async function({ context, server }) {
   server.setRoute('/corrupted', (req, res) => {
     res.writeHead(200, {
       'Content-Encoding': 'deflate',
@@ -765,7 +1009,7 @@ it('should throw informative error on corrupted deflate body', async function({ 
   expect(error.message).toContain(`failed to decompress 'deflate' encoding`);
 });
 
-it('should support timeout option', async function({ context, server }) {
+it('FE-148 should support timeout option', async function({ context, server }) {
   server.setRoute('/slow', (req, res) => {
     res.writeHead(200, {
       'content-length': 4096,
@@ -774,10 +1018,10 @@ it('should support timeout option', async function({ context, server }) {
   });
 
   const error = await context.request.get(server.PREFIX + '/slow', { timeout: 10 }).catch(e => e);
-  expect(error.message).toContain(`Request timed out after 10ms`);
+  expect(error.message).toContain(`apiRequestContext.get: Timeout 10ms exceeded`);
 });
 
-it('should support a timeout of 0', async function({ context, server }) {
+it('FE-149 should support a timeout of 0', async function({ context, server }) {
   server.setRoute('/slow', (req, res) => {
     res.writeHead(200, {
       'content-length': 4,
@@ -794,7 +1038,7 @@ it('should support a timeout of 0', async function({ context, server }) {
   expect(await response.text()).toBe('done');
 });
 
-it('should respect timeout after redirects', async function({ context, server }) {
+it('FE-150 should respect timeout after redirects', async function({ context, server }) {
   server.setRedirect('/redirect', '/slow');
   server.setRoute('/slow', (req, res) => {
     res.writeHead(200, {
@@ -805,12 +1049,12 @@ it('should respect timeout after redirects', async function({ context, server })
 
   context.setDefaultTimeout(100);
   const error = await context.request.get(server.PREFIX + '/redirect').catch(e => e);
-  expect(error.message).toContain(`Request timed out after 100ms`);
+  expect(error.message).toContain(`apiRequestContext.get: Timeout 100ms exceeded`);
 });
 
-it('should not hang on a brotli encoded Range request', async ({ context, server }) => {
+it('FE-151 should not hang on a brotli encoded Range request', async ({ context, server, nodeVersion }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/18190' });
-  it.skip(+process.versions.node.split('.')[0] < 18);
+  it.skip(nodeVersion.major < 18);
 
   const encodedRequestPayload = zlib.brotliCompressSync(Buffer.from('A'));
   server.setRoute('/brotli', (req, res) => {
@@ -828,10 +1072,10 @@ it('should not hang on a brotli encoded Range request', async ({ context, server
     headers: {
       range: 'bytes=0-2',
     },
-  })).rejects.toThrow(/(failed to decompress 'br' encoding: Error: unexpected end of file|Parse Error: Data after \`Connection: close\`)/);
+  })).rejects.toThrow(/Parse Error: Expected HTTP/);
 });
 
-it('should dispose', async function({ context, server }) {
+it('FE-152 should dispose', async function({ context, server }) {
   const response = await context.request.get(server.PREFIX + '/simple.json');
   expect(await response.json()).toEqual({ foo: 'bar' });
   await response.dispose();
@@ -839,7 +1083,7 @@ it('should dispose', async function({ context, server }) {
   expect(error.message).toContain('Response has been disposed');
 });
 
-it('should dispose when context closes', async function({ context, server }) {
+it('FE-153 should dispose when context closes', async function({ context, server }) {
   const response = await context.request.get(server.PREFIX + '/simple.json');
   expect(await response.json()).toEqual({ foo: 'bar' });
   await context.close();
@@ -847,7 +1091,7 @@ it('should dispose when context closes', async function({ context, server }) {
   expect(error.message).toContain('Response has been disposed');
 });
 
-it('should override request parameters', async function({ context, page, server }) {
+it('FE-154 should override request parameters', async function({ context, page, server }) {
   const [pageReq] = await Promise.all([
     page.waitForRequest('**/*'),
     page.goto(server.EMPTY_PAGE)
@@ -867,7 +1111,7 @@ it('should override request parameters', async function({ context, page, server 
   expect((await req.postBody).toString('utf8')).toBe('data');
 });
 
-it('should support application/x-www-form-urlencoded', async function({ context, page, server }) {
+it('FE-155 should support application/x-www-form-urlencoded', async function({ context, page, server }) {
   const [req] = await Promise.all([
     server.waitForRequest('/empty.html'),
     context.request.post(server.EMPTY_PAGE, {
@@ -888,7 +1132,23 @@ it('should support application/x-www-form-urlencoded', async function({ context,
   expect(params.get('file')).toBe('f.js');
 });
 
-it('should encode to application/json by default', async function({ context, page, server }) {
+it('FE-156 should support application/x-www-form-urlencoded with param lists', async function({ context, page, server }) {
+  const form = new FormData();
+  form.append('foo', '1');
+  form.append('foo', '2');
+  const [req] = await Promise.all([
+    server.waitForRequest('/empty.html'),
+    context.request.post(server.EMPTY_PAGE, { form })
+  ]);
+  expect(req.method).toBe('POST');
+  expect(req.headers['content-type']).toBe('application/x-www-form-urlencoded');
+  const body = (await req.postBody).toString('utf8');
+  const params = new URLSearchParams(body);
+  expect(req.headers['content-length']).toBe(String(params.toString().length));
+  expect(params.getAll('foo')).toEqual(['1', '2']);
+});
+
+it('FE-157 should encode to application/json by default', async function({ context, page, server }) {
   const data = {
     firstName: 'John',
     lastName: 'Doe',
@@ -907,7 +1167,7 @@ it('should encode to application/json by default', async function({ context, pag
   expect(json).toEqual(data);
 });
 
-it('should support multipart/form-data', async function({ context, server }) {
+it('FE-158 should support multipart/form-data', async function({ context, server }) {
   const formReceived = new Promise<{error: any, fields: formidable.Fields, files: Record<string, formidable.File>, serverRequest: IncomingMessage}>(resolve => {
     server.setRoute('/empty.html', async (serverRequest, res) => {
       const form = new formidable.IncomingForm();
@@ -928,6 +1188,7 @@ it('should support multipart/form-data', async function({ context, server }) {
     context.request.post(server.EMPTY_PAGE, {
       multipart: {
         firstName: 'John',
+        middleName: '',
         lastName: 'Doe',
         file
       }
@@ -937,6 +1198,7 @@ it('should support multipart/form-data', async function({ context, server }) {
   expect(serverRequest.method).toBe('POST');
   expect(serverRequest.headers['content-type']).toContain('multipart/form-data');
   expect(fields['firstName']).toBe('John');
+  expect(fields['middleName']).toBe('');
   expect(fields['lastName']).toBe('Doe');
   expect(files['file'].originalFilename).toBe(file.name);
   expect(files['file'].mimetype).toBe(file.mimeType);
@@ -944,7 +1206,37 @@ it('should support multipart/form-data', async function({ context, server }) {
   expect(response.status()).toBe(200);
 });
 
-it('should support multipart/form-data with ReadStream values', async function({ context, page, asset, server }) {
+it('FE-159 should escape quotes and newlines in multipart field and file names', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43422' } }, async function({ context, server }) {
+  const bodyReceived = new Promise<{ contentType: string, body: Buffer }>(resolve => {
+    server.setRoute('/empty.html', async (serverRequest, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of serverRequest)
+        chunks.push(chunk);
+      server.serveFile(serverRequest, res);
+      resolve({ contentType: serverRequest.headers['content-type'], body: Buffer.concat(chunks) });
+    });
+  });
+  const [{ contentType, body }] = await Promise.all([
+    bodyReceived,
+    context.request.post(server.EMPTY_PAGE, {
+      multipart: {
+        'say"hi\nthere': 'v1',
+        'file': { name: 'report "final"\r\n.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') },
+      },
+    }),
+  ]);
+  const headers = body.toString().split('\r\n').filter(line => line.startsWith('content-disposition'));
+  expect(headers).toEqual([
+    'content-disposition: form-data; name="say%22hi%0D%0Athere"',
+    'content-disposition: form-data; name="file"; filename="report %22final%22%0D%0A.txt"',
+  ]);
+  // Node's standard multipart parser expects that escaping.
+  const form = await new Request('http://localhost/', { method: 'POST', headers: { 'content-type': contentType }, body: new Uint8Array(body) }).formData();
+  expect(form.get('say"hi\r\nthere')).toBe('v1');
+  expect(await (form.get('file') as File).text()).toBe('hello');
+});
+
+it('FE-160 should support multipart/form-data with ReadStream values', async function({ context, page, asset, server }) {
   const formReceived = new Promise<{error: any, fields: formidable.Fields, files: Record<string, formidable.File>, serverRequest: IncomingMessage}>(resolve => {
     server.setRoute('/empty.html', async (serverRequest, res) => {
       const form = new formidable.IncomingForm();
@@ -977,7 +1269,7 @@ it('should support multipart/form-data with ReadStream values', async function({
   expect(response.status()).toBe(200);
 });
 
-it('should support multipart/form-data and keep the order', async function({ context, page, asset, server }) {
+it('FE-161 should support multipart/form-data and keep the order', async function({ context, page, asset, server }) {
   const given = {
     firstName: 'John',
     lastName: 'Doe',
@@ -1006,10 +1298,9 @@ it('should support multipart/form-data and keep the order', async function({ con
   expect(response.status()).toBe(200);
 });
 
-it('should support repeating names in multipart/form-data', async function({ context, server }) {
+it('FE-162 should support repeating names in multipart/form-data', async function({ context, server, nodeVersion }) {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28070' });
-  const nodeVersion = +process.versions.node.split('.')[0];
-  it.skip(nodeVersion < 20, 'File is not available in Node.js < 20. FormData is not available in Node.js < 18');
+  it.skip(nodeVersion.major < 20, 'File is not available in Node.js < 20. FormData is not available in Node.js < 18');
   const postBodyPromise = new Promise<string>(resolve => {
     server.setRoute('/empty.html', async (req, res) => {
       resolve((await req.postBody).toString('utf-8'));
@@ -1039,7 +1330,7 @@ it('should support repeating names in multipart/form-data', async function({ con
   expect(response.status()).toBe(200);
 });
 
-it('should serialize data to json regardless of content-type', async function({ context, server }) {
+it('FE-163 should serialize data to json regardless of content-type', async function({ context, server }) {
   const data = {
     firstName: 'John',
     lastName: 'Doe',
@@ -1059,7 +1350,7 @@ it('should serialize data to json regardless of content-type', async function({ 
   expect(body).toEqual(JSON.stringify(data));
 });
 
-it('should throw nice error on unsupported data type', async function({ context, server }) {
+it('FE-164 should throw nice error on unsupported data type', async function({ context, server }) {
   const error = await context.request.post(server.EMPTY_PAGE, {
     headers: {
       'content-type': 'application/json'
@@ -1069,7 +1360,7 @@ it('should throw nice error on unsupported data type', async function({ context,
   expect(error.message).toContain(`Unexpected 'data' type`);
 });
 
-it('context request should export same storage state as context', async ({ context, page, server }) => {
+it('FE-165 context request should export same storage state as context', async ({ context, page, server }) => {
   server.setRoute('/setcookie.html', (req, res) => {
     res.setHeader('Set-Cookie', ['a=b', 'c=d']);
     res.end();
@@ -1083,7 +1374,8 @@ it('context request should export same storage state as context', async ({ conte
   expect(pageState).toEqual(contextState);
 });
 
-it('should send secure cookie over http for localhost', async ({ page, server }) => {
+it('FE-166 should send secure cookie over http for localhost', async ({ page, server, channel }) => {
+  it.skip(channel === 'webkit-wsl');
   server.setRoute('/setcookie.html', (req, res) => {
     res.setHeader('Set-Cookie', ['a=v; secure']);
     res.end();
@@ -1096,7 +1388,7 @@ it('should send secure cookie over http for localhost', async ({ page, server })
   expect(serverRequest.headers.cookie).toBe('a=v');
 });
 
-it('should accept bool and numeric params', async ({ page, server }) => {
+it('FE-167 should accept bool and numeric params and filter out undefined', async ({ page, server }) => {
   let request;
   const url = new URL(server.EMPTY_PAGE);
   url.searchParams.set('str', 's');
@@ -1113,6 +1405,7 @@ it('should accept bool and numeric params', async ({ page, server }) => {
       'num': 10,
       'bool': true,
       'bool2': false,
+      'none': undefined,
     }
   });
   const params = new URLSearchParams(request!.url.substr(request!.url.indexOf('?')));
@@ -1120,9 +1413,10 @@ it('should accept bool and numeric params', async ({ page, server }) => {
   expect(params.get('num')).toEqual('10');
   expect(params.get('bool')).toEqual('true');
   expect(params.get('bool2')).toEqual('false');
+  expect(params.has('none')).toBe(false);
 });
 
-it('should abort requests when browser context closes', async ({ contextFactory, server }) => {
+it('FE-168 should abort requests when browser context closes', async ({ contextFactory, server }) => {
   const connectionClosed = new Promise(resolve => {
     server.setRoute('/empty.html', (req, res) => {
       req.socket.on('close', resolve);
@@ -1135,11 +1429,11 @@ it('should abort requests when browser context closes', async ({ contextFactory,
     server.waitForRequest('/empty.html').then(() => context.close())
   ]);
   expect(error instanceof Error).toBeTruthy();
-  expect(error.message).toContain(kTargetClosedErrorMessage);
+  expect(error.message).toMatch(/Request context disposed|Target page, context or browser has been closed/);
   await connectionClosed;
 });
 
-it('should work with connectOverCDP', async ({ browserName, browserType, server }, testInfo) => {
+it('FE-169 should work with connectOverCDP', async ({ browserName, browserType, server }, testInfo) => {
   it.skip(browserName !== 'chromium');
   const port = 9339 + testInfo.workerIndex;
   const browserServer = await browserType.launch({
@@ -1157,7 +1451,7 @@ it('should work with connectOverCDP', async ({ browserName, browserType, server 
   }
 });
 
-it('should support SameSite cookie attribute over https', async ({ contextFactory, httpsServer, browserName, isWindows }) => {
+it('FE-170 should support SameSite cookie attribute over https', async ({ contextFactory, httpsServer, browserName, isWindows, channel }) => {
   // Cookies with SameSite=None must also specify the Secure attribute. WebKit navigation
   // to HTTP url will fail if the response contains a cookie with Secure attribute, so
   // we do HTTPS navigation.
@@ -1171,7 +1465,7 @@ it('should support SameSite cookie attribute over https', async ({ contextFactor
       });
       await page.request.get(httpsServer.EMPTY_PAGE);
       const [cookie] = await page.context().cookies();
-      if (browserName === 'webkit' && isWindows)
+      if (browserName === 'webkit' && isWindows && channel !== 'webkit-wsl')
         expect(cookie.sameSite).toBe('None');
       else
         expect(cookie.sameSite).toBe(value);
@@ -1179,9 +1473,9 @@ it('should support SameSite cookie attribute over https', async ({ contextFactor
   }
 });
 
-it('should set domain=localhost cookie', async ({ context, server, browserName, isWindows }) => {
+it('FE-171 should set domain=localhost cookie', async ({ context, server, browserName, isWindows }) => {
   server.setRoute('/empty.html', (req, res) => {
-    res.setHeader('Set-Cookie', `name=val; Domain=localhost; Path=/;`);
+    res.setHeader('Set-Cookie', `name=val; Domain=${server.HOSTNAME}; Path=/;`);
     res.end();
   });
   await context.request.get(server.EMPTY_PAGE);
@@ -1191,7 +1485,7 @@ it('should set domain=localhost cookie', async ({ context, server, browserName, 
   expect(cookie.value).toBe('val');
 });
 
-it('fetch should not throw on long set-cookie value', async ({ context, server }) => {
+it('FE-172 fetch should not throw on long set-cookie value', async ({ context, server }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27165' });
   server.setRoute('/empty.html', (req, res) => {
     res.setHeader('Set-Cookie', [`foo=${'a'.repeat(4100)}; path=/;`, `bar=val`]);
@@ -1202,7 +1496,7 @@ it('fetch should not throw on long set-cookie value', async ({ context, server }
   expect(cookies.map(c => c.name)).toContain('bar');
 });
 
-it('should support set-cookie with SameSite and without Secure attribute over HTTP', async ({ page, server, browserName, isWindows }) => {
+it('FE-173 should support set-cookie with SameSite and without Secure attribute over HTTP', async ({ page, server, browserName, isWindows, isLinux, channel, isBidi }) => {
   for (const value of ['None', 'Lax', 'Strict']) {
     await it.step(`SameSite=${value}`, async () => {
       server.setRoute('/empty.html', (req, res) => {
@@ -1211,9 +1505,11 @@ it('should support set-cookie with SameSite and without Secure attribute over HT
       });
       await page.request.get(server.EMPTY_PAGE);
       const [cookie] = await page.context().cookies();
-      if (browserName === 'chromium' && value === 'None')
+      if ((browserName === 'chromium' || isBidi) && value === 'None')
         expect(cookie).toBeFalsy();
-      else if (browserName === 'webkit' && isWindows)
+      else if (browserName === 'webkit' && (isLinux || channel === 'webkit-wsl') && value === 'None')
+        expect(cookie).toBeFalsy();
+      else if (browserName === 'webkit' && isWindows && channel !== 'webkit-wsl')
         expect(cookie.sameSite).toBe('None');
       else
         expect(cookie.sameSite).toBe(value);
@@ -1221,7 +1517,7 @@ it('should support set-cookie with SameSite and without Secure attribute over HT
   }
 });
 
-it('should update host header on redirect', async ({ context, server }) => {
+it('FE-174 should update host header on redirect', async ({ context, server }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/26743' });
   let redirectCount = 0;
   server.setRoute('/redirect', (req, res) => {
@@ -1241,7 +1537,7 @@ it('should update host header on redirect', async ({ context, server }) => {
   });
   const reqPromise = server.waitForRequest('/test');
   const response = await context.request.get(server.PREFIX + '/redirect', {
-    headers: { host: new URL(server.PREFIX).host }
+    headers: { HosT: new URL(server.PREFIX).host }
   });
   expect(redirectCount).toBe(2);
   await expect(response).toBeOK();
@@ -1250,13 +1546,90 @@ it('should update host header on redirect', async ({ context, server }) => {
   expect((await reqPromise).headers.host).toBe(new URL(server.CROSS_PROCESS_PREFIX).host);
 });
 
-it('should not work after dispose', async ({ context, server }) => {
+it('FE-175 should not work after dispose', async ({ context, server }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27822' });
   await context.request.dispose();
   expect(await context.request.get(server.EMPTY_PAGE).catch(e => e.message)).toContain(kTargetClosedErrorMessage);
 });
 
-it('should not work after context dispose', async ({ context, server }) => {
+it('FE-176 should not work after context dispose', async ({ context, server }) => {
   await context.close({ reason: 'Test ended.' });
   expect(await context.request.get(server.EMPTY_PAGE).catch(e => e.message)).toContain('Test ended.');
+});
+
+it('FE-177 should retry on ECONNRESET', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30978' }
+}, async ({ context, server }) => {
+  let requestCount = 0;
+  server.setRoute('/test', (req, res) => {
+    if (requestCount++ < 3) {
+      req.socket.destroy();
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end('Hello!');
+  });
+  const response = await context.request.get(server.PREFIX + '/test', { maxRetries: 3 });
+  expect(response.status()).toBe(200);
+  expect(await response.text()).toBe('Hello!');
+  expect(requestCount).toBe(4);
+});
+
+it('FE-178 should retry ECONNRESET on compressed response', async ({ context, server }) => {
+  let requestCount = 0;
+  server.setRoute('/test-gzip', (req, res) => {
+    if (requestCount++ < 2) {
+      req.socket.destroy();
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Encoding': 'gzip',
+      'Content-Type': 'text/plain',
+    });
+    const gzipStream = zlib.createGzip();
+    pipeline(gzipStream, res, err => {
+      if (err)
+        console.log(`Server error: ${err}`);
+    });
+    gzipStream.write('compressed-retry-ok');
+    gzipStream.end();
+  });
+  const response = await context.request.get(server.PREFIX + '/test-gzip', { maxRetries: 3 });
+  expect(response.status()).toBe(200);
+  expect(await response.text()).toBe('compressed-retry-ok');
+  expect(requestCount).toBe(3);
+});
+
+it('FE-179 should retry ECONNRESET mid-stream during gzip decompression', async ({ context, server }) => {
+  let requestCount = 0;
+  server.setRoute('/test-gzip-midstream', (req, res) => {
+    requestCount++;
+    if (requestCount <= 2) {
+      // Send response headers to make client enter the decompression pipeline,
+      // then destroy the socket. This exercises the fix: without it, the
+      // pipeline error callback wraps the error, stripping .code for retry.
+      res.writeHead(200, {
+        'Content-Encoding': 'gzip',
+        'Content-Type': 'text/plain',
+      });
+      res.flushHeaders();
+      req.socket.destroy();
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Encoding': 'gzip',
+      'Content-Type': 'text/plain',
+    });
+    const gzipStream = zlib.createGzip();
+    pipeline(gzipStream, res, err => {
+      if (err)
+        console.log(`Server error: ${err}`);
+    });
+    gzipStream.write('midstream-retry-ok');
+    gzipStream.end();
+  });
+  const response = await context.request.get(server.PREFIX + '/test-gzip-midstream', { maxRetries: 3 });
+  expect(response.status()).toBe(200);
+  expect(await response.text()).toBe('midstream-retry-ok');
+  expect(requestCount).toBe(3);
 });

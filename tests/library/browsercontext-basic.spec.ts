@@ -20,18 +20,20 @@ import { browserTest as it, expect } from '../config/browserTest';
 import { attachFrame, verifyViewport } from '../config/utils';
 import type { Page } from '@playwright/test';
 
-it('should create new context @smoke', async function({ browser }) {
+it('BC-001 should create new context @smoke', async function({ browser }) {
   expect(browser.contexts().length).toBe(0);
   const context = await browser.newContext();
-  expect(browser.contexts().length).toBe(1);
-  expect(browser.contexts().indexOf(context) !== -1).toBe(true);
+  expect(browser.contexts()).toEqual([context]);
   expect(browser).toBe(context.browser());
+  const context2 = await browser.newContext();
+  expect(browser.contexts()).toEqual([context, context2]);
   await context.close();
-  expect(browser.contexts().length).toBe(0);
+  expect(browser.contexts()).toEqual([context2]);
   expect(browser).toBe(context.browser());
+  await context2.close();
 });
 
-it('should be able to click across browser contexts', async function({ browser }) {
+it('BC-002 should be able to click across browser contexts', async function({ browser }) {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29096' });
   expect(browser.contexts().length).toBe(0);
 
@@ -67,7 +69,93 @@ it('should be able to click across browser contexts', async function({ browser }
   await page2.close();
 });
 
-it('window.open should use parent tab context', async function({ browser, server }) {
+it('BC-084 should locate only visible elements when configured', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43855' },
+}, async ({ page, contextFactory }) => {
+  const content = `
+    <section hidden><button data-testid="save">Save</button></section>
+    <section style="display: contents">
+      <button data-testid="save" onclick="this.textContent = 'Saved'">Save<span hidden>marker</span></button>
+    </section>
+    <iframe srcdoc="<button hidden>Save</button><button>Save</button>"></iframe>
+  `;
+  await page.setContent(content);
+  await expect(page.getByTestId('save')).toHaveCount(2);
+  await expect(page.getByTestId('save').click()).rejects.toThrow('strict mode violation');
+
+  const context = await contextFactory({ locateOnlyVisible: true });
+  const visiblePage = await context.newPage();
+  await visiblePage.setContent(content);
+  const save = visiblePage.getByTestId('save');
+  await expect(save).toHaveCount(1);
+  expect(await save.count()).toBe(1);
+  expect(await save.allTextContents()).toEqual(['Savemarker']);
+  const [onlySave] = await save.all();
+  await expect(onlySave).toHaveText('Savemarker');
+  await expect(save.first()).toHaveText('Savemarker');
+  await expect(save.last()).toHaveText('Savemarker');
+  await expect(save.visible().first()).toHaveCount(1);
+  await expect(visiblePage.locator('section').first().getByTestId('save')).toHaveCount(1);
+  await expect(visiblePage.locator('body').filter({ has: save.first().getByText('marker') })).toHaveCount(1);
+  await expect(visiblePage.locator('button >> nth=0')).toHaveText('Savemarker');
+  await expect(visiblePage.locator('section').getByTestId('save')).toHaveCount(1);
+  await expect(visiblePage.locator('section').locator(save)).toHaveCount(1);
+  await expect(save.filter({ has: visiblePage.getByText('marker') })).toHaveCount(1);
+  await expect(save.and(visiblePage.locator('button')).or(visiblePage.locator('missing'))).toHaveCount(1);
+  await expect(save.describe('save button')).toHaveText('Savemarker');
+  await save.click();
+  await expect(save).toHaveText('Saved');
+  await expect(visiblePage.frameLocator('iframe').getByText('Save')).toHaveCount(1);
+  await expect(visiblePage.frameLocator('iframe').first().getByText('Save').first()).toHaveCount(1);
+  await expect(visiblePage.locator('iframe').contentFrame().locator(visiblePage.getByText('Save'))).toHaveCount(1);
+  await expect(visiblePage.locator('section[hidden]')).toBeHidden();
+  await visiblePage.locator('section[hidden]').waitFor({ state: 'hidden' });
+  expect(await visiblePage.$$('button')).toHaveLength(2);
+  await expect(save.filter({ visible: false })).toHaveCount(1);
+  await expect(save.filter({ visible: false }).first()).toHaveCount(1);
+  await expect(save.filter({ visible: false }).describe('hidden save').first()).toHaveCount(1);
+
+  await visiblePage.setContent('<input type="file" hidden>');
+  const fileInput = visiblePage.locator('input').filter({ visible: false });
+  await fileInput.setInputFiles({ name: 'file.txt', mimeType: 'text/plain', buffer: Buffer.from('contents') });
+  expect(await fileInput.evaluate(input => (input as HTMLInputElement).files[0].name)).toBe('file.txt');
+});
+
+it('BC-003 should be able to hover across browser contexts in parallel', async function({ browser, browserName, headless }) {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/40562' });
+  it.fixme(browserName === 'firefox' && !headless, 'Hover is flaky in headed Firefox');
+
+  const html = `
+    <style>
+      [role="tooltip"] { display: none; }
+      [role="tooltip"].visible { display: block; }
+    </style>
+    <button>Hover me</button>
+    <div role="tooltip">Tooltip content</div>
+    <script>
+      const button = document.querySelector('button');
+      const tooltip = document.querySelector('[role="tooltip"]');
+      button.addEventListener('pointerenter', () => tooltip.classList.add('visible'));
+      button.addEventListener('pointerleave', () => tooltip.classList.remove('visible'));
+    </script>
+  `;
+
+  const pages: Page[] = await Promise.all([1, 2, 3, 4, 5].map(async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.setContent(html);
+    return page;
+  }));
+
+  await Promise.all(pages.map(async (page, index) => {
+    await page.getByRole('button', { name: 'Hover me' }).hover();
+    await expect.soft(page.getByRole('tooltip'), `Tooltip for page ${index + 1} should be visible`).toBeVisible();
+  }));
+
+  await Promise.all(pages.map(page => page.context().close()));
+});
+
+it('BC-004 window.open should use parent tab context', async function({ browser, server }) {
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto(server.EMPTY_PAGE);
@@ -79,7 +167,7 @@ it('window.open should use parent tab context', async function({ browser, server
   await context.close();
 });
 
-it('should isolate localStorage and cookies @smoke', async function({ browser, server }) {
+it('BC-005 should isolate localStorage and cookies @smoke', async function({ browser, server }) {
   // Create two incognito contexts.
   const context1 = await browser.newContext();
   const context2 = await browser.newContext();
@@ -124,14 +212,14 @@ it('should isolate localStorage and cookies @smoke', async function({ browser, s
   expect(browser.contexts().length).toBe(0);
 });
 
-it('should propagate default viewport to the page', async ({ browser }) => {
+it('BC-006 should propagate default viewport to the page', async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 456, height: 789 } });
   const page = await context.newPage();
   await verifyViewport(page, 456, 789);
   await context.close();
 });
 
-it('should make a copy of default viewport', async ({ browser }) => {
+it('BC-007 should make a copy of default viewport', async ({ browser }) => {
   const viewport = { width: 456, height: 789 };
   const context = await browser.newContext({ viewport });
   viewport.width = 567;
@@ -140,29 +228,29 @@ it('should make a copy of default viewport', async ({ browser }) => {
   await context.close();
 });
 
-it('should respect deviceScaleFactor', async ({ browser }) => {
+it('BC-008 should respect deviceScaleFactor', async ({ browser }) => {
   const context = await browser.newContext({ deviceScaleFactor: 3 });
   const page = await context.newPage();
   expect(await page.evaluate('window.devicePixelRatio')).toBe(3);
   await context.close();
 });
 
-it('should not allow deviceScaleFactor with null viewport', async ({ browser }) => {
+it('BC-009 should not allow deviceScaleFactor with null viewport', async ({ browser }) => {
   const error = await browser.newContext({ viewport: null, deviceScaleFactor: 1 }).catch(e => e);
   expect(error.message).toContain('"deviceScaleFactor" option is not supported with null "viewport"');
 });
 
-it('should not allow isMobile with null viewport', async ({ browser }) => {
+it('BC-010 should not allow isMobile with null viewport', async ({ browser }) => {
   const error = await browser.newContext({ viewport: null, isMobile: true }).catch(e => e);
   expect(error.message).toContain('"isMobile" option is not supported with null "viewport"');
 });
 
-it('close() should work for empty context', async ({ browser }) => {
+it('BC-011 close() should work for empty context', async ({ browser }) => {
   const context = await browser.newContext();
   await context.close();
 });
 
-it('close() should abort waitForEvent', async ({ browser }) => {
+it('BC-012 close() should abort waitForEvent', async ({ browser }) => {
   const context = await browser.newContext();
   const promise = context.waitForEvent('page').catch(e => e);
   await context.close();
@@ -170,13 +258,13 @@ it('close() should abort waitForEvent', async ({ browser }) => {
   expect(error.message).toContain(kTargetClosedErrorMessage);
 });
 
-it('close() should be callable twice', async ({ browser }) => {
+it('BC-013 close() should be callable twice', async ({ browser }) => {
   const context = await browser.newContext();
   await context.close();
   await context.close();
 });
 
-it('should pass self to close event', async ({ browser }) => {
+it('BC-014 should pass self to close event', async ({ browser }) => {
   const newContext = await browser.newContext();
   const [closedContext] = await Promise.all([
     newContext.waitForEvent('close'),
@@ -185,7 +273,7 @@ it('should pass self to close event', async ({ browser }) => {
   expect(closedContext).toBe(newContext);
 });
 
-it('should not report frameless pages on error', async ({ browser, server }) => {
+it('BC-015 should not report frameless pages on error', async ({ browser, server }) => {
   const context = await browser.newContext();
   const page = await context.newPage();
   server.setRoute('/empty.html', (req, res) => {
@@ -203,7 +291,7 @@ it('should not report frameless pages on error', async ({ browser, server }) => 
   }
 });
 
-it('should return all of the pages', async ({ browser, server }) => {
+it('BC-016 should return all of the pages', async ({ browser, server }) => {
   const context = await browser.newContext();
   const page = await context.newPage();
   const second = await context.newPage();
@@ -214,7 +302,7 @@ it('should return all of the pages', async ({ browser, server }) => {
   await context.close();
 });
 
-it('should close all belonging pages once closing context', async function({ browser }) {
+it('BC-017 should close all belonging pages once closing context', async function({ browser }) {
   const context = await browser.newContext();
   await context.newPage();
   expect(context.pages().length).toBe(1);
@@ -223,7 +311,7 @@ it('should close all belonging pages once closing context', async function({ bro
   expect(context.pages().length).toBe(0);
 });
 
-it('should disable javascript', async ({ browser, browserName }) => {
+it('BC-018 should disable javascript', async ({ browser, browserName }) => {
   {
     const context = await browser.newContext({ javaScriptEnabled: false });
     const page = await context.newPage();
@@ -246,22 +334,22 @@ it('should disable javascript', async ({ browser, browserName }) => {
   }
 });
 
-it('should be able to navigate after disabling javascript', async ({ browser, server }) => {
+it('BC-019 should be able to navigate after disabling javascript', async ({ browser, server }) => {
   const context = await browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
   await page.goto(server.EMPTY_PAGE);
   await context.close();
 });
 
-it('should not hang on promises after disabling javascript', async ({ browserName, contextFactory }) => {
-  it.fixme(browserName === 'webkit' || browserName === 'firefox');
+it('BC-020 should not hang on promises after disabling javascript', async ({ browserName, contextFactory, isBidi }) => {
+  it.fixme(browserName === 'firefox' && !isBidi);
   const context = await contextFactory({ javaScriptEnabled: false });
   const page = await context.newPage();
   expect(await page.evaluate(() => 1)).toBe(1);
   expect(await page.evaluate(async () => 2)).toBe(2);
 });
 
-it('setContent should work after disabling javascript', async ({ contextFactory }) => {
+it('BC-021 setContent should work after disabling javascript', async ({ contextFactory }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/18235' });
   const context = await contextFactory({ javaScriptEnabled: false });
   const page = await context.newPage();
@@ -269,7 +357,25 @@ it('setContent should work after disabling javascript', async ({ contextFactory 
   await expect(page.locator('h1')).toHaveText('Hello');
 });
 
-it('should work with offline option', async ({ browser, server, browserName }) => {
+it('BC-022 should retry click after disabling javascript', async ({ contextFactory }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/42977' });
+  const context = await contextFactory({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  await page.setContent(`
+    <details><summary>Continue</summary>Details</details>
+    <div id="cover" style="position: fixed; inset: 0;"></div>
+  `);
+  let clicked = false;
+  const clickPromise = page.locator('summary').click().then(() => clicked = true);
+  // Give it enough time to go through a few retries while the button is covered.
+  await page.waitForTimeout(2000);
+  expect(clicked).toBe(false);
+  await page.locator('#cover').evaluate(e => e.remove());
+  await clickPromise;
+  await expect(page.locator('details')).toHaveAttribute('open', '');
+});
+
+it('BC-023 should work with offline option', async ({ browser, server, browserName }) => {
   const context = await browser.newContext({ offline: true });
   const page = await context.newPage();
   let error = null;
@@ -291,7 +397,35 @@ it('should work with offline option', async ({ browser, server, browserName }) =
   await context.close();
 });
 
-it('should emulate navigator.onLine', async ({ browser, server }) => {
+it('BC-024 fetch with keepalive should throw when offline', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/35701' },
+}, async ({ contextFactory, server }) => {
+  const context = await contextFactory();
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
+
+  const url = server.PREFIX + '/fetch';
+  server.setRoute('/fetch', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify('hello'));
+  });
+
+  const okResponse = await page.evaluate(url => fetch(url, { cache: 'no-store', keepalive: true }).then(response => response.json()), url);
+  expect(okResponse).toEqual('hello');
+
+  await context.setOffline(true);
+  const offlineResponse = await page.evaluate(async url => {
+    try {
+      const response = await fetch(url, { cache: 'no-store', keepalive: true });
+      return await response.json();
+    } catch {
+      return 'error';
+    }
+  }, url);
+  expect(offlineResponse).toEqual('error');
+});
+
+it('BC-025 should emulate navigator.onLine', async ({ browser, server }) => {
   const context = await browser.newContext();
   const page = await context.newPage();
   expect(await page.evaluate(() => window.navigator.onLine)).toBe(true);
@@ -302,7 +436,55 @@ it('should emulate navigator.onLine', async ({ browser, server }) => {
   await context.close();
 });
 
-it('should emulate media in popup', async ({ browser, server }) => {
+it('BC-026 should emulate navigator.onLine across navigations', {
+  annotation: [
+    { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/42174' },
+    { type: 'issue', description: 'https://issues.chromium.org/issues/544795254' },
+  ],
+}, async ({ browser, server, browserName, browserMajorVersion }) => {
+  it.skip(browserName === 'chromium' && browserMajorVersion < 155, 'does not survive cross-process navgiation');
+
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
+  expect(await page.evaluate(() => window.navigator.onLine)).toBe(true);
+  await context.setOffline(true);
+  expect(await page.evaluate(() => window.navigator.onLine)).toBe(false);
+
+  await page.goto('about:blank');
+  expect(await page.evaluate(() => window.navigator.onLine)).toBe(false);
+  await page.goto('data:text/html,<title>offline</title>');
+  expect(await page.evaluate(() => window.navigator.onLine)).toBe(false);
+
+  if (browserName === 'chromium') {
+    // Try a cross-process navigation in Chromium, which allows routing while offline.
+    await page.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
+    await page.goto(server.CROSS_PROCESS_PREFIX + '/empty.html');
+    expect(await page.evaluate(() => window.navigator.onLine)).toBe(false);
+  }
+
+  await context.setOffline(false);
+  expect(await page.evaluate(() => window.navigator.onLine)).toBe(true);
+  await context.close();
+});
+
+it('BC-027 should emulate offline event', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/37295' } }, async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const events = await page.evaluateHandle(() => {
+    const events = [];
+    window.addEventListener('offline', () => events.push('offline'));
+    window.addEventListener('online', () => events.push('online'));
+    return events;
+  });
+  await context.setOffline(true);
+  await expect.poll(() => events.jsonValue()).toEqual(['offline']);
+  await context.setOffline(false);
+  await expect.poll(() => events.jsonValue()).toEqual(['offline', 'online']);
+  await context.close();
+});
+
+it('BC-028 should emulate media in popup', async ({ browser, server }) => {
   {
     const context = await browser.newContext({ colorScheme: 'dark' });
     const page = await context.newPage();
@@ -328,7 +510,7 @@ it('should emulate media in popup', async ({ browser, server }) => {
   }
 });
 
-it('should emulate media in cross-process iframe', async ({ browser, server }) => {
+it('BC-029 should emulate media in cross-process iframe', async ({ browser, server }) => {
   const page = await browser.newPage({ colorScheme: 'dark' });
   await page.goto(server.EMPTY_PAGE);
   await attachFrame(page, 'frame1', server.CROSS_PROCESS_PREFIX + '/empty.html');
@@ -337,8 +519,29 @@ it('should emulate media in cross-process iframe', async ({ browser, server }) =
   await page.close();
 });
 
-it('default user agent', async ({ launchPersistent, browser, page, mode }) => {
+it('BC-030 default user agent', async ({ launchPersistent, browser, page, mode }) => {
   it.skip(mode !== 'default');
   const { userAgent } = await (browser as any)._channel.defaultUserAgentForTest();
   expect(await page.evaluate(() => navigator.userAgent)).toBe(userAgent);
+});
+
+it('BC-031 should create two pages in parallel in various contexts', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/34586' }
+}, async ({ browser }) => {
+  const context1 = await browser.newContext();
+  const context2 = await browser.newContext();
+  await Promise.all([
+    context1.newPage(),
+    context1.newPage(),
+    context2.newPage(),
+    context2.newPage(),
+  ]);
+  await context1.close();
+  await context2.close();
+  const context3 = await browser.newContext();
+  await Promise.all([
+    context3.newPage(),
+    context3.newPage(),
+  ]);
+  await context3.close();
 });

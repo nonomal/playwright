@@ -31,18 +31,31 @@ export const Events = {
   },
 
   Browser: {
+    Context: 'context',
     Disconnected: 'disconnected'
+  },
+
+  Debugger: {
+    PausedStateChanged: 'pausedstatechanged',
+    ApiCallsUpdated: 'apicallsupdated',
   },
 
   BrowserContext: {
     Console: 'console',
     Close: 'close',
     Dialog: 'dialog',
+    DialogClosed: 'dialogclosed',
+    Download: 'download',
+    FrameAttached: 'frameattached',
+    FrameDetached: 'framedetached',
+    FrameNavigated: 'framenavigated',
     Page: 'page',
+    PageClose: 'pageclose',
+    PageLoad: 'pageload',
     // Can't use just 'error' due to node.js special treatment of error events.
     // @see https://nodejs.org/api/events.html#events_error_events
     WebError: 'weberror',
-    BackgroundPage: 'backgroundpage',
+    BackgroundPage: 'backgroundpage',  // Deprecated in v1.56, never emitted anymore.
     ServiceWorker: 'serviceworker',
     Request: 'request',
     Response: 'response',
@@ -59,6 +72,7 @@ export const Events = {
     Crash: 'crash',
     Console: 'console',
     Dialog: 'dialog',
+    DialogClosed: 'dialogclosed',
     Download: 'download',
     FileChooser: 'filechooser',
     DOMContentLoaded: 'domcontentloaded',
@@ -87,6 +101,7 @@ export const Events = {
 
   Worker: {
     Close: 'close',
+    Console: 'console',
   },
 
   ElectronApplication: {

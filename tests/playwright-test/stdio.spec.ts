@@ -65,7 +65,7 @@ test('should get stdio from worker fixture teardown', async ({ runInlineTest }) 
 test('should ignore stdio when quiet', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { quiet: true };
+      export default { quiet: true };
     `,
     'a.spec.js': `
       import { test, expect } from '@playwright/test';
@@ -116,4 +116,24 @@ test('should not throw type error when using assert', async ({ runInlineTest }) 
   });
   expect(result.output).not.toContain(`TypeError: process.stderr.hasColors is not a function`);
   expect(result.output).toContain(`AssertionError`);
+});
+
+test('should have debug colors by default, but respect DEBUG_COLORS=0', async ({ runInlineTest }) => {
+  const files = {
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      import debug from 'debug';
+      test('passes', () => {
+        const dbg = debug('example');
+        dbg.color = 34;  // red
+        dbg('some text');
+      });
+    `
+  };
+
+  const result1 = await runInlineTest(files, {}, { DEBUG: 'example', DEBUG_COLORS: undefined });
+  expect(result1.rawOutput).toContain('\x1b[38;5;34;1mexample \x1b[0msome text');
+
+  const result2 = await runInlineTest(files, {}, { DEBUG: 'example', DEBUG_COLORS: '0' });
+  expect(result2.rawOutput).not.toContain('\x1b[38;5;34;1mexample \x1b[0msome text');
 });

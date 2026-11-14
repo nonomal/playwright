@@ -17,45 +17,60 @@
 
 import { browserTest as it, expect } from '../config/browserTest';
 
-it('should work @smoke', async ({ browser, browserName }) => {
+it('TZ-001 should work @smoke', async ({ browser, browserName }) => {
+  // Note: timezone names are rendered differently between browsers and platforms,
+  // so we only check the GMT offset.
   const func = () => new Date(1479579154987).toString();
   {
     const context = await browser.newContext({ locale: 'en-US', timezoneId: 'America/Jamaica' });
     const page = await context.newPage();
-    expect(await page.evaluate(func)).toBe('Sat Nov 19 2016 13:12:34 GMT-0500 (Eastern Standard Time)');
+    expect.soft(await page.evaluate(func)).toContain('Sat Nov 19 2016 13:12:34 GMT-0500');
     await context.close();
   }
   {
     const context = await browser.newContext({ locale: 'en-US', timezoneId: 'Pacific/Honolulu' });
     const page = await context.newPage();
-    expect(await page.evaluate(func)).toBe('Sat Nov 19 2016 08:12:34 GMT-1000 (Hawaii-Aleutian Standard Time)');
+    expect.soft(await page.evaluate(func)).toContain('Sat Nov 19 2016 08:12:34 GMT-1000');
     await context.close();
   }
   {
-    const context = await browser.newContext({ locale: 'en-US', timezoneId: 'America/Buenos_Aires' });
+    const context = await browser.newContext({ locale: 'en-US', timezoneId: browserName === 'firefox' ? 'America/Argentina/Buenos_Aires' : 'America/Buenos_Aires' });
     const page = await context.newPage();
-    expect(await page.evaluate(func)).toBe('Sat Nov 19 2016 15:12:34 GMT-0300 (Argentina Standard Time)');
+    expect.soft(await page.evaluate(func)).toContain('Sat Nov 19 2016 15:12:34 GMT-0300');
     await context.close();
   }
   {
     const context = await browser.newContext({ locale: 'en-US', timezoneId: 'Europe/Berlin' });
     const page = await context.newPage();
-    expect(await page.evaluate(func)).toBe('Sat Nov 19 2016 19:12:34 GMT+0100 (Central European Standard Time)');
+    expect.soft(await page.evaluate(func)).toContain('Sat Nov 19 2016 19:12:34 GMT+0100');
     await context.close();
   }
 });
 
-it('should throw for invalid timezone IDs when creating pages', async ({ browser }) => {
+it('TZ-002 should throw for invalid timezone IDs when creating pages', async ({ browser, channel, browserName, isBidi }) => {
   for (const timezoneId of ['Foo/Bar', 'Baz/Qux']) {
-    let error = null;
-    const context = await browser.newContext({ timezoneId });
-    await context.newPage().catch(e => error = e);
-    expect(error.message).toContain(`Invalid timezone ID: ${timezoneId}`);
-    await context.close();
+    if (isBidi) {
+      const error = await browser.newContext({ timezoneId }).catch(e => e);
+      if (browserName === 'chromium')
+        expect(error.message).toContain(`Invalid timezone "${timezoneId}"`);
+      else if (browserName === 'firefox')
+        expect(error.message).toContain(`Expected "timezone" to be a valid timezone ID (e.g., "Europe/Berlin") or a valid timezone offset (e.g., "+01:00"), got ${timezoneId}`);
+    } else {
+      let error = null;
+      let context = null;
+      try {
+        context = await browser.newContext({ timezoneId });
+        await context.newPage();
+      } catch (e) {
+        error = e;
+      }
+      expect(error.message).toContain(`Invalid timezone ID: ${timezoneId}`);
+      await context?.close();
+    }
   }
 });
 
-it('should work for multiple pages sharing same process', async ({ browser, server }) => {
+it('TZ-003 should work for multiple pages sharing same process', async ({ browser, server }) => {
   const context = await browser.newContext({ timezoneId: 'Europe/Moscow' });
   const page = await context.newPage();
   await page.goto(server.EMPTY_PAGE);
@@ -70,7 +85,7 @@ it('should work for multiple pages sharing same process', async ({ browser, serv
   await context.close();
 });
 
-it('should not change default timezone in another context', async ({ browser, server }) => {
+it('TZ-004 should not change default timezone in another context', async ({ browser, server }) => {
   async function getContextTimezone(context) {
     const page = await context.newPage();
     return await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -95,10 +110,22 @@ it('should not change default timezone in another context', async ({ browser, se
   }
 });
 
-it('should affect Intl.DateTimeFormat().resolvedOptions().timeZone', async ({ browser, server }) => {
+it('TZ-005 should affect Intl.DateTimeFormat().resolvedOptions().timeZone', async ({ browser, server }) => {
   const context = await browser.newContext({ timezoneId: 'America/Jamaica' });
   const page = await context.newPage();
   await page.goto(server.EMPTY_PAGE);
   expect(await page.evaluate(() => (new Intl.DateTimeFormat()).resolvedOptions().timeZone)).toBe('America/Jamaica');
+  await context.close();
+});
+
+it('TZ-006 should propagate timezone to workers', async ({ browser, server }) => {
+  const context = await browser.newContext({ timezoneId: 'America/Jamaica' });
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
+  const [msg] = await Promise.all([
+    page.waitForEvent('console'),
+    page.evaluate(() => new Worker(URL.createObjectURL(new Blob(['console.log(Intl.DateTimeFormat().resolvedOptions().timeZone)'], { type: 'application/javascript' })))),
+  ]);
+  expect(msg.text()).toBe('America/Jamaica');
   await context.close();
 });

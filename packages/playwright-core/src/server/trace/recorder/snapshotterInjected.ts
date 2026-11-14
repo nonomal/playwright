@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import type { NodeSnapshot } from '@trace/snapshot';
+import type { NodeSnapshot } from '@isomorphic/trace/trace';
 
 export type SnapshotData = {
   doctype?: string,
@@ -27,7 +27,7 @@ export type SnapshotData = {
   }[],
   viewport: { width: number, height: number },
   url: string,
-  timestamp: number,
+  wallTime: number,
   collectionTime: number,
 };
 
@@ -47,6 +47,9 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
   const kTargetAttribute = '__playwright_target__';
   const kCustomElementsAttribute = '__playwright_custom_elements__';
   const kCurrentSrcAttribute = '__playwright_current_src__';
+  const kBoundingRectAttribute = '__playwright_bounding_rect__';
+  const kPopoverOpenAttribute = '__playwright_popover_open_';
+  const kDialogOpenAttribute = '__playwright_dialog_open_';
 
   // Symbols for our own info on Nodes/StyleSheets.
   const kSnapshotFrameId = Symbol('__playwright_snapshot_frameid_');
@@ -70,6 +73,8 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
     return obj[kCachedData];
   }
 
+  const kObserverConfig: MutationObserverInit = { attributes: true, subtree: true };
+
   function removeHash(url: string) {
     try {
       const u = new URL(url);
@@ -83,11 +88,22 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
   class Streamer {
     private _lastSnapshotNumber = 0;
     private _staleStyleSheets = new Set<CSSStyleSheet>();
+    private _modifiedStyleSheets = new Set<CSSStyleSheet>();
     private _readingStyleSheet = false;  // To avoid invalidating due to our own reads.
     private _fakeBase: HTMLBaseElement;
     private _observer: MutationObserver;
+    private _observedDocument: Document | undefined;
+    private _targetGeneration = 0;
+    private _nativeShadowRoot: typeof ShadowRoot;
+    private _nativeFirstChild: (this: Node) => Node | null;
+    private _nativeNextSibling: (this: Node) => Node | null;
 
     constructor() {
+      // Some pages overwrite the following native functions, so capture them in advance.
+      this._nativeShadowRoot = window.ShadowRoot;
+      this._nativeFirstChild = Object.getOwnPropertyDescriptor(window.Node.prototype, 'firstChild')!.get!;
+      this._nativeNextSibling = Object.getOwnPropertyDescriptor(window.Node.prototype, 'nextSibling')!.get!;
+
       const invalidateCSSGroupingRule = (rule: CSSGroupingRule) => {
         if (rule.parentStyleSheet)
           this._invalidateStyleSheet(rule.parentStyleSheet);
@@ -102,14 +118,16 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
       this._interceptNativeMethod(window.CSSGroupingRule.prototype, 'insertRule', invalidateCSSGroupingRule);
       this._interceptNativeMethod(window.CSSGroupingRule.prototype, 'deleteRule', invalidateCSSGroupingRule);
       this._interceptNativeGetter(window.CSSGroupingRule.prototype, 'cssRules', invalidateCSSGroupingRule);
+      this._interceptNativeSetter(window.StyleSheet.prototype, 'disabled', (sheet: StyleSheet) => {
+        if (sheet instanceof CSSStyleSheet)
+          this._invalidateStyleSheet(sheet as CSSStyleSheet);
+      });
       this._interceptNativeAsyncMethod(window.CSSStyleSheet.prototype, 'replace', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
 
       this._fakeBase = document.createElement('base');
 
       this._observer = new MutationObserver(list => this._handleMutations(list));
-      const observerConfig = { attributes: true, subtree: true };
-      this._observer.observe(document, observerConfig);
-      this._refreshListenersWhenNeeded();
+      this._ensureObservingCurrentDocument();
     }
 
     private _refreshListenersWhenNeeded() {
@@ -139,12 +157,21 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
     }
 
     private _refreshListeners() {
-      (document as any).addEventListener('__playwright_target__', (event: CustomEvent) => {
-        if (!event.detail)
+      (document as any).addEventListener('__playwright_mark_target__', (event: CustomEvent) => {
+        const target = event.composedPath()[0] as Element;
+        if (target?.nodeType !== Node.ELEMENT_NODE)
           return;
-        const callId = event.detail as string;
-        (event.composedPath()[0] as any).__playwright_target__ = callId;
+        (target as any).__playwright_target__ = this._targetGeneration;
       });
+      (document as any).addEventListener('__playwright_reset_targets__', () => {
+        ++this._targetGeneration;
+      });
+    }
+
+    private _shadowRoot(element: Element): ShadowRoot | null {
+      // Some frameworks define fake `element.shadowRoot` properties, thus an `instanceof` check.
+      const shadowRoot = element.shadowRoot;
+      return shadowRoot instanceof this._nativeShadowRoot ? shadowRoot : null;
     }
 
     private _interceptNativeMethod(obj: any, method: string, cb: (thisObj: any, result: any) => void) {
@@ -181,15 +208,42 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
       });
     }
 
+    private _interceptNativeSetter(obj: any, prop: string, cb: (thisObj: any, result: any) => void) {
+      const descriptor = Object.getOwnPropertyDescriptor(obj, prop)!;
+      Object.defineProperty(obj, prop, {
+        ...descriptor,
+        set: function(value: any) {
+          const result = descriptor.set!.call(this, value);
+          cb(this, value);
+          return result;
+        },
+      });
+    }
+
     private _handleMutations(list: MutationRecord[]) {
       for (const mutation of list)
         ensureCachedData(mutation.target).attributesCached = undefined;
+    }
+
+    private _ensureObservingCurrentDocument() {
+      // A window can swap its document without re-running the init script (e.g.
+      // a popup reusing its initial about:blank document), leaving our observers
+      // and listeners bound to the stale one. Re-attach on swap.
+      // https://github.com/microsoft/playwright/issues/40895
+      if (this._observedDocument === document)
+        return;
+      this._observedDocument = document;
+      this._observer.disconnect();
+      this._observer.observe(document, kObserverConfig);
+      this._refreshListenersWhenNeeded();
     }
 
     private _invalidateStyleSheet(sheet: CSSStyleSheet) {
       if (this._readingStyleSheet)
         return;
       this._staleStyleSheets.add(sheet);
+      if (sheet.href !== null)
+        this._modifiedStyleSheets.add(sheet);
     }
 
     private _updateStyleElementStyleSheetTextIfNeeded(sheet: CSSStyleSheet, forceText?: boolean): string | undefined {
@@ -226,17 +280,17 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
       (iframeElement as any)[kSnapshotFrameId] = frameId;
     }
 
-    reset() {
+    resetHistory() {
       this._staleStyleSheets.clear();
 
       const visitNode = (node: Node | ShadowRoot) => {
         resetCachedData(node);
         if (node.nodeType === Node.ELEMENT_NODE) {
-          const element = node as Element;
-          if (element.shadowRoot)
-            visitNode(element.shadowRoot);
+          const shadowRoot = this._shadowRoot(node as Element);
+          if (shadowRoot)
+            visitNode(shadowRoot);
         }
-        for (let child = node.firstChild; child; child = child.nextSibling)
+        for (let child = this._nativeFirstChild.call(node); child; child = this._nativeNextSibling.call(child))
           visitNode(child);
       };
       visitNode(document.documentElement);
@@ -299,6 +353,8 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
     private _getSheetText(sheet: CSSStyleSheet): string {
       this._readingStyleSheet = true;
       try {
+        if (sheet.disabled)
+          return '';
         const rules: string[] = [];
         for (const rule of sheet.cssRules)
           rules.push(rule.cssText);
@@ -308,13 +364,18 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
       }
     }
 
-    captureSnapshot(): SnapshotData | undefined {
+    captureSnapshot(reset?: 'history' | 'targets'): SnapshotData | undefined {
       const timestamp = performance.now();
       const snapshotNumber = ++this._lastSnapshotNumber;
+      if (reset === 'history')
+        this.resetHistory();
+      if (reset)
+        ++this._targetGeneration;
       let nodeCounter = 0;
       let shadowDomNesting = 0;
       let headNesting = 0;
 
+      this._ensureObservingCurrentDocument();
       // Ensure we are up to date.
       this._handleMutations(this._observer.takeRecords());
 
@@ -338,8 +399,13 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
         }
         if (removeNoScript && nodeName === 'NOSCRIPT')
           return;
-        if (nodeName === 'META' && (node as HTMLMetaElement).httpEquiv.toLowerCase() === 'content-security-policy')
-          return;
+        if (nodeName === 'META') {
+          const httpEquiv = (node as HTMLMetaElement).httpEquiv.toLowerCase();
+          // Drop META directives that can navigate, set cookies, or otherwise
+          // affect the trace viewer when the recorded snapshot is rendered.
+          if (httpEquiv === 'content-security-policy' || httpEquiv === 'refresh' || httpEquiv === 'set-cookie')
+            return;
+        }
         // Skip iframes which are inside document's head as they are not visible.
         // See https://github.com/microsoft/playwright/issues/12005.
         if ((nodeName === 'IFRAME' || nodeName === 'FRAME') && headNesting)
@@ -429,6 +495,30 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
             expectValue(value);
             attrs[kSelectedAttribute] = value;
           }
+          if (nodeName === 'CANVAS' || nodeName === 'IFRAME' || nodeName === 'FRAME') {
+            const boundingRect = (element as HTMLElement).getBoundingClientRect();
+            const value = JSON.stringify({
+              left: boundingRect.left,
+              top: boundingRect.top,
+              right: boundingRect.right,
+              bottom: boundingRect.bottom
+            });
+            expectValue(kBoundingRectAttribute);
+            expectValue(value);
+            attrs[kBoundingRectAttribute] = value;
+          }
+          if ((element as HTMLElement).popover && (element as HTMLElement).matches && (element as HTMLElement).matches(':popover-open')) {
+            const value = 'true';
+            expectValue(kPopoverOpenAttribute);
+            expectValue(value);
+            attrs[kPopoverOpenAttribute] = value;
+          }
+          if (nodeName === 'DIALOG' && (element as HTMLDialogElement).open) {
+            const value = (element as HTMLDialogElement).matches(':modal') ? 'modal' : 'true';
+            expectValue(kDialogOpenAttribute);
+            expectValue(value);
+            attrs[kDialogOpenAttribute] = value;
+          }
           if (element.scrollTop) {
             expectValue(kScrollTopAttribute);
             expectValue(element.scrollTop);
@@ -439,15 +529,15 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
             expectValue(element.scrollLeft);
             attrs[kScrollLeftAttribute] = '' + element.scrollLeft;
           }
-          if (element.shadowRoot) {
+          const shadowRoot = this._shadowRoot(element);
+          if (shadowRoot) {
             ++shadowDomNesting;
-            visitChild(element.shadowRoot);
+            visitChild(shadowRoot);
             --shadowDomNesting;
           }
-          if ('__playwright_target__' in element) {
+          if ((element as any).__playwright_target__ === this._targetGeneration) {
             expectValue(kTargetAttribute);
-            expectValue(element['__playwright_target__']);
-            attrs[kTargetAttribute] = element['__playwright_target__'] as string;
+            attrs[kTargetAttribute] = '';
           }
         }
 
@@ -457,7 +547,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
           this._fakeBase.setAttribute('href', document.baseURI);
           visitChild(this._fakeBase);
         }
-        for (let child = node.firstChild; child; child = child.nextSibling)
+        for (let child = this._nativeFirstChild.call(node); child; child = this._nativeNextSibling.call(child))
           visitChild(child);
         if (nodeName === 'HEAD')
           --headNesting;
@@ -514,6 +604,8 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
             if (nodeName === 'IFRAME' && (name === 'src' || name === 'srcdoc' || name === 'sandbox'))
               continue;
             if (nodeName === 'FRAME' && name === 'src')
+              continue;
+            if (nodeName === 'DIALOG' && name === 'open')
               continue;
             let value = element.attributes[i].value;
             if (nodeName === 'META')
@@ -572,11 +664,11 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
           height: window.innerHeight,
         },
         url: location.href,
-        timestamp,
+        wallTime: Date.now(),
         collectionTime: 0,
       };
 
-      for (const sheet of this._staleStyleSheets) {
+      for (const sheet of this._modifiedStyleSheets) {
         if (sheet.href === null)
           continue;
         const content = this._updateLinkStyleSheetTextIfNeeded(sheet, snapshotNumber);
@@ -589,7 +681,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
         result.resourceOverrides.push({ url, content, contentType: 'text/css' },);
       }
 
-      result.collectionTime = performance.now() - result.timestamp;
+      result.collectionTime = performance.now() - timestamp;
       return result;
     }
   }

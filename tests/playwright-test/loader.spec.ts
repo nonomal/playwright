@@ -14,8 +14,10 @@
  * limitations under the License.
  */
 
-import { test, expect, playwrightCtConfigText } from './playwright-test-fixtures';
+import { test, expect } from './playwright-test-fixtures';
+import fs from 'fs';
 import path from 'path';
+import url from 'url';
 
 test('should return the location of a syntax error', async ({ runInlineTest }) => {
   const result = await runInlineTest({
@@ -29,7 +31,7 @@ test('should return the location of a syntax error', async ({ runInlineTest }) =
   expect(result.passed).toBe(0);
   expect(result.failed).toBe(0);
   expect(result.output).toContain('error.spec.js');
-  expect(result.output).toContain('(3:18)');
+  expect(result.output).toContain(`> 3 |         foo: 'bar';\n    |                   ^`);
 });
 
 test('should return the location of a syntax error with deep stack', async ({ runInlineTest }) => {
@@ -61,6 +63,7 @@ test('should return the location of a syntax error with deep stack', async ({ ru
     `,
   });
   expect(result.exitCode).toBe(1);
+  expect(result.output).toContain('at error.ts:3');
   expect(result.output).toContain('qux.ts:2:7');
   expect(result.output).toContain('baz.ts:2:7');
   expect(result.output).toContain('bar.ts:2:7');
@@ -78,6 +81,21 @@ test('should print an improper error', async ({ runInlineTest }) => {
   expect(result.passed).toBe(0);
   expect(result.failed).toBe(0);
   expect(result.output).toContain('123');
+});
+
+test('should spread AggregateError sub-errors', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'error.spec.js': `
+      throw new AggregateError([
+        new AggregateError([new Error('a'), new Error('b')], 'inner'),
+        new Error('c'),
+      ], 'outer');
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain('Error: a');
+  expect(result.output).toContain('Error: b');
+  expect(result.output).toContain('Error: c');
 });
 
 test('should print a null error', async ({ runInlineTest }) => {
@@ -467,8 +485,28 @@ test('should load web server w/o esm loader in esm module', async ({ runInlineTe
   expect(result.output).toContain('NODE_OPTIONS undefined');
 });
 
+const jsxRuntimeFiles = (...names: string[]) => Object.assign({ 'package.json': JSON.stringify({ name: 'test-project' }) }, ...names.map(name => ({
+  [`node_modules/${name}/package.json`]: JSON.stringify({
+    name,
+    exports: {
+      './jsx-runtime': './jsx-runtime.js',
+      './jsx-dev-runtime': './jsx-dev-runtime.js',
+    },
+  }),
+  [`node_modules/${name}/jsx-runtime.js`]: `
+    exports.jsx = (type, props) => ({ runtime: '${name}', type, props });
+    exports.jsxs = exports.jsx;
+    exports.Fragment = '${name}-fragment';
+  `,
+  [`node_modules/${name}/jsx-dev-runtime.js`]: `
+    exports.jsxDEV = (type, props, key, isStatic, source) => ({ runtime: '${name}-dev', type, props, fileName: source.fileName });
+    exports.Fragment = '${name}-fragment';
+  `,
+})));
+
 test('should load a jsx/tsx files', async ({ runInlineTest }) => {
   const { exitCode, passed } = await runInlineTest({
+    ...jsxRuntimeFiles('react'),
     'a.spec.tsx': `
       import { test, expect } from '@playwright/test';
       const component = () => <div></div>;
@@ -490,6 +528,7 @@ test('should load a jsx/tsx files', async ({ runInlineTest }) => {
 
 test('should load a jsx/tsx files in ESM mode', async ({ runInlineTest }) => {
   const { exitCode, passed } = await runInlineTest({
+    ...jsxRuntimeFiles('react'),
     'package.json': JSON.stringify({
       type: 'module'
     }),
@@ -516,25 +555,20 @@ test('should load a jsx/tsx files in ESM mode', async ({ runInlineTest }) => {
   expect(exitCode).toBe(0);
 });
 
-test('should load jsx with top-level component', async ({ runInlineTest }) => {
+test('should use react/jsx-runtime when tsconfig does not configure jsx', async ({ runInlineTest }) => {
   const { exitCode, passed } = await runInlineTest({
+    ...jsxRuntimeFiles('react'),
     'a.spec.tsx': `
       import { test, expect } from '@playwright/test';
-      const component = <div>Hello <span>world</span></div>;
       test('succeeds', () => {
-        expect(component).toEqual({
-          __pw_type: 'jsx',
+        expect(<div>Hello <span>world</span><>!</></div>).toEqual({
+          runtime: 'react',
           type: 'div',
           props: {
             children: [
               'Hello ',
-              {
-                __pw_type: 'jsx',
-                type: 'span',
-                props: {
-                  children: 'world'
-                },
-              }
+              { runtime: 'react', type: 'span', props: { children: 'world' } },
+              { runtime: 'react', type: 'react-fragment', props: { children: '!' } },
             ]
           },
         });
@@ -545,8 +579,130 @@ test('should load jsx with top-level component', async ({ runInlineTest }) => {
   expect(exitCode).toBe(0);
 });
 
+test('should respect jsxImportSource from tsconfig', async ({ runInlineTest }) => {
+  const { exitCode, passed } = await runInlineTest({
+    ...jsxRuntimeFiles('my-jsx'),
+    'tsconfig.json': JSON.stringify({ compilerOptions: { jsx: 'react-jsx', jsxImportSource: 'my-jsx' } }),
+    'a.spec.tsx': `
+      import { test, expect } from '@playwright/test';
+      test('succeeds', () => {
+        expect(<div><>!</></div>).toEqual({
+          runtime: 'my-jsx',
+          type: 'div',
+          props: { children: { runtime: 'my-jsx', type: 'my-jsx-fragment', props: { children: '!' } } },
+        });
+      });
+    `,
+    'b.spec.jsx': `
+      import { test, expect } from '@playwright/test';
+      test('succeeds', () => {
+        expect(<span />).toEqual({ runtime: 'my-jsx', type: 'span', props: {} });
+      });
+    `,
+  });
+  expect(passed).toBe(2);
+  expect(exitCode).toBe(0);
+});
+
+test('should respect jsxImportSource from tsconfig in ESM mode', async ({ runInlineTest }) => {
+  const { exitCode, passed } = await runInlineTest({
+    ...jsxRuntimeFiles('my-jsx'),
+    'package.json': JSON.stringify({ type: 'module' }),
+    'playwright.config.ts': `export default {};`,
+    'tsconfig.json': JSON.stringify({ compilerOptions: { jsx: 'react-jsx', jsxImportSource: 'my-jsx' } }),
+    'a.spec.tsx': `
+      import { test, expect } from '@playwright/test';
+      test('succeeds', () => {
+        expect(<div />).toEqual({ runtime: 'my-jsx', type: 'div', props: {} });
+      });
+    `,
+  });
+  expect(passed).toBe(1);
+  expect(exitCode).toBe(0);
+});
+
+test('should respect classic jsx factory from tsconfig', async ({ runInlineTest }) => {
+  const { exitCode, passed } = await runInlineTest({
+    'tsconfig.json': JSON.stringify({ compilerOptions: { jsx: 'react', jsxFactory: 'h', jsxFragmentFactory: 'Frag' } }),
+    'a.spec.tsx': `
+      import { test, expect } from '@playwright/test';
+      const h = (type, props, ...children) => ({ factory: 'h', type, props, children });
+      const Frag = 'frag';
+      test('succeeds', () => {
+        expect(<div id="a">Hello <>world</></div>).toEqual({
+          factory: 'h',
+          type: 'div',
+          props: { id: 'a' },
+          children: ['Hello ', { factory: 'h', type: 'frag', props: null, children: ['world'] }],
+        });
+      });
+    `,
+  });
+  expect(passed).toBe(1);
+  expect(exitCode).toBe(0);
+});
+
+test('should respect react-jsxdev from tsconfig', async ({ runInlineTest }) => {
+  const { exitCode, passed } = await runInlineTest({
+    ...jsxRuntimeFiles('my-jsx'),
+    'tsconfig.json': JSON.stringify({ compilerOptions: { jsx: 'react-jsxdev', jsxImportSource: 'my-jsx' } }),
+    'a.spec.tsx': `
+      import { test, expect } from '@playwright/test';
+      test('succeeds', () => {
+        expect(<div />).toEqual({ runtime: 'my-jsx-dev', type: 'div', props: {}, fileName: expect.stringContaining('a.spec.tsx') });
+      });
+    `,
+  });
+  expect(passed).toBe(1);
+  expect(exitCode).toBe(0);
+});
+
+test('should respect jsx options from tsconfig references and extends', async ({ runInlineTest }) => {
+  const { exitCode, passed } = await runInlineTest({
+    ...jsxRuntimeFiles('my-jsx'),
+    'tsconfig.json': JSON.stringify({ files: [], references: [{ path: './tsconfig.node.json' }, { path: './tsconfig.app.json' }] }),
+    'tsconfig.node.json': JSON.stringify({ compilerOptions: { strict: true } }),
+    'tsconfig.app.json': JSON.stringify({ extends: './tsconfig.base.json', compilerOptions: { jsxImportSource: 'my-jsx' } }),
+    'tsconfig.base.json': JSON.stringify({ compilerOptions: { jsx: 'react-jsx', jsxImportSource: 'other-jsx' } }),
+    'a.spec.tsx': `
+      import { test, expect } from '@playwright/test';
+      test('succeeds', () => {
+        expect(<div />).toEqual({ runtime: 'my-jsx', type: 'div', props: {} });
+      });
+    `,
+  });
+  expect(passed).toBe(1);
+  expect(exitCode).toBe(0);
+});
+
+test('should recompile when tsconfig jsx options change', async ({ runInlineTest }) => {
+  const files = {
+    ...jsxRuntimeFiles('jsx-a', 'jsx-b'),
+    'a.spec.tsx': `
+      import { test, expect } from '@playwright/test';
+      test('succeeds', () => {
+        console.log('%%' + (<div />).runtime);
+      });
+    `,
+  };
+  const result1 = await runInlineTest({
+    ...files,
+    'tsconfig.json': JSON.stringify({ compilerOptions: { jsx: 'react-jsx', jsxImportSource: 'jsx-a' } }),
+  });
+  expect(result1.exitCode).toBe(0);
+  expect(result1.outputLines).toEqual(['jsx-a']);
+
+  const result2 = await runInlineTest({
+    ...files,
+    'tsconfig.json': JSON.stringify({ compilerOptions: { jsx: 'react-jsx', jsxImportSource: 'jsx-b' } }),
+  });
+  expect(result2.exitCode).toBe(0);
+  expect(result2.outputLines).toEqual(['jsx-b']);
+});
+
 test('should load a jsx/tsx files with fragments', async ({ runInlineTest }) => {
   const { exitCode, passed } = await runInlineTest({
+    ...jsxRuntimeFiles('react'),
     'helper.tsx': `
       export const component = () => <><div></div></>;
       export function add(a: number, b: number) {
@@ -754,28 +910,6 @@ test('should resolve .js import to .tsx file in non-ESM mode', async ({ runInlin
   expect(result.exitCode).toBe(0);
 });
 
-test('should resolve .js import to .tsx file in non-ESM mode for components', async ({ runInlineTest }) => {
-  const result = await runInlineTest({
-    'playwright.config.ts': playwrightCtConfigText,
-    'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
-    'playwright/index.ts': ``,
-
-    'src/button.tsx': `
-      export const Button = () => <button>Button</button>;
-    `,
-
-    'src/test.spec.tsx': `
-      import { test, expect } from '@playwright/experimental-ct-react';
-      import { Button } from './button.js';
-      test('pass', async ({ mount }) => {
-        await mount(<Button></Button>);
-      });
-    `,
-  }, { workers: 1 });
-  expect(result.passed).toBe(1);
-  expect(result.exitCode).toBe(0);
-});
-
 test('should import export assignment from ts', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.test.ts': `
@@ -912,6 +1046,44 @@ test('should resolve no-extension import of module into .ts file', async ({ runI
   expect(result.exitCode).toBe(0);
 });
 
+test('should resolve extensionless .ts subpath import across a workspace symlink in ESM', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/41371' },
+}, async ({ runInlineTest }, testInfo) => {
+  const baseDir = testInfo.outputPath();
+  const symlinkType = process.platform === 'win32' ? 'junction' : 'dir';
+  const link = async (target: string, linkPath: string) => {
+    await fs.promises.mkdir(path.dirname(linkPath), { recursive: true });
+    await fs.promises.symlink(path.join(baseDir, target), linkPath, symlinkType);
+  };
+  // It is important to symlink so that our belongsToNodeModules() check does not trigger.
+  await link('packages/shared', path.join(baseDir, 'packages/core/node_modules/@repro/shared'));
+  await link('packages/core', path.join(baseDir, 'apps/e2e/node_modules/@repro/core'));
+
+  const result = await runInlineTest({
+    // Root package.json is required for workspace:* dependencies to work.
+    'package.json': JSON.stringify({ name: 'repro-root', private: true }),
+    'packages/shared/package.json': JSON.stringify({ name: '@repro/shared', private: true, type: 'module' }),
+    'packages/shared/lib/text.utils.ts': `
+      export function greet(name: string) {
+        return 'Hello, ' + name;
+      }
+    `,
+    'packages/core/package.json': JSON.stringify({ name: '@repro/core', private: true, type: 'module', dependencies: { '@repro/shared': 'workspace:*' } }),
+    'packages/core/lib/conversations.ts': `
+      export { greet } from '@repro/shared/lib/text.utils';
+    `,
+    'apps/e2e/tests/basic.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      import { greet } from '@repro/core/lib/conversations';
+      test('greet returns expected string', () => {
+        expect(greet('world')).toBe('Hello, world');
+      });
+    `,
+  });
+  expect(result.passed).toBe(1);
+  expect(result.exitCode).toBe(0);
+});
+
 test('should support node imports', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': 'export default {}',
@@ -961,10 +1133,22 @@ test('should complain when one test file imports another', async ({ runInlineTes
   expect(result.output).toContain(`test file "a.test.ts" should not import test file "b.test.ts"`);
 });
 
-test('should support dynamic import', async ({ runInlineTest }) => {
+test('should support dynamic imports and requires of js, ts from js, ts and cjs', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'helper.ts': `
-      module.exports.foo = 'foo';
+      export const foo: string = 'foo';
+    `,
+    'helper2.ts': `
+      export const bar = 'bar';
+    `,
+    'helper3.js': `
+      module.exports.baz = 'baz';
+    `,
+    'helper4.ts': `
+      export const foo: string = 'foo';
+    `,
+    'passthrough.cjs': `
+      module.exports.load = () => import('./helper2');
     `,
     'a.test.ts': `
       import { test, expect } from '@playwright/test';
@@ -972,9 +1156,24 @@ test('should support dynamic import', async ({ runInlineTest }) => {
       test('pass', async () => {
         const { foo } = await import('./helper');
         expect(foo).toBe('foo');
+
+        const { baz } = await import('./helper3');
+        expect(baz).toBe('baz');
       });
     `,
     'b.test.ts': `
+      import { test, expect } from '@playwright/test';
+      import { load } from './passthrough.cjs';
+
+      test('pass', async () => {
+        const { foo } = await import('./helper');
+        expect(foo).toBe('foo');
+
+        const { bar } = await load();
+        expect(bar).toBe('bar');
+      });
+    `,
+    'c.test.js': `
       import { test, expect } from '@playwright/test';
 
       test('pass', async () => {
@@ -982,8 +1181,42 @@ test('should support dynamic import', async ({ runInlineTest }) => {
         expect(foo).toBe('foo');
       });
     `,
+    'd.test.js': `
+      import { test, expect } from '@playwright/test';
+
+      test('pass', async () => {
+        const { foo } = require('./helper4');
+        expect(foo).toBe('foo');
+      });
+    `,
   }, { workers: 1 });
-  expect(result.passed).toBe(2);
+  expect(result.passed).toBe(4);
+  expect(result.exitCode).toBe(0);
+});
+
+test('should support dynamic imports of esm-only packages', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'node_modules/foo-pkg/package.json': `
+      {
+        "name": "foo-pkg",
+        "type": "module",
+        "exports": { "default": "./index.js" }
+      }
+    `,
+    'node_modules/foo-pkg/index.js': `
+      export const foo = 'bar';
+    `,
+    'package.json': `{ "name": "test-project" }`,
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+
+      test('pass', async () => {
+        const { foo } = await import('foo-pkg');
+        expect(foo).toBe('bar');
+      });
+    `,
+  }, { workers: 1 });
+  expect(result.passed).toBe(1);
   expect(result.exitCode).toBe(0);
 });
 
@@ -1007,8 +1240,11 @@ test('should allow test.extend.ts and test.ts files', async ({ runInlineTest }) 
   expect(result.passed).toBe(1);
 });
 
-test('should remove import css', async ({ runInlineTest }) => {
+test('should load css imports as empty modules', async ({ runInlineTest }) => {
   const result = await runInlineTest({
+    'index.css': `
+      body { color: red; }
+    `,
     'a.test.ts': `
       import './index.css';
       import foo from './index.css';
@@ -1020,4 +1256,274 @@ test('should remove import css', async ({ runInlineTest }) => {
   });
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
+});
+
+test('should load css imports as empty modules in esm', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43295' },
+}, async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'package.json': `{ "type": "module" }`,
+    'index.css': `
+      body { color: red; }
+    `,
+    // Extensions Playwright does not transform are left to the loaders registered in the config.
+    'playwright.config.ts': `
+      import { register } from 'node:module';
+      register('./txt-loader.mjs', import.meta.url);
+      export default {};
+    `,
+    'txt-loader.mjs': `
+      export async function load(url, context, nextLoad) {
+        if (!url.endsWith('.txt'))
+          return nextLoad(url, context);
+        return { format: 'module', source: 'export default "hello"', shortCircuit: true };
+      }
+    `,
+    'hello.txt': `hello`,
+    'a.test.ts': `
+      import './index.css';
+      import styles from './index.css';
+      import text from './hello.txt';
+
+      import { test, expect } from '@playwright/test';
+      test('pass', async () => {
+        expect(styles).toEqual({});
+        expect(text).toBe('hello');
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should dynamically import re-exported cjs namespace', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/35812' },
+}, async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'node_modules/helper/package.json': `
+      {
+        "type": "module",
+        "main": "./index.cjs",
+        "exports": {
+          ".": {
+            "import": "./index.js",
+            "require": "./index.cjs",
+            "default": "./index.js"
+          }
+        }
+      }
+    `,
+    'node_modules/helper/index.js': `
+      import * as mod from './index.cjs'
+      const { $ } = mod;
+      export { $ };
+    `,
+    'node_modules/helper/modules.cjs': `
+      "use strict";
+
+      function __toCommonJS(props) {
+        const result = {};
+        Object.defineProperty(result, '__esModule', { value: true });
+        for (const prop of Object.getOwnPropertyNames(props))
+          Object.defineProperty(result, prop, { enumerable: true, get: props[prop] });
+        return result;
+      }
+
+      function __reExport(to, from) {
+        for (const prop of Object.getOwnPropertyNames(from)) {
+          if (prop !== 'default' && !to.hasOwnProperty(prop))
+            Object.defineProperty(to, prop, { get: () => from[prop], enumerable: true });
+        }
+      }
+
+      module.exports = { __toCommonJS, __reExport };
+    `,
+    'node_modules/helper/index.cjs': `
+      "use strict";
+      const { __toCommonJS, __reExport } = require('./modules.cjs');
+
+      module.exports = __toCommonJS({});
+      __reExport(module.exports, require('./inner.cjs'));
+
+      // Annotate the CommonJS export names for ESM import in node:
+      0 && (module.exports = { ...require('./inner.cjs') });
+    `,
+    'node_modules/helper/inner.cjs': `
+      "use strict";
+      const { __toCommonJS, __reExport } = require('./modules.cjs');
+
+      const $ = '$ value';
+      module.exports = __toCommonJS({ $: () => $ });
+
+      // Annotate the CommonJS export names for ESM import in node:
+      0 && (module.exports = { $ });
+    `,
+    'package.json': `
+      { "type": "commonjs" }
+    `,
+    'a.test.js': `
+      const { test, expect } = require('@playwright/test');
+      test('pass', async () => {
+        const $ = (await import('helper')).$;
+        expect($).toBe('$ value');
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should compose with a custom ESM loader before playwright', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/39172' },
+}, async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'package.json': JSON.stringify({ type: 'module' }),
+    'custom-loader.mjs': `
+      export async function resolve(specifier, context, nextResolve) {
+        console.log('%% resolve ' + specifier);
+        return nextResolve(specifier, context);
+      }
+
+      export async function load(url, context, nextLoad) {
+        const result = await nextLoad(url, context);
+        console.log('%% load ' + url + ' source=' + result.source);
+        return result;
+      }
+    `,
+    'playwright.config.ts': `
+      import { register } from 'node:module';
+      register('./custom-loader.mjs', import.meta.url);
+
+      import { defineConfig } from '@playwright/test';
+      export default defineConfig({
+        projects: [{ name: 'foo' }],
+        build: { external: ['*'] },
+      });
+    `,
+    'a.test.js': `
+      import { test, expect } from '@playwright/test';
+      test('pass', () => {
+        expect(1 + 1).toBe(2);
+      });
+    `,
+  }, {}, { PLAYWRIGHT_FORCE_ASYNC_LOADER: '1' });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  const testFile = url.pathToFileURL(testInfo.outputPath('a.test.js')).toString();
+  const expectedSequence = [
+    `resolve ${testFile}.esm.preflight`,
+    // no load for preflight, it falls through to the node default loader which cannot resolve it and thus errors out
+    `resolve ${testFile}`,
+    `load ${testFile} source=`,
+    `resolve @playwright/test`,
+  ];
+  expect(result.outputLines).toEqual([
+    ...expectedSequence, // test collection
+    ...expectedSequence, // worker
+  ]);
+});
+
+test('should compose with a custom ESM loader after playwright', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/39172' },
+}, async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'package.json': JSON.stringify({ type: 'module' }),
+    'custom-loader.mjs': `
+      import fs from 'node:fs';
+      import { fileURLToPath } from 'url';
+      const outputDir = ${JSON.stringify(url.pathToFileURL(testInfo.outputDir).toString())};
+      export async function resolve(specifier, context, nextResolve) {
+        if (specifier.startsWith(outputDir)) {
+          console.log('%% resolve ' + specifier);
+          fs.readFileSync(fileURLToPath(specifier)); // throw if file does not exist
+        }
+        return nextResolve(specifier, context);
+      }
+
+      export async function load(url, context, nextLoad) {
+        const result = await nextLoad(url, context);
+        if (url.startsWith(outputDir)) {
+          console.log('%% load ' + url + ' source=' + result.source);
+          fs.readFileSync(fileURLToPath(url)); // throw if file does not exist
+        }
+        return result;
+      }
+    `,
+    'register-loader.mjs': `
+      import { register } from 'node:module';
+      register('./custom-loader.mjs', import.meta.url);
+    `,
+    'playwright.config.ts': `
+      import { defineConfig } from '@playwright/test';
+      export default defineConfig({
+        projects: [{ name: 'foo' }],
+        build: { external: ['*'] },
+      });
+    `,
+    'a.test.js': `
+      import { test, expect } from '@playwright/test';
+      test('pass', () => {
+        expect(1 + 1).toBe(2);
+      });
+    `,
+  }, {}, {
+    NODE_OPTIONS: `--import ${url.pathToFileURL(testInfo.outputPath('register-loader.mjs')).toString()}`,
+    PLAYWRIGHT_FORCE_ASYNC_LOADER: '1',
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  const outputDir = url.pathToFileURL(testInfo.outputDir).toString();
+  const expectedSequence = [
+    `resolve ${outputDir}/playwright.config.ts`,
+    `resolve ${outputDir}/playwright.config.ts`,
+    `resolve ${outputDir}/a.test.js`,
+    `resolve ${outputDir}/a.test.js`,
+    `load ${outputDir}/a.test.js source=`,
+  ];
+  expect(result.outputLines).toEqual([
+    ...expectedSequence, // test collection
+    ...expectedSequence, // worker
+  ]);
+});
+
+test('preflight should survive faulty ESM loader ahead of playwright', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/39172' },
+}, async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'package.json': JSON.stringify({ type: 'module' }),
+    'custom-loader.mjs': `
+      export async function resolve(specifier, context, nextResolve) {
+        if (specifier.endsWith('.esm.preflight'))
+          throw new Error('could not find file, what the heck is preflight?');
+        return nextResolve(specifier, context);
+      }
+
+      export async function load(url, context, nextLoad) {
+        return await nextLoad(url, context);
+      }
+    `,
+    'playwright.config.ts': `
+      import { register } from 'node:module';
+      register('./custom-loader.mjs', import.meta.url);
+
+      import { defineConfig } from '@playwright/test';
+      export default defineConfig({
+        projects: [{ name: 'foo' }],
+        build: { external: ['*'] },
+      });
+    `,
+    'a.test.js': `
+      import { test, expect } from '@playwright/test';
+      test('pass', () => {
+        expect(1 + 1).toBe(2);
+      });
+    `,
+  }, {}, { DEBUG: 'pw:test', PLAYWRIGHT_FORCE_ASYNC_LOADER: '1' });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.output).toContain('Failed to load preflight');
+  expect(result.output).toContain('what the heck is preflight');
 });

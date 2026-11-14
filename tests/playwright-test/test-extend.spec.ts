@@ -60,7 +60,7 @@ test('test.extend should work', async ({ runInlineTest }) => {
       export const test2 = base.extend(createDerivedFixtures('e2'));
     `,
     'playwright.config.ts': `
-      module.exports = { projects: [
+      export default { projects: [
         { use: { suffix: 'base1' } },
         { use: { suffix: 'base2' } },
       ] };
@@ -125,7 +125,7 @@ test('test.extend should work', async ({ runInlineTest }) => {
 test('config should override options but not fixtures', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         use: { param: 'config' },
       };
     `,
@@ -163,7 +163,7 @@ test('config should override options but not fixtures', async ({ runInlineTest }
 test('mergeTests should be able to merge', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         use: { param: 'from-config' },
       };
     `,
@@ -234,7 +234,7 @@ test('mergeTests should print nice message when used as extend', async ({ runInl
 test('test.use() with undefined should not be ignored', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         use: { option1: 'config' },
       };
     `,
@@ -286,22 +286,27 @@ test('test.use() with undefined should not be ignored', async ({ runInlineTest }
 test('undefined values in config and test.use should be reverted to default', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
-        use: { option1: undefined, option2: undefined },
+      export default {
+        use: { option1: undefined, option2: undefined, option4: 'from-config' },
       };
     `,
     'a.test.ts': `
       import { test as base, expect } from '@playwright/test';
-      const test = base.extend({
+      const test1 = base.extend({
         option1: [ 'default1', { option: true } ],
         option2: [ 'default2', { option: true } ],
         option3: [ 'default3', { option: true } ],
+        option4: [ 'default4', { option: true } ],
       });
-      test.use({ option2: undefined, option3: undefined });
-      test('my test', async ({ option1, option2, option3 }) => {
+      const test = test1.extend({
+        option4: [ 'new-default4', { scope: 'test' } ],
+      });
+      test.use({ option2: undefined, option3: undefined, option4: undefined });
+      test('my test', async ({ option1, option2, option3, option4 }) => {
         console.log('option1=' + option1);
         console.log('option2=' + option2);
         console.log('option3=' + option3);
+        console.log('option4=' + option4);
       });
     `,
   });
@@ -310,4 +315,5 @@ test('undefined values in config and test.use should be reverted to default', as
   expect(result.output).toContain('option1=default1');
   expect(result.output).toContain('option2=default2');
   expect(result.output).toContain('option3=default3');
+  expect(result.output).toContain('option4=from-config');
 });

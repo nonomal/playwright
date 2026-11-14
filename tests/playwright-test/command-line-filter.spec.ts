@@ -85,7 +85,7 @@ test('should filter by line and column', async ({ runInlineTest }) => {
   test('no-match', () => { expect(1).toBe(1); });
       test('yes-full-match-with-dirname', () => { expect(1).toBe(1); });
       `,
-  }, undefined, undefined, { additionalArgs: ['x.spec.ts:3:11', 'x.spec.ts:4:99999', 'x.spec.ts:5', 'foo/x.spec.ts:7:11'] });
+  }, undefined, undefined, { additionalArgs: ['x.spec.ts:3:7', 'x.spec.ts:4:99999', 'x.spec.ts:5', 'foo/x.spec.ts:7:7'] });
   expect(result.exitCode).toBe(0);
   expect(result.skipped).toBe(0);
   expect(result.passed).toBe(3);
@@ -170,6 +170,23 @@ test('should focus a single nested test spec', async ({ runInlineTest }) => {
   expect(result.skipped).toBe(0);
   expect(result.report.suites[0].specs[0].title).toEqual('pass3');
   expect(result.report.suites[1].suites[0].suites[0].specs[0].title).toEqual('pass2');
+});
+
+test('should accept unix file path containing a space', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'dir with space/a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('passes', () => { expect(1).toBe(1); });
+    `,
+    'dir with space/b.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('not picked', () => { expect(1).toBe(2); });
+    `,
+  }, undefined, undefined, { additionalArgs: ['dir with space/a.spec.ts'] });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.report.suites).toHaveLength(1);
+  expect(result.report.suites[0].specs[0].title).toBe('passes');
 });
 
 test('should focus a single test suite', async ({ runInlineTest }) => {

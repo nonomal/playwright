@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import path from 'path';
 import { test, expect } from './playwright-test-fixtures';
 
 for (const useIntermediateMergeReport of [false, true] as const) {
@@ -40,6 +41,26 @@ for (const useIntermediateMergeReport of [false, true] as const) {
       expect(text).toContain('Retry #1 ────');
       expect(text).toContain('Retry #2 ────');
       expect(text).toContain('Retry #3 ────');
+      expect(result.exitCode).toBe(1);
+    });
+
+    test('should not label passing tests as retries', async ({ runInlineTest }) => {
+      const result = await runInlineTest({
+        'a.test.js': `
+          const { test, expect } = require('@playwright/test');
+          test('failing', async ({}) => {
+            expect(1).toBe(0);
+          });
+          test('passing', async ({}) => {
+            expect(1).toBe(1);
+          });
+        `,
+      }, { retries: 1, reporter: 'line' });
+      const text = result.output;
+      expect(text).toContain('[1/2] a.test.js:3:11 › failing');
+      expect(text).toContain('a.test.js:3:11 › failing (retry #1)');
+      expect(text).toContain('[3/2] a.test.js:6:11 › passing');
+      expect(text).not.toContain('(retries) a.test.js:6:11 › passing');
       expect(result.exitCode).toBe(1);
     });
 
@@ -100,13 +121,35 @@ for (const useIntermediateMergeReport of [false, true] as const) {
       }, { reporter: 'line' });
       expect(result.exitCode).toBe(0);
       expect(result.output).toContain([
-        'a.spec.ts:3:15 › foobar',
+        'a.spec.ts:3:11 › foobar',
         'one',
         '',
         'two',
         '',
         'full-line',
       ].join('\n'));
+    });
+
+    test('should trim multiline step titles to first line', {
+      annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/31266' }
+    }, async ({ runInlineTest }) => {
+      const result = await runInlineTest({
+        'a.test.ts': `
+          import { test, expect } from '@playwright/test';
+          test('passes', async ({}) => {
+            await test.step(\`outer
+                             1.0\`, async () => {
+              await test.step(\`inner
+                                1.1\`, async () => {
+                expect(1).toBe(1);
+              });
+            });
+          });
+        `,
+      }, { reporter: 'line' }, { PLAYWRIGHT_FORCE_TTY: '1' });
+      const text = result.output;
+      expect(text).toContain('[1/1] a.test.ts:3:11 › passes › outer › inner');
+      expect(result.exitCode).toBe(0);
     });
 
     test('should render failed test steps', async ({ runInlineTest }) => {
@@ -123,7 +166,7 @@ for (const useIntermediateMergeReport of [false, true] as const) {
         `,
       }, { reporter: 'line' });
       const text = result.output;
-      expect(text).toContain('1) a.test.ts:3:15 › passes › outer 1.0 › inner 1.1 ──');
+      expect(text).toContain('1) a.test.ts:3:11 › passes › outer 1.0 › inner 1.1 ──');
       expect(result.exitCode).toBe(1);
     });
 
@@ -144,7 +187,7 @@ for (const useIntermediateMergeReport of [false, true] as const) {
         `,
       }, { reporter: 'line' });
       const text = result.output;
-      expect(text).toContain('1) a.test.ts:3:15 › passes › outer 1.0 ──');
+      expect(text).toContain('1) a.test.ts:3:11 › passes › outer 1.0 ──');
       expect(result.exitCode).toBe(1);
     });
 
@@ -163,8 +206,42 @@ for (const useIntermediateMergeReport of [false, true] as const) {
         `,
       }, { reporter: 'line' });
       const text = result.output;
-      expect(text).toContain('1) a.test.ts:3:15 › passes ──');
+      expect(text).toContain('1) a.test.ts:3:11 › passes ──');
       expect(result.exitCode).toBe(1);
+    });
+
+    test('should show error context with relative path', async ({ runInlineTest, useIntermediateMergeReport }) => {
+      const result = await runInlineTest({
+        'a.test.js': `
+          const { test, expect } = require('@playwright/test');
+          test('one', async ({ page }) => {
+            await page.setContent('<div>hello</div>');
+            expect(1).toBe(0);
+          });
+        `,
+      }, { reporter: 'line' });
+      const text = result.output;
+      if (useIntermediateMergeReport)
+        expect(text).toContain(`Error Context: ${path.join('blob-report', 'resources')}`);
+      else
+        expect(text).toContain(`Error Context: ${path.join('test-results', 'a-one', 'error-context.md')}`);
+      expect(result.exitCode).toBe(1);
+    });
+
+    test('should not include global tag in the title', async ({ runInlineTest }) => {
+      const result = await runInlineTest({
+        'playwright.config.ts': `
+          export default { tag: '@global' };
+        `,
+        'a.test.ts': `
+          import { test, expect } from '@playwright/test';
+          test('passes', async ({}) => {
+          });
+        `,
+      }, { reporter: 'line' });
+      expect(result.output).toContain('[1/1] a.test.ts:3:11 › passes\n');
+      expect(result.output).not.toContain('@global');
+      expect(result.exitCode).toBe(0);
     });
   });
 }

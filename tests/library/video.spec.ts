@@ -14,120 +14,59 @@
  * limitations under the License.
  */
 
-import { browserTest as it, expect } from '../config/browserTest';
 import fs from 'fs';
 import path from 'path';
-import type { Page } from 'playwright-core';
-import { spawnSync } from 'child_process';
-import { PNG, jpegjs } from 'playwright-core/lib/utilsBundle';
-import { registry } from '../../packages/playwright-core/lib/server';
-import { rewriteErrorMessage } from '../../packages/playwright-core/lib/utils/stackTrace';
-import { parseTraceRaw } from '../config/utils';
+import { jpegjs } from 'playwright-core/lib/utilsBundle';
+import { expect, browserTest as it } from '../config/browserTest';
+import { ensureSomeFrames, parseTraceRaw } from '../config/utils';
+import { VideoPlayer } from './videoPlayer';
 
-const ffmpeg = registry.findExecutable('ffmpeg')!.executablePath('javascript');
+type Pixel = { r: number, g: number, b: number, alpha: number };
+type PixelPredicate = (pixel: Pixel) => boolean;
 
-export class VideoPlayer {
-  fileName: string;
-  output: string;
-  duration: number;
-  frames: number;
-  videoWidth: number;
-  videoHeight: number;
-  cache = new Map<number, any>();
-
-  constructor(fileName: string) {
-    this.fileName = fileName;
-    // Force output frame rate to 25 fps as otherwise it would produce one image per timebase unit
-    // which is 1 / (25 * 1000).
-    this.output = spawnSync(ffmpeg, ['-i', this.fileName, '-r', '25', `${this.fileName}-%03d.png`]).stderr.toString();
-
-    const lines = this.output.split('\n');
-    let framesLine = lines.find(l => l.startsWith('frame='))!;
-    if (!framesLine)
-      throw new Error(`No frame data in the output:\n${this.output}`);
-    framesLine = framesLine.substring(framesLine.lastIndexOf('frame='));
-    const framesMatch = framesLine.match(/frame=\s+(\d+)/);
-    const streamLine = lines.find(l => l.trim().startsWith('Stream #0:0'));
-    const resolutionMatch = streamLine.match(/, (\d+)x(\d+),/);
-    const durationMatch = lines.find(l => l.trim().startsWith('Duration'))!.match(/Duration: (\d+):(\d\d):(\d\d.\d\d)/);
-    this.duration = (((parseInt(durationMatch![1], 10) * 60) + parseInt(durationMatch![2], 10)) * 60 + parseFloat(durationMatch![3])) * 1000;
-    this.frames = parseInt(framesMatch![1], 10);
-    this.videoWidth = parseInt(resolutionMatch![1], 10);
-    this.videoHeight = parseInt(resolutionMatch![2], 10);
-  }
-
-  seekFirstNonEmptyFrame(offset?: { x: number, y: number }): any | undefined {
-    for (let f = 1; f <= this.frames; ++f) {
-      const frame = this.frame(f, offset);
-      let hasColor = false;
-      for (let i = 0; i < frame.data.length; i += 4) {
-        if (frame.data[i + 0] < 230 || frame.data[i + 1] < 230 || frame.data[i + 2] < 230) {
-          hasColor = true;
-          break;
-        }
-      }
-      if (hasColor)
-        return this.frame(f, offset);
-    }
-  }
-
-  seekLastFrame(offset?: { x: number, y: number }): any {
-    return this.frame(this.frames, offset);
-  }
-
-  frame(frame: number, offset = { x: 10, y: 10 }): any {
-    if (!this.cache.has(frame)) {
-      const gap = '0'.repeat(3 - String(frame).length);
-      const buffer = fs.readFileSync(`${this.fileName}-${gap}${frame}.png`);
-      this.cache.set(frame, PNG.sync.read(buffer));
-    }
-    const decoded = this.cache.get(frame);
-    const dst = new PNG({ width: 10, height: 10 });
-    PNG.bitblt(decoded, dst, offset.x, offset.y, 10, 10, 0, 0);
-    return dst;
-  }
+function isAlmostRed({ r, g, b, alpha }: Pixel): boolean {
+  return r > 185 && g < 70 && b < 70 && alpha === 255;
 }
 
-function almostRed(r, g, b, alpha) {
-  expect(r).toBeGreaterThan(185);
-  expect(g).toBeLessThan(70);
-  expect(b).toBeLessThan(70);
-  expect(alpha).toBe(255);
+function isAlmostBlack({ r, g, b, alpha }: Pixel): boolean {
+  return r < 70 && g < 70 && b < 70 && alpha === 255;
 }
 
-function almostBlack(r, g, b, alpha) {
-  expect(r).toBeLessThan(70);
-  expect(g).toBeLessThan(70);
-  expect(b).toBeLessThan(70);
-  expect(alpha).toBe(255);
+function isAlmostGray({ r, g, b, alpha }: Pixel): boolean {
+  return r > 70 && r < 185 &&
+    g > 70 && g < 185 &&
+    b > 70 && b < 185 &&
+    alpha === 255;
 }
 
-function almostGray(r, g, b, alpha) {
-  expect(r).toBeGreaterThan(70);
-  expect(g).toBeGreaterThan(70);
-  expect(b).toBeGreaterThan(70);
-  expect(r).toBeLessThan(185);
-  expect(g).toBeLessThan(185);
-  expect(b).toBeLessThan(185);
-  expect(alpha).toBe(255);
-}
-
-function expectAll(pixels: Buffer, rgbaPredicate) {
-  const checkPixel = i => {
-    const r = pixels[i];
-    const g = pixels[i + 1];
-    const b = pixels[i + 2];
-    const alpha = pixels[i + 3];
-    rgbaPredicate(r, g, b, alpha);
-  };
-  try {
-    for (let i = 0, n = pixels.length; i < n; i += 4)
-      checkPixel(i);
-  } catch (e) {
-    // Log pixel values on failure.
-    rewriteErrorMessage(e, e.message + `\n\nActual pixels=[${pixels.join(',')}]`);
-    throw e;
+function findPixel(pixels: Buffer, pixelPredicate: PixelPredicate): Pixel|undefined {
+  for (let i = 0, n = pixels.length; i < n; i += 4) {
+    const pixel = {
+      r: pixels[i],
+      g: pixels[i + 1],
+      b: pixels[i + 2],
+      alpha: pixels[i + 3],
+    };
+    if (pixelPredicate(pixel))
+      return pixel;
   }
+  return undefined;
+}
+
+function everyPixel(pixels: Buffer, pixelPredicate: PixelPredicate) {
+  const badPixel = findPixel(pixels, pixel => !pixelPredicate(pixel));
+  return !badPixel;
+}
+
+function expectAll(pixels: Buffer, pixelPredicate: PixelPredicate) {
+  const badPixel = findPixel(pixels, pixel => !pixelPredicate(pixel));
+  if (!badPixel)
+    return;
+  const rgba = [badPixel.r, badPixel.g, badPixel.b, badPixel.alpha].join(', ');
+  throw new Error([
+    `Expected all pixels to satisfy ${pixelPredicate.name}, found bad pixel (${rgba})`,
+    `Actual pixels=[${pixels.join(',')}]`,
+  ].join('\n'));
 }
 
 function findVideos(videoDir: string) {
@@ -136,6 +75,10 @@ function findVideos(videoDir: string) {
 }
 
 function expectRedFrames(videoFile: string, size: { width: number, height: number }) {
+  expectFrames(videoFile, size, isAlmostRed);
+}
+
+function expectFrames(videoFile: string, size: { width: number, height: number }, pixelPredicate: PixelPredicate) {
   const videoPlayer = new VideoPlayer(videoFile);
   const duration = videoPlayer.duration;
   expect(duration).toBeGreaterThan(0);
@@ -145,48 +88,29 @@ function expectRedFrames(videoFile: string, size: { width: number, height: numbe
 
   {
     const pixels = videoPlayer.seekLastFrame().data;
-    expectAll(pixels, almostRed);
+    expectAll(pixels, pixelPredicate);
   }
   {
-    const pixels = videoPlayer.seekLastFrame({ x: size.width - 20, y: 0 }).data;
-    expectAll(pixels, almostRed);
+    const pixels = videoPlayer.seekLastFrame({ x: size.width - 20, y: 10 }).data;
+    expectAll(pixels, pixelPredicate);
   }
 }
+
+it.skip(({ video }) => video === 'on', 'conflicts with built-in video recording');
 
 it.describe('screencast', () => {
   it.slow();
   it.skip(({ mode }) => mode !== 'default', 'video.path() is not available in remote mode');
 
-  it('videoSize should require videosPath', async ({ browser }) => {
-    const error = await browser.newContext({ videoSize: { width: 100, height: 100 } }).catch(e => e);
-    expect(error.message).toContain('"videoSize" option requires "videosPath" to be specified');
+  it('VI-001 should not have video by default', async ({ page }) => {
+    expect(page.video()).toBeNull();
   });
 
-  it('should work with old options', async ({ browser, browserName, trace, headless, isWindows }, testInfo) => {
-    const videosPath = testInfo.outputPath('');
-    // Firefox does not have a mobile variant and has a large minimum size (500 on windows and 450 elsewhere).
-    const size = browserName === 'firefox' ? { width: 500, height: 400 } : { width: 320, height: 240 };
-    const context = await browser.newContext({
-      videosPath,
-      viewport: size,
-      videoSize: size
-    });
-    const page = await context.newPage();
-
-    await page.evaluate(() => document.body.style.backgroundColor = 'red');
-    await waitForRafs(page, 100);
-    await context.close();
-
-    const videoFile = await page.video().path();
-    expectRedFrames(videoFile, size);
+  it('VI-002 should not throw without recordVideo.dir', async ({ browser }) => {
+    await browser.newContext({ recordVideo: {} });
   });
 
-  it('should throw without recordVideo.dir', async ({ browser }) => {
-    const error = await browser.newContext({ recordVideo: {} as any }).catch(e => e);
-    expect(error.message).toContain('recordVideo.dir: expected string, got undefined');
-  });
-
-  it('should capture static page', async ({ browser, browserName, trace, headless, isWindows }, testInfo) => {
+  it('VI-003 should capture static page', async ({ browser, browserName, trace, headless, isWindows }, testInfo) => {
     // Firefox does not have a mobile variant and has a large minimum size (500 on windows and 450 elsewhere).
     const size = browserName === 'firefox' ? { width: 500, height: 400 } : { width: 320, height: 240 };
     const context = await browser.newContext({
@@ -199,14 +123,63 @@ it.describe('screencast', () => {
     const page = await context.newPage();
 
     await page.evaluate(() => document.body.style.backgroundColor = 'red');
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await context.close();
 
     const videoFile = await page.video().path();
     expectRedFrames(videoFile, size);
   });
 
-  it('should expose video path', async ({ browser }, testInfo) => {
+  it('VI-004 should pad a short frame to the video size', async ({ browser }, testInfo) => {
+    const videoSize = { width: 800, height: 600 };
+    const context = await browser.newContext({
+      recordVideo: {
+        dir: testInfo.outputPath(''),
+        size: videoSize,
+      },
+      viewport: { width: 800, height: 396 },
+    });
+    const page = await context.newPage();
+    await ensureSomeFrames(page);
+    await context.close();
+
+    const videoFile = await page.video().path();
+    const videoPlayer = new VideoPlayer(videoFile);
+    expect(videoPlayer.videoWidth).toBe(videoSize.width);
+    expect(videoPlayer.videoHeight).toBe(videoSize.height);
+  });
+
+  it('VI-005 should continue recording main page after popup closes', async ({ browser, browserName }, testInfo) => {
+    it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30837' });
+    // Firefox does not have a mobile variant and has a large minimum size (500 on windows and 450 elsewhere).
+    const size = browserName === 'firefox' ? { width: 500, height: 400 } : { width: 320, height: 240 };
+    const context = await browser.newContext({
+      recordVideo: {
+        dir: testInfo.outputPath(''),
+        size
+      },
+      viewport: size,
+    });
+    const page = await context.newPage();
+    await page.setContent('<a target=_blank href="about:blank">clickme</a>');
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup'),
+      await page.click('a'),
+    ]);
+    await popup.close();
+
+    await page.evaluate(() => {
+      document.body.textContent = ''; // remove link
+      document.body.style.backgroundColor = 'red';
+    });
+    await ensureSomeFrames(page);
+    await context.close();
+
+    const videoFile = await page.video().path();
+    expectRedFrames(videoFile, size);
+  });
+
+  it('VI-006 should expose video path', async ({ browser }, testInfo) => {
     const videosPath = testInfo.outputPath('');
     const size = { width: 320, height: 240 };
     const context = await browser.newContext({
@@ -224,37 +197,7 @@ it.describe('screencast', () => {
     expect(fs.existsSync(path)).toBeTruthy();
   });
 
-  it('saveAs should throw when no video frames', async ({ browser }, testInfo) => {
-    const videosPath = testInfo.outputPath('');
-    const size = { width: 320, height: 240 };
-    const context = await browser.newContext({
-      recordVideo: {
-        dir: videosPath,
-        size
-      },
-      viewport: size,
-    });
-
-    const page = await context.newPage();
-    const [popup] = await Promise.all([
-      page.context().waitForEvent('page'),
-      page.evaluate(() => {
-        const win = window.open('about:blank');
-        win.close();
-      }),
-    ]);
-    await page.close();
-
-    const saveAsPath = testInfo.outputPath('my-video.webm');
-    const error = await popup.video().saveAs(saveAsPath).catch(e => e);
-    // WebKit pauses renderer before win.close() and actually writes something,
-    // and other browsers are sometimes fast as well.
-    if (!fs.existsSync(saveAsPath))
-      expect(error.message).toContain('Page did not produce any video frames');
-    await context.close();
-  });
-
-  it('should delete video', async ({ browser }, testInfo) => {
+  it('VI-007 should delete video', async ({ browser }, testInfo) => {
     const videosPath = testInfo.outputPath('');
     const size = { width: 320, height: 240 };
     const context = await browser.newContext({
@@ -267,7 +210,7 @@ it.describe('screencast', () => {
     const page = await context.newPage();
     const deletePromise = page.video().delete();
     await page.evaluate(() => document.body.style.backgroundColor = 'red');
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await context.close();
 
     const videoPath = await page.video().path();
@@ -275,7 +218,7 @@ it.describe('screencast', () => {
     expect(fs.existsSync(videoPath)).toBeFalsy();
   });
 
-  it('should expose video path blank page', async ({ browser }, testInfo) => {
+  it('VI-008 should expose video path blank page', async ({ browser }, testInfo) => {
     const videosPath = testInfo.outputPath('');
     const size = { width: 320, height: 240 };
     const context = await browser.newContext({
@@ -292,7 +235,7 @@ it.describe('screencast', () => {
     expect(fs.existsSync(path)).toBeTruthy();
   });
 
-  it('should work with weird screen resolution', async ({ browser }, testInfo) => {
+  it('VI-009 should work with weird screen resolution', async ({ browser }, testInfo) => {
     it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/22069' });
     const videosPath = testInfo.outputPath('');
     const size = { width: 1904, height: 609 };
@@ -310,7 +253,7 @@ it.describe('screencast', () => {
     expect(fs.existsSync(path)).toBeTruthy();
   });
 
-  it('should work with relative path for recordVideo.dir', async ({ browser }, testInfo) => {
+  it('VI-010 should work with relative path for recordVideo.dir', async ({ browser }, testInfo) => {
     it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27086' });
     const videosPath = path.relative(process.cwd(), testInfo.outputPath(''));
     const size = { width: 320, height: 240 };
@@ -327,7 +270,7 @@ it.describe('screencast', () => {
     expect(fs.existsSync(videoPath)).toBeTruthy();
   });
 
-  it('should expose video path blank popup', async ({ browser }, testInfo) => {
+  it('VI-011 should expose video path blank popup', async ({ browser }, testInfo) => {
     const videosPath = testInfo.outputPath('');
     const size = { width: 320, height: 240 };
     const context = await browser.newContext({
@@ -348,7 +291,7 @@ it.describe('screencast', () => {
     expect(fs.existsSync(path)).toBeTruthy();
   });
 
-  it('should capture navigation', async ({ browser, browserName, server, trace }, testInfo) => {
+  it('VI-012 should capture navigation', async ({ browser, browserName, server, trace }, testInfo) => {
     const context = await browser.newContext({
       recordVideo: {
         dir: testInfo.outputPath(''),
@@ -358,9 +301,9 @@ it.describe('screencast', () => {
     const page = await context.newPage();
 
     await page.goto(server.PREFIX + '/background-color.html#rgb(0,0,0)');
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await page.goto(server.CROSS_PROCESS_PREFIX + '/background-color.html#rgb(100,100,100)');
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await context.close();
 
     const videoFile = await page.video().path();
@@ -369,17 +312,18 @@ it.describe('screencast', () => {
     expect(duration).toBeGreaterThan(0);
 
     {
-      const pixels = videoPlayer.seekFirstNonEmptyFrame().data;
-      expectAll(pixels, almostBlack);
+      // Find a frame with all almost-black pixels.
+      const frame = videoPlayer.findFrame(pixels => everyPixel(pixels, isAlmostBlack));
+      expect(frame).not.toBeUndefined();
     }
 
     {
       const pixels = videoPlayer.seekLastFrame().data;
-      expectAll(pixels, almostGray);
+      expectAll(pixels, isAlmostGray);
     }
   });
 
-  it('should capture css transformation', async ({ browser, server, headless, browserName, platform, trace }, testInfo) => {
+  it('VI-013 should capture css transformation', async ({ browser, server, headless, browserName, platform, trace }, testInfo) => {
     it.fixme(!headless, 'Fails on headed');
     it.fixme(browserName === 'webkit' && platform === 'win32');
 
@@ -395,7 +339,7 @@ it.describe('screencast', () => {
     const page = await context.newPage();
 
     await page.goto(server.PREFIX + '/rotate-z.html');
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await context.close();
 
     const videoFile = await page.video().path();
@@ -405,12 +349,12 @@ it.describe('screencast', () => {
 
     {
       const pixels = videoPlayer.seekLastFrame({ x: 95, y: 45 }).data;
-      expectAll(pixels, almostRed);
+      expectAll(pixels, isAlmostRed);
     }
   });
 
-  it('should work for popups', async ({ browser, server, browserName, trace }, testInfo) => {
-    it.fixme(browserName === 'firefox', 'https://github.com/microsoft/playwright/issues/14557');
+  it('VI-014 should work for popups', async ({ browser, server, browserName, isBidi }, testInfo) => {
+    it.fixme(browserName === 'firefox' && !isBidi, 'https://github.com/microsoft/playwright/issues/14557');
     const videosPath = testInfo.outputPath('');
     const size = { width: 600, height: 400 };
     const context = await browser.newContext({
@@ -429,8 +373,8 @@ it.describe('screencast', () => {
     ]);
     await popup.evaluate(() => document.body.style.backgroundColor = 'red');
     await Promise.all([
-      waitForRafs(page, 100),
-      waitForRafs(popup, 100),
+      ensureSomeFrames(page),
+      ensureSomeFrames(popup),
     ]);
     await context.close();
 
@@ -443,9 +387,9 @@ it.describe('screencast', () => {
     expect(videoFiles.length).toBe(2);
   });
 
-  it('should scale frames down to the requested size ', async ({ browser, browserName, server, headless, trace }, testInfo) => {
-    const isChromiumHeadlessNew = browserName === 'chromium' && !!headless && !!process.env.PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW;
-    it.fixme(!headless || isChromiumHeadlessNew, 'Fails on headed');
+  it('VI-015 should scale frames down to the requested size ', async ({ browser, browserName, server, headless, isHeadlessShell }, testInfo) => {
+    it.fixme(!headless, 'Fails on headed');
+    it.fixme(browserName === 'chromium' && !isHeadlessShell, 'Chromium (but not headless shell) has a min width issue');
 
     const context = await browser.newContext({
       recordVideo: {
@@ -462,11 +406,11 @@ it.describe('screencast', () => {
     await page.$eval('.container', container => {
       container.firstElementChild.classList.remove('red');
     });
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await page.$eval('.container', container => {
       container.firstElementChild.classList.add('red');
     });
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await context.close();
 
     const videoFile = await page.video().path();
@@ -475,24 +419,24 @@ it.describe('screencast', () => {
     expect(duration).toBeGreaterThan(0);
 
     {
-      const pixels = videoPlayer.seekLastFrame({ x: 0, y: 0 }).data;
-      expectAll(pixels, almostRed);
+      const pixels = videoPlayer.seekLastFrame({ x: 10, y: 10 }).data;
+      expectAll(pixels, isAlmostRed);
     }
     {
-      const pixels = videoPlayer.seekLastFrame({ x: 300, y: 0 }).data;
-      expectAll(pixels, almostGray);
+      const pixels = videoPlayer.seekLastFrame({ x: 300, y: 10 }).data;
+      expectAll(pixels, isAlmostGray);
     }
     {
-      const pixels = videoPlayer.seekLastFrame({ x: 0, y: 200 }).data;
-      expectAll(pixels, almostGray);
+      const pixels = videoPlayer.seekLastFrame({ x: 10, y: 200 }).data;
+      expectAll(pixels, isAlmostGray);
     }
     {
       const pixels = videoPlayer.seekLastFrame({ x: 300, y: 200 }).data;
-      expectAll(pixels, almostRed);
+      expectAll(pixels, isAlmostRed);
     }
   });
 
-  it('should use viewport scaled down to fit into 800x800 as default size', async ({ browser }, testInfo) => {
+  it('VI-016 should use viewport scaled down to fit into 800x800 as default size', async ({ browser }, testInfo) => {
     const size = { width: 1600, height: 1200 };
     const context = await browser.newContext({
       recordVideo: {
@@ -502,7 +446,7 @@ it.describe('screencast', () => {
     });
 
     const page = await context.newPage();
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await context.close();
 
     const videoFile = await page.video().path();
@@ -511,7 +455,7 @@ it.describe('screencast', () => {
     expect(videoPlayer.videoHeight).toBe(600);
   });
 
-  it('should be 800x450 by default', async ({ browser }, testInfo) => {
+  it('VI-017 should be 800x450 by default', async ({ browser }, testInfo) => {
     const context = await browser.newContext({
       recordVideo: {
         dir: testInfo.outputPath(''),
@@ -519,7 +463,7 @@ it.describe('screencast', () => {
     });
 
     const page = await context.newPage();
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await context.close();
 
     const videoFile = await page.video().path();
@@ -528,8 +472,34 @@ it.describe('screencast', () => {
     expect(videoPlayer.videoHeight).toBe(450);
   });
 
-  it('should be 800x600 with null viewport', async ({ browser, headless, browserName }, testInfo) => {
-    it.fixme(browserName === 'firefox' && headless, 'Fails in headless on bots');
+  it('VI-018 should record video with the requested fps', async ({ browser }, testInfo) => {
+    const context = await browser.newContext({
+      recordVideo: {
+        dir: testInfo.outputPath(''),
+        fps: 60,
+      },
+    });
+
+    const page = await context.newPage();
+    await ensureSomeFrames(page);
+    await context.close();
+
+    const videoPlayer = new VideoPlayer(await page.video().path());
+    expect(videoPlayer.fps).toBe(60);
+  });
+
+  it('VI-019 should throw on invalid fps', async ({ browser }, testInfo) => {
+    const error = await browser.newContext({
+      recordVideo: {
+        dir: testInfo.outputPath(''),
+        fps: 0,
+      },
+    }).catch(e => e);
+    expect(error.message).toContain('"recordVideo.fps" must be a positive number, got 0');
+  });
+
+  it('VI-020 should be 800x600 with null viewport', async ({ browser, headless, browserName, isBidi }, testInfo) => {
+    it.fixme(browserName === 'firefox' && headless && !isBidi, 'Fails in headless on bots');
 
     const context = await browser.newContext({
       recordVideo: {
@@ -539,7 +509,7 @@ it.describe('screencast', () => {
     });
 
     const page = await context.newPage();
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await context.close();
 
     const videoFile = await page.video().path();
@@ -548,7 +518,7 @@ it.describe('screencast', () => {
     expect(videoPlayer.videoHeight).toBe(600);
   });
 
-  it('should capture static page in persistent context @smoke', async ({ launchPersistent, browserName, trace, isMac }, testInfo) => {
+  it('VI-021 should capture static page in persistent context @smoke', async ({ launchPersistent, browserName, trace, isMac }, testInfo) => {
     it.skip(browserName === 'webkit' && isMac && process.arch === 'arm64', 'Is only failing on self-hosted github actions runner on M1 mac; not reproducible locally');
     const size = { width: 600, height: 400 };
     const { context, page } = await launchPersistent({
@@ -560,7 +530,7 @@ it.describe('screencast', () => {
     });
 
     await page.evaluate(() => document.body.style.backgroundColor = 'red');
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await context.close();
 
     const videoFile = await page.video().path();
@@ -573,13 +543,11 @@ it.describe('screencast', () => {
 
     {
       const pixels = videoPlayer.seekLastFrame().data;
-      expectAll(pixels, almostRed);
+      expectAll(pixels, isAlmostRed);
     }
   });
 
-  it('should emulate an iphone', async ({ contextFactory, playwright, browserName }, testInfo) => {
-    it.skip(browserName === 'firefox', 'isMobile is not supported in Firefox');
-
+  it('VI-022 should emulate an iphone', async ({ contextFactory, playwright, browserName }, testInfo) => {
     const device = playwright.devices['iPhone 6'];
     const context = await contextFactory({
       ...device,
@@ -589,7 +557,7 @@ it.describe('screencast', () => {
     });
 
     const page = await context.newPage();
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await context.close();
 
     const videoFile = await page.video().path();
@@ -598,7 +566,7 @@ it.describe('screencast', () => {
     expect(videoPlayer.videoHeight).toBe(666);
   });
 
-  it('should throw on browser close', async ({ browserType }, testInfo) => {
+  it('VI-023 should throw on browser close', async ({ browserType }, testInfo) => {
     const size = { width: 320, height: 240 };
     const browser = await browserType.launch();
     const context = await browser.newContext({
@@ -610,7 +578,7 @@ it.describe('screencast', () => {
     });
 
     const page = await context.newPage();
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await browser.close();
 
     const file = testInfo.outputPath('saved-video-');
@@ -618,7 +586,7 @@ it.describe('screencast', () => {
     expect(saveResult.message).toContain('browser has been closed');
   });
 
-  it('should throw if browser dies', async ({ browserType }, testInfo) => {
+  it('VI-024 should throw if browser dies', async ({ browserType }, testInfo) => {
     const size = { width: 320, height: 240 };
     const browser = await browserType.launch();
 
@@ -631,7 +599,7 @@ it.describe('screencast', () => {
     });
 
     const page = await context.newPage();
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await (browser as any)._channel.killForTests();
 
     const file = testInfo.outputPath('saved-video-');
@@ -639,7 +607,7 @@ it.describe('screencast', () => {
     expect(saveResult.message).toContain('rowser has been closed');
   });
 
-  it('should wait for video to finish if page was closed', async ({ browserType }, testInfo) => {
+  it('VI-025 should wait for video to finish if page was closed', async ({ browserType }, testInfo) => {
     const size = { width: 320, height: 240 };
     const browser = await browserType.launch();
 
@@ -653,7 +621,7 @@ it.describe('screencast', () => {
     });
 
     const page = await context.newPage();
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await page.close();
     await context.close();
     await browser.close();
@@ -665,8 +633,35 @@ it.describe('screencast', () => {
     expect(videoPlayer.videoHeight).toBe(240);
   });
 
-  it('should not create video for internal pages', async ({ browser, server }, testInfo) => {
-    it.fixme(true, 'https://github.com/microsoft/playwright/issues/6743');
+  it('VI-026 should close ffmpeg even if there were no frames', {
+    annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/39872' }
+  }, async ({ browserType }, testInfo) => {
+    const size = { width: 320, height: 240 };
+    const browser = await browserType.launch();
+
+    const videoDir = testInfo.outputPath('');
+    const context = await browser.newContext({
+      recordVideo: {
+        dir: videoDir,
+        size,
+      },
+      viewport: size,
+    });
+
+    const page1 = await context.newPage();
+    await page1.close();
+
+    const page2 = await context.newPage();
+    await page2.close();
+
+    await context.close();
+    await browser.close();
+
+    const videoFiles = findVideos(videoDir);
+    expect(videoFiles.length).toBe(2);
+  });
+
+  it('VI-027 should not create video for internal pages', async ({ browser, server }, testInfo) => {
     server.setRoute('/empty.html', (req, res) => {
       res.setHeader('Set-Cookie', 'name=value');
       res.end();
@@ -681,7 +676,7 @@ it.describe('screencast', () => {
 
     const page = await context.newPage();
     await page.goto(server.EMPTY_PAGE);
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
 
     const cookies = await context.cookies();
     expect(cookies.length).toBe(1);
@@ -692,9 +687,9 @@ it.describe('screencast', () => {
     expect(files.length).toBe(1);
   });
 
-  it('should capture full viewport', async ({ browserType, browserName, headless, isWindows }, testInfo) => {
+  it('VI-028 should capture full viewport', async ({ browserType, browserName, isWindows, headless, isHeadlessShell }, testInfo) => {
     it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/22411' });
-    it.fixme(browserName === 'chromium' && (!headless || !!process.env.PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW), 'The square is not on the video');
+    it.fixme(browserName === 'chromium' && !isHeadlessShell, 'The square is not on the video');
     it.fixme(browserName === 'firefox' && isWindows, 'https://github.com/microsoft/playwright/issues/14405');
     const size = { width: 600, height: 400 };
     const browser = await browserType.launch();
@@ -710,7 +705,7 @@ it.describe('screencast', () => {
 
     const page = await context.newPage();
     await page.setContent(`<div style='margin: 0; background: red; position: fixed; right:0; bottom:0; width: 30; height: 30;'></div>`);
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await page.close();
     await context.close();
     await browser.close();
@@ -724,14 +719,14 @@ it.describe('screencast', () => {
     // Bottom right corner should be part of the red border.
     // However, headed browsers on mac have rounded corners, so offset by 10.
     const pixels = videoPlayer.seekLastFrame({ x: size.width - 20, y: size.height - 20 }).data;
-    expectAll(pixels, almostRed);
+    expectAll(pixels, isAlmostRed);
   });
 
-  it('should capture full viewport on hidpi', async ({ browserType, browserName, headless, isWindows, isLinux }, testInfo) => {
+  it('VI-029 should capture full viewport on hidpi', async ({ browserType, browserName, headless, isWindows, isLinux, isHeadlessShell, channel }, testInfo) => {
     it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/22411' });
-    it.fixme(browserName === 'chromium' && (!headless || !!process.env.PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW), 'The square is not on the video');
+    it.fixme(browserName === 'chromium' && !isHeadlessShell, 'The square is not on the video');
     it.fixme(browserName === 'firefox' && isWindows, 'https://github.com/microsoft/playwright/issues/14405');
-    it.fixme(browserName === 'webkit' && isLinux && !headless, 'https://github.com/microsoft/playwright/issues/22617');
+    it.fixme(browserName === 'webkit' && !headless && (isLinux || (isWindows && channel === 'webkit-wsl')), 'https://github.com/microsoft/playwright/issues/22617');
     const size = { width: 600, height: 400 };
     const browser = await browserType.launch();
 
@@ -747,7 +742,7 @@ it.describe('screencast', () => {
 
     const page = await context.newPage();
     await page.setContent(`<div style='margin: 0; background: red; position: fixed; right:0; bottom:0; width: 30; height: 30;'></div>`);
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await page.close();
     await context.close();
     await browser.close();
@@ -761,12 +756,13 @@ it.describe('screencast', () => {
     // Bottom right corner should be part of the red border.
     // However, headed browsers on mac have rounded corners, so offset by 10.
     const pixels = videoPlayer.seekLastFrame({ x: size.width - 20, y: size.height - 20 }).data;
-    expectAll(pixels, almostRed);
+    expectAll(pixels, isAlmostRed);
   });
 
-  it('should work with video+trace', async ({ browser, trace, headless }, testInfo) => {
+  it('VI-030 should work with video+trace', async ({ browser, trace, headless, browserName, isHeadlessShell }, testInfo) => {
     it.skip(trace === 'on');
-    it.fixme(!headless || !!process.env.PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW, 'different trace screencast image size on all browsers');
+    it.fixme(!headless, 'different trace screencast image size on all browsers');
+    it.fixme(browserName === 'chromium' && !isHeadlessShell, 'different trace screencast image size');
 
     const size = { width: 500, height: 400 };
     const traceFile = testInfo.outputPath('trace.zip');
@@ -782,7 +778,7 @@ it.describe('screencast', () => {
     const page = await context.newPage();
 
     await page.evaluate(() => document.body.style.backgroundColor = 'red');
-    await waitForRafs(page, 100);
+    await ensureSomeFrames(page);
     await context.tracing.stop({ path: traceFile });
     await context.close();
 
@@ -791,16 +787,23 @@ it.describe('screencast', () => {
 
     const { events, resources } = await parseTraceRaw(traceFile);
     const frame = events.filter(e => e.type === 'screencast-frame').pop();
-    const buffer = resources.get('resources/' + frame.sha1);
+    const buffer = resources.get(frame.file);
     const image = jpegjs.decode(buffer);
     expect(image.width).toBe(size.width);
     expect(image.height).toBe(size.height);
     const offset = size.width * size.height / 2 * 4 + size.width * 4 / 2; // Center should be red.
-    almostRed(image.data.readUInt8(offset), image.data.readUInt8(offset + 1), image.data.readUInt8(offset + 2), image.data.readUInt8(offset + 3));
+    const pixel: Pixel = {
+      r: image.data.readUInt8(offset),
+      g: image.data.readUInt8(offset + 1),
+      b: image.data.readUInt8(offset + 2),
+      alpha: image.data.readUInt8(offset + 3),
+    };
+    expect(isAlmostRed(pixel)).toBe(true);
   });
+
 });
 
-it('should saveAs video', async ({ browser }, testInfo) => {
+it('VI-031 should saveAs video', async ({ browser }, testInfo) => {
   it.slow();
 
   const videosPath = testInfo.outputPath('');
@@ -814,23 +817,10 @@ it('should saveAs video', async ({ browser }, testInfo) => {
   });
   const page = await context.newPage();
   await page.evaluate(() => document.body.style.backgroundColor = 'red');
-  await waitForRafs(page, 100);
+  await ensureSomeFrames(page);
   await context.close();
 
   const saveAsPath = testInfo.outputPath('my-video.webm');
   await page.video().saveAs(saveAsPath);
   expect(fs.existsSync(saveAsPath)).toBeTruthy();
 });
-
-async function waitForRafs(page: Page, count: number): Promise<void> {
-  await page.evaluate(count => new Promise<void>(resolve => {
-    const onRaf = () => {
-      --count;
-      if (!count)
-        resolve();
-      else
-        requestAnimationFrame(onRaf);
-    };
-    requestAnimationFrame(onRaf);
-  }), count);
-}

@@ -15,24 +15,19 @@
 */
 
 import path from 'path';
-import { calculateSha1, toPosixPath } from 'playwright-core/lib/utils';
-import type { Suite, TestCase } from './test';
+
+import { calculateSha1 } from '@utils/crypto';
+import { toPosixPath } from '@utils/fileUtils';
+
+import { createFileMatcher, forceRegExp, parseLocationArg } from '../util';
+import { maxRetries } from './retries';
+
 import type { FullProjectInternal } from './config';
-import type { Matcher, TestFileFilter } from '../util';
-import { createFileMatcher } from '../util';
+import type { RetriesEntry } from './retries';
+import type { Suite, TestCase } from './test';
+import type { Matcher, TestCaseFilter } from '../util';
 
-
-export function filterSuite(suite: Suite, suiteFilter: (suites: Suite) => boolean, testFilter: (test: TestCase) => boolean) {
-  for (const child of suite.suites) {
-    if (!suiteFilter(child))
-      filterSuite(child, suiteFilter, testFilter);
-  }
-  const filteredTests = suite.tests.filter(testFilter);
-  const entries = new Set([...suite.suites, ...filteredTests]);
-  suite._entries = suite._entries.filter(e => entries.has(e)); // Preserve the order.
-}
-
-export function filterTestsRemoveEmptySuites(suite: Suite, filter: (test: TestCase) => boolean): boolean {
+export function filterTestsRemoveEmptySuites(suite: Suite, filter: TestCaseFilter): boolean {
   const filteredSuites = suite.suites.filter(child => filterTestsRemoveEmptySuites(child, filter));
   const filteredTests = suite.tests.filter(filter);
   const entries = new Set([...filteredSuites, ...filteredTests]);
@@ -59,20 +54,23 @@ export function bindFileSuiteToProject(project: FullProjectInternal, suite: Suit
     test._projectId = project.id;
 
     // Inherit properties from parent suites.
-    let inheritedRetries: number | undefined;
+    let inheritedRetries: RetriesEntry[] | undefined;
     let inheritedTimeout: number | undefined;
-    test.annotations = [];
     for (let parentSuite: Suite | undefined = suite; parentSuite; parentSuite = parentSuite.parent) {
       if (parentSuite._staticAnnotations.length)
-        test.annotations = [...parentSuite._staticAnnotations, ...test.annotations];
+        test.annotations.unshift(...parentSuite._staticAnnotations);
+      if (parentSuite._parallelMode === 'serial')
+        test.annotations.unshift({ type: 'serial', location: parentSuite.location });
+      if (parentSuite._locks.length)
+        test._locks.push(...parentSuite._locks);
       if (inheritedRetries === undefined && parentSuite._retries !== undefined)
         inheritedRetries = parentSuite._retries;
       if (inheritedTimeout === undefined && parentSuite._timeout !== undefined)
         inheritedTimeout = parentSuite._timeout;
     }
-    test.retries = inheritedRetries ?? project.project.retries;
+    test._retries = inheritedRetries ?? project.retries;
+    test.retries = maxRetries(test._retries);
     test.timeout = inheritedTimeout ?? project.project.timeout;
-    test.annotations.push(...test._staticAnnotations);
 
     // Skip annotations imply skipped expectedStatus.
     if (test.annotations.some(a => a.type === 'skip' || a.type === 'fixme'))
@@ -110,7 +108,7 @@ export function filterOnly(suite: Suite) {
   return filterSuiteWithOnlySemantics(suite, suiteFilter, testFilter);
 }
 
-export function filterSuiteWithOnlySemantics(suite: Suite, suiteFilter: (suites: Suite) => boolean, testFilter: (test: TestCase) => boolean) {
+function filterSuiteWithOnlySemantics(suite: Suite, suiteFilter: (suite: Suite) => boolean, testFilter: TestCaseFilter) {
   const onlySuites = suite.suites.filter(child => filterSuiteWithOnlySemantics(child, suiteFilter, testFilter) || suiteFilter(child));
   const onlyTests = suite.tests.filter(testFilter);
   const onlyEntries = new Set([...onlySuites, ...onlyTests]);
@@ -121,24 +119,23 @@ export function filterSuiteWithOnlySemantics(suite: Suite, suiteFilter: (suites:
   return false;
 }
 
-export function filterByFocusedLine(suite: Suite, focusedTestFileLines: TestFileFilter[]) {
-  if (!focusedTestFileLines.length)
-    return;
-  const matchers = focusedTestFileLines.map(createFileMatcherFromFilter);
-  const testFileLineMatches = (testFileName: string, testLine: number, testColumn: number) => matchers.some(m => m(testFileName, testLine, testColumn));
-  const suiteFilter = (suite: Suite) => !!suite.location && testFileLineMatches(suite.location.file, suite.location.line, suite.location.column);
-  const testFilter = (test: TestCase) => testFileLineMatches(test.location.file, test.location.line, test.location.column);
-  return filterSuite(suite, suiteFilter, testFilter);
-}
+export function createFiltersFromArguments(args: string[]): { fileFilter: Matcher, testFilter: TestCaseFilter } {
+  const matchers = args.map(arg => {
+    const parsed = parseLocationArg(arg);
+    const fileMatcher = createFileMatcher(forceRegExp(parsed.file));
+    const locationMatcher = (file: string, line: number, column: number) => fileMatcher(file) && (parsed.line === line || parsed.line === null) && (parsed.column === column || parsed.column === null);
+    return { fileMatcher, locationMatcher };
+  });
 
-export function filterByTestIds(suite: Suite, testIdMatcher: Matcher | undefined) {
-  if (!testIdMatcher)
-    return;
-  filterTestsRemoveEmptySuites(suite, test => testIdMatcher(test.id));
-}
-
-function createFileMatcherFromFilter(filter: TestFileFilter) {
-  const fileMatcher = createFileMatcher(filter.re || filter.exact || '');
-  return (testFileName: string, testLine: number, testColumn: number) =>
-    fileMatcher(testFileName) && (filter.line === testLine || filter.line === null) && (filter.column === testColumn || filter.column === null);
+  const fileFilter = (file: string) => matchers.some(m => m.fileMatcher(file));
+  const locationMatcher = (file: string, line: number, column: number) => matchers.some(m => m.locationMatcher(file, line, column));
+  const testFilter = (test: TestCase) => {
+    // If any suite matches the filter, always include all tests.
+    for (let suite: Suite | undefined = test.parent; suite; suite = suite.parent) {
+      if (suite.location && locationMatcher(suite.location.file, suite.location.line, suite.location.column))
+        return true;
+    }
+    return locationMatcher(test.location.file, test.location.line, test.location.column);
+  };
+  return { fileFilter, testFilter };
 }

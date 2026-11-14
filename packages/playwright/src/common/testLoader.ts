@@ -15,14 +15,14 @@
  */
 
 import path from 'path';
-import util from 'util';
-import type { TestError } from '../../types/testReporter';
-import { isWorkerProcess, setCurrentlyLoadingFileSuite } from './globals';
+
+import { isWorkerProcess, setCurrentlyLoadingFileSuite } from '../globals';
 import { Suite } from './test';
-import { requireOrImport } from '../transform/transform';
-import { filterStackTrace } from '../util';
-import { startCollectingFileDeps, stopCollectingFileDeps } from '../transform/compilationCache';
-import * as esmLoaderHost from './esmLoaderHost';
+import { installTransformIfNeeded, requireOrImport, startCollectingFileDeps, stopCollectingFileDeps } from '../transform/transform';
+import { serializeError } from '../util';
+
+import type { Location, TestError } from '../../types/testReporter';
+import type { FullConfigInternal } from './config';
 
 export const defaultTimeout = 30000;
 
@@ -30,31 +30,29 @@ export const defaultTimeout = 30000;
 // we make these maps global.
 const cachedFileSuites = new Map<string, Suite>();
 
-export async function loadTestFile(file: string, rootDir: string, testErrors?: TestError[]): Promise<Suite> {
+export async function loadTestFile(file: string, config: FullConfigInternal, testErrors?: TestError[]): Promise<Suite> {
   if (cachedFileSuites.has(file))
     return cachedFileSuites.get(file)!;
-  const suite = new Suite(path.relative(rootDir, file) || path.basename(file), 'file');
+  const suite = new Suite(path.relative(config.config.rootDir, file) || path.basename(file), 'file');
   suite._requireFile = file;
   suite.location = { file, line: 0, column: 0 };
+  suite._tags = [...config.config.tags];
 
   setCurrentlyLoadingFileSuite(suite);
-  if (!isWorkerProcess()) {
-    startCollectingFileDeps();
-    await esmLoaderHost.startCollectingFileDeps();
-  }
   try {
+    installTransformIfNeeded();
+    if (!isWorkerProcess())
+      await startCollectingFileDeps();
     await requireOrImport(file);
     cachedFileSuites.set(file, suite);
   } catch (e) {
     if (!testErrors)
       throw e;
-    testErrors.push(serializeLoadError(file, e));
+    testErrors.push(...serializeLoadErrors(e));
   } finally {
     setCurrentlyLoadingFileSuite(undefined);
-    if (!isWorkerProcess()) {
-      stopCollectingFileDeps(file);
-      await esmLoaderHost.stopCollectingFileDeps(file);
-    }
+    if (!isWorkerProcess())
+      await stopCollectingFileDeps(file);
   }
 
   {
@@ -68,7 +66,7 @@ export async function loadTestFile(file: string, rootDir: string, testErrors?: T
     suite.allTests().map(t => files.add(t.location.file));
     if (files.size === 1) {
       // All tests point to one file.
-      const mappedFile = files.values().next().value;
+      const mappedFile = files.values().next().value!;
       if (suite.location.file !== mappedFile) {
         // The file is different, check for a likely source map case.
         if (path.extname(mappedFile) !== path.extname(suite.location.file))
@@ -80,17 +78,19 @@ export async function loadTestFile(file: string, rootDir: string, testErrors?: T
   return suite;
 }
 
-function serializeLoadError(file: string, error: Error | any): TestError {
-  if (error instanceof Error) {
-    const result: TestError = filterStackTrace(error);
-    // Babel parse errors have location.
-    const loc = (error as any).loc;
-    result.location = loc ? {
-      file,
-      line: loc.line || 0,
-      column: loc.column || 0,
-    } : undefined;
-    return result;
-  }
-  return { value: util.inspect(error) };
+function serializeLoadErrors(error: Error | any): TestError[] {
+  if (error instanceof AggregateError)
+    return error.errors.flatMap(serializeLoadErrors);
+  const result: TestError = serializeError(error);
+  if (error instanceof Error)
+    result.location = parseErrorLocation(error);
+  return [result];
+}
+
+// Transform syntax errors have loc, bun parse errors have position.
+type ParseError = Error & { loc?: Location, position?: Location };
+
+function parseErrorLocation(error: ParseError): Location | undefined {
+  const location = error.loc ?? error.position;
+  return location && { file: location.file, line: location.line, column: location.column };
 }

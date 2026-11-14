@@ -13,9 +13,14 @@ Regardless of the authentication strategy you choose, you are likely to store au
 
 We recommend to create `playwright/.auth` directory and add it to your `.gitignore`. Your authentication routine will produce authenticated browser state and save it to a file in this `playwright/.auth` directory. Later on, tests will reuse this state and start already authenticated.
 
+:::danger
+The browser state file may contain sensitive cookies and headers that could be used to impersonate you or your test account.
+We strongly discourage checking them into private or public repositories.
+:::
+
 ```bash tab=bash-bash
 mkdir -p playwright/.auth
-echo "\nplaywright/.auth" >> .gitignore
+echo $'\nplaywright/.auth' >> .gitignore
 ```
 
 ```batch tab=bash-batch
@@ -47,8 +52,9 @@ Create `tests/auth.setup.ts` that will prepare authenticated browser state for a
 
 ```js title="tests/auth.setup.ts"
 import { test as setup, expect } from '@playwright/test';
+import path from 'path';
 
-const authFile = 'playwright/.auth/user.json';
+const authFile = path.join(__dirname, '../playwright/.auth/user.json');
 
 setup('authenticate', async ({ page }) => {
   // Perform authentication steps. Replace these actions with your own.
@@ -105,6 +111,10 @@ export default defineConfig({
 
 Tests start already authenticated because we specified `storageState` in the config.
 
+:::note
+If your application stores authentication tokens in IndexedDB, such as Firebase Authentication, enable [`option: BrowserContext.storageState.indexedDB`] when saving the state: `await page.context().storageState({ path: authFile, indexedDB: true })`. IndexedDB is not included in the snapshot by default.
+:::
+
 ```js title="tests/example.spec.ts"
 import { test } from '@playwright/test';
 
@@ -112,6 +122,8 @@ test('test', async ({ page }) => {
   // page is authenticated
 });
 ```
+
+Note that you need to delete the stored state when it expires. If you don't need to keep the state between test runs, write the browser state under [`property: TestProject.outputDir`], which is automatically cleaned up before every test run.
 
 ### Authenticating in UI mode
 * langs: js
@@ -229,7 +241,7 @@ await page.goto('https://github.com/login')
 # Interact with login form
 await page.get_by_label("Username or email address").fill("username")
 await page.get_by_label("Password").fill("password")
-await page.page.get_by_role("button", name="Sign in").click()
+await page.get_by_role("button", name="Sign in").click()
 # Continue with the test
 ```
 
@@ -263,11 +275,11 @@ existing authentication state instead.
 Playwright provides a way to reuse the signed-in state in the tests. That way you can log
 in only once and then skip the log in step for all of the tests.
 
-Web apps use cookie-based or token-based authentication, where authenticated state is stored as [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies) or in [local storage](https://developer.mozilla.org/en-US/docs/Web/API/Storage). Playwright provides [`method: BrowserContext.storageState`] method that can be used to retrieve storage state from authenticated contexts and then create new contexts with pre-populated state.
+Web apps use cookie-based or token-based authentication, where authenticated state is stored as [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies), in [local storage](https://developer.mozilla.org/en-US/docs/Web/API/Storage), in [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API), or as passkeys ([WebAuthn](https://developer.mozilla.org/en-US/docs/Web/API/Web_Authentication_API) credentials). Playwright provides [`method: BrowserContext.storageState`] method that can be used to retrieve storage state from authenticated contexts and then create new contexts with prepopulated state.
 
-Cookies and local storage state can be used across different browsers. They depend on your application's authentication model: some apps might require both cookies and local storage.
+Cookies, local storage, IndexedDB and virtual WebAuthn credentials (passkeys) can be used across different browsers. They depend on your application's authentication model which may require some combination of cookies, local storage, IndexedDB or passkeys.
 
-The following code snippet retrieves state from an authenticated context and creates a new context with that state.
+The following code snippet retrieves state from an authenticated context and creates a new context with that state. If your application stores authentication tokens in IndexedDB, such as Firebase Authentication, enable [`option: BrowserContext.storageState.indexedDB`] when saving the state. IndexedDB is not included in the snapshot by default.
 
 ```java
 // Save storage state into the file.
@@ -580,7 +592,7 @@ test('admin and user', async ({ adminPage, userPage }) => {
 
 ### Session storage
 
-Reusing authenticated state covers [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies) and [local storage](https://developer.mozilla.org/en-US/docs/Web/API/Storage) based authentication. Rarely, [session storage](https://developer.mozilla.org/en-US/docs/Web/API/Window/sessionStorage) is used for storing information associated with the signed-in state. Session storage is specific to a particular domain and is not persisted across page loads. Playwright does not provide API to persist session storage, but the following snippet can be used to save/load session storage.
+Reusing authenticated state covers [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies), [local storage](https://developer.mozilla.org/en-US/docs/Web/API/Storage), [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) and passkey ([WebAuthn](https://developer.mozilla.org/en-US/docs/Web/API/Web_Authentication_API)) based authentication. Rarely, [session storage](https://developer.mozilla.org/en-US/docs/Web/API/Window/sessionStorage) is used for storing information associated with the signed-in state. Session storage is specific to a particular domain and is not persisted across page loads. Playwright does not provide API to persist session storage, but the following snippet can be used to save/load session storage.
 
 ```js
 // Get session storage and store as env variable
@@ -604,6 +616,7 @@ System.getenv().put("SESSION_STORAGE", sessionStorage);
 
 // Set session storage in a new context
 String sessionStorage = System.getenv("SESSION_STORAGE");
+String escapedSessionStorage = sessionStorage.replace("\\", "\\\\").replace("'", "\\'");
 context.addInitScript("(storage => {\n" +
   "  if (window.location.hostname === 'example.com') {\n" +
   "    const entries = JSON.parse(storage);\n" +
@@ -611,7 +624,7 @@ context.addInitScript("(storage => {\n" +
   "      window.sessionStorage.setItem(key, value);\n" +
   "    };\n" +
   "  }\n" +
-  "})('" + sessionStorage + "')");
+  "})('" + escapedSessionStorage + "')");
 ```
 
 ```python async
@@ -622,6 +635,7 @@ os.environ["SESSION_STORAGE"] = session_storage
 
 # Set session storage in a new context
 session_storage = os.environ["SESSION_STORAGE"]
+escaped_session_storage = session_storage.replace("\\", "\\\\").replace("'", "\\'")
 await context.add_init_script("""(storage => {
   if (window.location.hostname === 'example.com') {
     const entries = JSON.parse(storage)
@@ -629,7 +643,7 @@ await context.add_init_script("""(storage => {
       window.sessionStorage.setItem(key, value)
     }
   }
-})('""" + session_storage + "')")
+})('""" + escaped_session_storage + "')")
 ```
 
 ```python sync
@@ -640,6 +654,7 @@ os.environ["SESSION_STORAGE"] = session_storage
 
 # Set session storage in a new context
 session_storage = os.environ["SESSION_STORAGE"]
+escaped_session_storage = session_storage.replace("\\", "\\\\").replace("'", "\\'")
 context.add_init_script("""(storage => {
   if (window.location.hostname === 'example.com') {
     const entries = JSON.parse(storage)
@@ -647,7 +662,7 @@ context.add_init_script("""(storage => {
       window.sessionStorage.setItem(key, value)
     }
   }
-})('""" + session_storage + "')")
+})('""" + escaped_session_storage + "')")
 ```
 
 ```csharp
@@ -657,6 +672,7 @@ Environment.SetEnvironmentVariable("SESSION_STORAGE", sessionStorage);
 
 // Set session storage in a new context
 var loadedSessionStorage = Environment.GetEnvironmentVariable("SESSION_STORAGE");
+var escapedSessionStorage = loadedSessionStorage.Replace("\\", "\\\\").Replace("'", "\\'");
 await context.AddInitScriptAsync(@"(storage => {
     if (window.location.hostname === 'example.com') {
       const entries = JSON.parse(storage);
@@ -664,7 +680,7 @@ await context.AddInitScriptAsync(@"(storage => {
         window.sessionStorage.setItem(key, value);
       }
     }
-  })('" + loadedSessionStorage + "')");
+  })('" + escapedSessionStorage + "')");
 ```
 
 ### Avoid authentication in some tests

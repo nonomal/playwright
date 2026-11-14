@@ -25,7 +25,7 @@ function adjustServerHeaders(headers: Object, browserName: string) {
   return headers;
 }
 
-it('should work for main frame navigation request', async ({ page, server }) => {
+it('NE-001 should work for main frame navigation request', async ({ page, server }) => {
   const requests = [];
   page.on('request', request => requests.push(request));
   await page.goto(server.EMPTY_PAGE);
@@ -33,7 +33,7 @@ it('should work for main frame navigation request', async ({ page, server }) => 
   expect(requests[0].frame()).toBe(page.mainFrame());
 });
 
-it('should work for subframe navigation request', async ({ page, server }) => {
+it('NE-002 should work for subframe navigation request', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   const requests = [];
   page.on('request', request => requests.push(request));
@@ -42,7 +42,7 @@ it('should work for subframe navigation request', async ({ page, server }) => {
   expect(requests[0].frame()).toBe(page.frames()[1]);
 });
 
-it('should work for fetch requests @smoke', async ({ page, server }) => {
+it('NE-003 should work for fetch requests @smoke', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   const requests = [];
   page.on('request', request => requests.push(request));
@@ -51,7 +51,7 @@ it('should work for fetch requests @smoke', async ({ page, server }) => {
   expect(requests[0].frame()).toBe(page.mainFrame());
 });
 
-it('should work for a redirect', async ({ page, server }) => {
+it('NE-004 should work for a redirect', async ({ page, server }) => {
   server.setRedirect('/foo.html', '/empty.html');
   const requests = [];
   page.on('request', request => requests.push(request));
@@ -63,7 +63,7 @@ it('should work for a redirect', async ({ page, server }) => {
 });
 
 // https://github.com/microsoft/playwright/issues/3993
-it('should not work for a redirect and interception', async ({ page, server }) => {
+it('NE-005 should not work for a redirect and interception', async ({ page, server }) => {
   server.setRedirect('/foo.html', '/empty.html');
   const requests = [];
   await page.route('**', route => {
@@ -78,7 +78,7 @@ it('should not work for a redirect and interception', async ({ page, server }) =
   expect(requests[0].url()).toBe(server.PREFIX + '/foo.html');
 });
 
-it('should return headers', async ({ page, server, browserName }) => {
+it('NE-006 should return headers', async ({ page, server, browserName }) => {
   const response = await page.goto(server.EMPTY_PAGE);
   if (browserName === 'chromium')
     expect(response.request().headers()['user-agent']).toContain('Chrome');
@@ -88,9 +88,9 @@ it('should return headers', async ({ page, server, browserName }) => {
     expect(response.request().headers()['user-agent']).toContain('WebKit');
 });
 
-it('should get the same headers as the server', async ({ page, server, browserName, platform, isElectron, browserMajorVersion }) => {
+it('NE-007 should get the same headers as the server', async ({ page, server, browserName, platform, isElectron, browserMajorVersion, channel }) => {
   it.skip(isElectron && browserMajorVersion < 99, 'This needs Chromium >= 99');
-  it.fail(browserName === 'webkit' && platform === 'win32', 'Curl does not show accept-encoding and accept-language');
+  it.fail(browserName === 'webkit' && platform === 'win32' && channel !== 'webkit-wsl', 'Curl does not show accept-encoding and accept-language');
   let serverRequest;
   server.setRoute('/empty.html', (request, response) => {
     serverRequest = request;
@@ -101,9 +101,9 @@ it('should get the same headers as the server', async ({ page, server, browserNa
   expect(headers).toEqual(adjustServerHeaders(serverRequest.headers, browserName));
 });
 
-it('should not return allHeaders() until they are available', async ({ page, server, browserName, platform, isElectron, browserMajorVersion }) => {
+it('NE-008 should not return allHeaders() until they are available', async ({ page, server, browserName, platform, isElectron, browserMajorVersion, channel }) => {
   it.skip(isElectron && browserMajorVersion < 99, 'This needs Chromium >= 99');
-  it.fail(browserName === 'webkit' && platform === 'win32', 'Curl does not show accept-encoding and accept-language');
+  it.fail(browserName === 'webkit' && platform === 'win32' && channel !== 'webkit-wsl', 'Curl does not show accept-encoding and accept-language');
 
   let requestHeadersPromise;
   page.on('request', request => requestHeadersPromise = request.allHeaders());
@@ -126,9 +126,9 @@ it('should not return allHeaders() until they are available', async ({ page, ser
   expect(responseHeaders['foo']).toBe('bar');
 });
 
-it('should get the same headers as the server CORS', async ({ page, server, browserName, platform, isElectron, browserMajorVersion,  }) => {
+it('NE-009 should get the same headers as the server CORS', async ({ page, server, browserName, platform, isElectron, browserMajorVersion, channel }) => {
   it.skip(isElectron && browserMajorVersion < 99, 'This needs Chromium >= 99');
-  it.fail(browserName === 'webkit' && platform === 'win32', 'Curl does not show accept-encoding and accept-language');
+  it.fail(browserName === 'webkit' && platform === 'win32' && channel !== 'webkit-wsl', 'Curl does not show accept-encoding and accept-language');
 
   await page.goto(server.PREFIX + '/empty.html');
   let serverRequest;
@@ -148,7 +148,7 @@ it('should get the same headers as the server CORS', async ({ page, server, brow
   expect(headers).toEqual(adjustServerHeaders(serverRequest.headers, browserName));
 });
 
-it('should not get preflight CORS requests when intercepting', async ({ page, server, browserName, isAndroid }) => {
+it('NE-010 should not get preflight CORS requests when intercepting', async ({ page, server, browserName, isAndroid, isBidi }) => {
   it.fail(isAndroid, 'Playwright does not get CORS pre-flight on Android');
   await page.goto(server.PREFIX + '/empty.html');
 
@@ -200,14 +200,14 @@ it('should not get preflight CORS requests when intercepting', async ({ page, se
     expect(text).toBe('done');
     // Check that there was no preflight (OPTIONS) request.
     expect(routed).toEqual(['DELETE']);
-    if (browserName === 'firefox')
+    if (browserName === 'firefox' && !isBidi)
       expect(requests).toEqual(['OPTIONS', 'DELETE']);
     else
       expect(requests).toEqual(['DELETE']);
   }
 });
 
-it('should return postData', async ({ page, server }) => {
+it('NE-011 should return postData', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   server.setRoute('/post', (req, res) => res.end());
   let request = null;
@@ -217,7 +217,7 @@ it('should return postData', async ({ page, server }) => {
   expect(request.postData()).toBe('{"foo":"bar"}');
 });
 
-it('should work with binary post data', async ({ page, server }) => {
+it('NE-012 should work with binary post data', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   server.setRoute('/post', (req, res) => res.end());
   let request = null;
@@ -232,7 +232,7 @@ it('should work with binary post data', async ({ page, server }) => {
     expect(buffer[i]).toBe(i);
 });
 
-it('should work with binary post data and interception', async ({ page, server }) => {
+it('NE-013 should work with binary post data and interception', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   server.setRoute('/post', (req, res) => res.end());
   let request = null;
@@ -248,7 +248,7 @@ it('should work with binary post data and interception', async ({ page, server }
     expect(buffer[i]).toBe(i);
 });
 
-it('should override post data content type', async ({ page, server }) => {
+it('NE-014 should override post data content type', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   let request = null;
   server.setRoute('/post', (req, res) => {
@@ -270,12 +270,12 @@ it('should override post data content type', async ({ page, server }) => {
   expect(request.headers['content-type']).toBe('application/x-www-form-urlencoded; charset=UTF-8');
 });
 
-it('should get |undefined| with postData() when there is no post data', async ({ page, server }) => {
+it('NE-015 should get |undefined| with postData() when there is no post data', async ({ page, server }) => {
   const response = await page.goto(server.EMPTY_PAGE);
   expect(response.request().postData()).toBe(null);
 });
 
-it('should parse the json post data', async ({ page, server }) => {
+it('NE-016 should parse the json post data', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   server.setRoute('/post', (req, res) => res.end());
   let request = null;
@@ -285,7 +285,7 @@ it('should parse the json post data', async ({ page, server }) => {
   expect(request.postDataJSON()).toEqual({ 'foo': 'bar' });
 });
 
-it('should parse the data if content-type is application/x-www-form-urlencoded', async ({ page, server }) => {
+it('NE-017 should parse the data if content-type is application/x-www-form-urlencoded', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   server.setRoute('/post', (req, res) => res.end());
   let request = null;
@@ -296,7 +296,7 @@ it('should parse the data if content-type is application/x-www-form-urlencoded',
   expect(request.postDataJSON()).toEqual({ 'foo': 'bar', 'baz': '123' });
 });
 
-it('should parse the data if content-type is application/x-www-form-urlencoded; charset=UTF-8', async ({ page, server }) => {
+it('NE-018 should parse the data if content-type is application/x-www-form-urlencoded; charset=UTF-8', async ({ page, server }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29872' });
   await page.goto(server.EMPTY_PAGE);
   const requestPromise = page.waitForRequest('**/post');
@@ -310,12 +310,12 @@ it('should parse the data if content-type is application/x-www-form-urlencoded; 
   expect((await requestPromise).postDataJSON()).toEqual({ 'foo': 'bar', 'baz': '123' });
 });
 
-it('should get |undefined| with postDataJSON() when there is no post data', async ({ page, server }) => {
+it('NE-019 should get |undefined| with postDataJSON() when there is no post data', async ({ page, server }) => {
   const response = await page.goto(server.EMPTY_PAGE);
   expect(response.request().postDataJSON()).toBe(null);
 });
 
-it('should return multipart/form-data', async ({ page, server, browserName, browserMajorVersion }) => {
+it('NE-020 should return multipart/form-data', async ({ page, server, browserName, browserMajorVersion }) => {
   it.fixme(browserName === 'webkit', 'File content is missing in WebKit');
   it.skip(browserName === 'chromium' && browserMajorVersion < 126, 'Requires a recent enough protocol');
 
@@ -340,7 +340,7 @@ it('should return multipart/form-data', async ({ page, server, browserName, brow
   expect(request.postDataBuffer().toString('utf8')).toEqual(expected);
 });
 
-it('should return event source', async ({ page, server }) => {
+it('NE-021 should return event source', async ({ page, server }) => {
   const SSE_MESSAGE = { foo: 'bar' };
   // 1. Setup server-sent events on server that immediately sends a message to the client.
   server.setRoute('/sse', (req, res) => {
@@ -365,7 +365,7 @@ it('should return event source', async ({ page, server }) => {
   expect(requests[0].resourceType()).toBe('eventsource');
 });
 
-it('should return navigation bit', async ({ page, server }) => {
+it('NE-022 should return navigation bit', async ({ page, server }) => {
   const requests = new Map();
   page.on('request', request => requests.set(request.url().split('/').pop(), request));
   server.setRedirect('/rrredirect', '/frames/one-frame.html');
@@ -377,14 +377,14 @@ it('should return navigation bit', async ({ page, server }) => {
   expect(requests.get('style.css').isNavigationRequest()).toBe(false);
 });
 
-it('should return navigation bit when navigating to image', async ({ page, server }) => {
+it('NE-023 should return navigation bit when navigating to image', async ({ page, server }) => {
   const requests = [];
   page.on('request', request => requests.push(request));
   await page.goto(server.PREFIX + '/pptr.png');
   expect(requests[0].isNavigationRequest()).toBe(true);
 });
 
-it('should report raw headers', async ({ page, server, browserName, platform, isElectron, browserMajorVersion, channel }) => {
+it('NE-024 should report raw headers', async ({ page, server, browserName, platform, isElectron, browserMajorVersion, channel }) => {
   it.skip(isElectron && browserMajorVersion < 99, 'This needs Chromium >= 99');
 
   let expectedHeaders: { name: string, value: string }[];
@@ -392,7 +392,7 @@ it('should report raw headers', async ({ page, server, browserName, platform, is
     expectedHeaders = [];
     for (let i = 0; i < req.rawHeaders.length; i += 2)
       expectedHeaders.push({ name: req.rawHeaders[i], value: req.rawHeaders[i + 1] });
-    if (browserName === 'webkit' && platform === 'win32') {
+    if (browserName === 'webkit' && platform === 'win32' && channel !== 'webkit-wsl') {
       expectedHeaders = expectedHeaders.filter(({ name }) => name.toLowerCase() !== 'accept-encoding');
       // Convert "value": "en-US, en-US" => "en-US"
       expectedHeaders = expectedHeaders.map(e => {
@@ -430,7 +430,7 @@ it('should report raw headers', async ({ page, server, browserName, platform, is
   expect(await request.headerValue('not-there')).toEqual(null);
 });
 
-it('should report raw response headers in redirects', async ({ page, server, browserName }) => {
+it('NE-025 should report raw response headers in redirects', async ({ page, server, browserName }) => {
   it.skip(browserName === 'webkit', `WebKit won't give us raw headers for redirects`);
   server.setExtraHeaders('/redirect/1.html', { 'sec-test-header': '1.html' });
   server.setExtraHeaders('/redirect/2.html', { 'sec-test-header': '2.html' });
@@ -455,7 +455,7 @@ it('should report raw response headers in redirects', async ({ page, server, bro
   expect(headersChain).toEqual(expectedHeaders);
 });
 
-it('should report all cookies in one header', async ({ page, server, isElectron, browserMajorVersion }) => {
+it('NE-026 should report all cookies in one header', async ({ page, server, isElectron, browserMajorVersion }) => {
   it.skip(isElectron && browserMajorVersion < 99, 'This needs Chromium >= 99');
 
   const expectedHeaders = {};
@@ -475,7 +475,7 @@ it('should report all cookies in one header', async ({ page, server, isElectron,
   expect(cookie).toBe('myCookie=myValue; myOtherCookie=myOtherValue');
 });
 
-it('should not allow to access frame on popup main request', async ({ page, server }) => {
+it('NE-027 should not allow to access frame on popup main request', async ({ page, server }) => {
   await page.setContent(`<a target=_blank href="${server.EMPTY_PAGE}">click me</a>`);
   const requestPromise = page.context().waitForEvent('request');
   const popupPromise = page.context().waitForEvent('page');
@@ -498,10 +498,10 @@ it('should not allow to access frame on popup main request', async ({ page, serv
   await clicked;
 });
 
-it('page.reload return 304 status code', async ({ page, server, browserName }) => {
+it('NE-028 page.reload return 304 status code', async ({ page, server, browserName, isBidi }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28779' });
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29441' });
-  it.fixme(browserName === 'firefox', 'Does not send second request');
+  it.fixme(browserName === 'firefox' && !isBidi, 'Does not send second request');
   let requestNumber = 0;
   server.setRoute('/test.html', (req, res) => {
     ++requestNumber;
@@ -532,7 +532,7 @@ it('page.reload return 304 status code', async ({ page, server, browserName }) =
   }
 });
 
-it('should handle mixed-content blocked requests', async ({ page, asset, browserName }) => {
+it('NE-029 should handle mixed-content blocked requests', async ({ page, asset, browserName }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29833' });
   it.skip(browserName !== 'chromium', 'FF and WK actually succeed with the request, and block afterwards');
 

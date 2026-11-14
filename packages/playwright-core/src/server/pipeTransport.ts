@@ -15,15 +15,14 @@
  * limitations under the License.
  */
 
+import { debugLogger } from '@utils/debugLogger';
+
 import type { ConnectionTransport, ProtocolRequest, ProtocolResponse } from './transport';
-import { makeWaitForNextTask } from '../utils';
-import { debugLogger } from '../utils/debugLogger';
 
 export class PipeTransport implements ConnectionTransport {
   private _pipeRead: NodeJS.ReadableStream;
   private _pipeWrite: NodeJS.WritableStream;
   private _pendingBuffers: Buffer[] = [];
-  private _waitForNextTask = makeWaitForNextTask();
   private _closed = false;
   private _onclose?: (reason?: string) => void;
 
@@ -72,7 +71,7 @@ export class PipeTransport implements ConnectionTransport {
     }
     this._pendingBuffers.push(buffer.slice(0, end));
     const message = Buffer.concat(this._pendingBuffers).toString();
-    this._waitForNextTask(() => {
+    setImmediate(() => {
       if (this.onmessage)
         this.onmessage.call(null, JSON.parse(message));
     });
@@ -81,7 +80,7 @@ export class PipeTransport implements ConnectionTransport {
     end = buffer.indexOf('\0', start);
     while (end !== -1) {
       const message = buffer.toString(undefined, start, end);
-      this._waitForNextTask(() => {
+      setImmediate(() => {
         if (this.onmessage)
           this.onmessage.call(null, JSON.parse(message));
       });

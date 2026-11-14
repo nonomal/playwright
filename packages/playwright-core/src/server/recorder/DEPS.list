@@ -1,9 +1,6 @@
 [*]
+@isomorphic/**
+@utils/**
 ../
-../isomorphic/**
-../registry/**
-../../common/
-../../protocol/
-../../utils/**
-../../utilsBundle.ts
-../../zipBundle.ts
+../../package.ts
+node_modules/mime

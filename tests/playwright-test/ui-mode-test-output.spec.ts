@@ -15,6 +15,7 @@
  */
 
 import { test, expect, retries } from './ui-mode-fixtures';
+import path from 'path';
 
 test.describe.configure({ mode: 'parallel', retries });
 
@@ -28,7 +29,7 @@ test('should print load errors', async ({ runUITest }) => {
     `,
   });
   await page.getByTitle('Toggle output').click();
-  await expect(page.getByTestId('output')).toContainText(`Unexpected reserved word 'await'`);
+  await expect(page.getByTestId('output')).toContainText(/Unexpected reserved word 'await'|"await" can only be used inside an "async" function/);
 });
 
 test('should work after theme switch', async ({ runUITest, writeFiles }) => {
@@ -44,7 +45,8 @@ test('should work after theme switch', async ({ runUITest, writeFiles }) => {
   await page.getByTitle('Run all').click();
   await expect(page.getByTestId('output')).toContainText(`Hello world 1`);
 
-  await page.getByTitle('Toggle color mode').click();
+  await page.getByText('Settings', { exact: true }).click();
+  await page.getByRole('combobox', { name: 'Theme' }).selectOption('Dark mode');
   await writeFiles({
     'a.test.ts': `
       import { test, expect } from '@playwright/test';
@@ -82,6 +84,7 @@ test('should show console messages for test', async ({ runUITest }, testInfo) =>
       test('print', async ({ page }) => {
         await page.evaluate(() => console.log('page message'));
         console.log('node message');
+        await page.waitForTimeout(500);
         await page.evaluate(() => console.error('page error'));
         console.error('node error');
         console.log('Colors: \x1b[31mRED\x1b[0m \x1b[32mGREEN\x1b[0m');
@@ -100,16 +103,58 @@ test('should show console messages for test', async ({ runUITest }, testInfo) =>
     'Colors: RED GREEN',
   ]);
 
-  await expect(page.locator('.console-tab .list-view-entry .codicon')).toHaveClass([
-    'codicon codicon-browser status-none',
-    'codicon codicon-file status-none',
-    'codicon codicon-browser status-error',
-    'codicon codicon-file status-error',
-    'codicon codicon-file status-none',
+  await expect(page.locator('.console-tab .console-source')).toHaveText([
+    'page',
+    'test',
+    'page',
+    'test',
+    'test',
   ]);
 
   await expect.soft(page.getByText('RED', { exact: true })).toHaveCSS('color', 'rgb(205, 49, 49)');
   await expect.soft(page.getByText('GREEN', { exact: true })).toHaveCSS('color', 'rgb(0, 188, 0)');
+});
+
+test('should collapse repeated console messages for test', async ({ runUITest }) => {
+  const { page } = await runUITest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('print test', async ({ page }) => {
+        await page.evaluate(() => {
+          console.log('page message')
+          for (let i = 0; i < 10; ++i)
+            console.log('page message')
+        });
+        await page.waitForTimeout(3000);
+        for (let i = 0; i < 10; ++i)
+          console.log('node message')
+        await page.evaluate(async () => {
+          await new Promise(resolve => {
+            for (let i = 0; i < 10; ++i)
+              console.log('page message')
+            window.builtins.setTimeout(() => {
+              for (let i = 0; i < 10; ++i)
+                console.log('page message')
+              resolve()
+            }, 1500)
+          })
+        });
+      });
+    `,
+  });
+  await page.getByRole('treeitem', { name: 'print test' }).dblclick();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Passed');
+
+  await page.getByRole('tab', { name: 'Console' }).click();
+  await expect(page.getByRole('tabpanel', { name: 'Console' })).toMatchAriaSnapshot(`
+    - tabpanel "Console":
+      - listbox:
+        - option /page message/
+        - option /10 page message/
+        - option /10 node message/
+        - option /10 page message/
+        - option /10 page message/
+  `);
 });
 
 test('should format console messages in page', async ({ runUITest }, testInfo) => {
@@ -143,18 +188,31 @@ test('should format console messages in page', async ({ runUITest }, testInfo) =
     'Failed to load resource: net::ERR_CONNECTION_REFUSED',
   ]);
 
+  await expect(page.locator('.console-tab')).toMatchAriaSnapshot(`
+    - listbox:
+      - option /<anonymous>:\\d+ Object/
+      - option /<anonymous>:\\d+ Date/
+      - option /<anonymous>:\\d+ Regex/
+      - option /<anonymous>:\\d+ Number 0 one 2/
+      - option /<anonymous>:\\d+ Download the React DevTools/
+      - option /<anonymous>:\\d+ Array of values/
+      - option /Failed to load resource/
+  `);
+
   const label = page.getByText('React DevTools');
   await expect(label).toHaveCSS('color', 'rgb(255, 0, 0)');
   await expect(label).toHaveCSS('font-weight', '700');
   // blue should not be used, should inherit color red.
-  await expect(label).toHaveCSS('outline', 'rgb(255, 0, 0) none 0px');
+  await expect(label).toHaveCSS('outline-color', 'rgb(255, 0, 0)');
 
   const link = page.getByText('https://fb.me/react-devtools');
   await expect(link).toHaveCSS('color', 'rgb(0, 0, 255)');
-  await expect(link).toHaveCSS('text-decoration', 'none solid rgb(0, 0, 255)');
+  await expect(link).toHaveCSS('text-decoration-color', 'rgb(0, 0, 255)');
+  await expect(link).toHaveCSS('text-decoration-style', 'solid');
+  await expect(link).toHaveCSS('text-decoration-line', 'none');
 });
 
-test('should stream console messages live', async ({ runUITest }, testInfo) => {
+test('should stream console messages live', async ({ runUITest }) => {
   const { page } = await runUITest({
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -162,7 +220,7 @@ test('should stream console messages live', async ({ runUITest }, testInfo) => {
         await page.setContent('<button>Click me</button>');
         const button = page.getByRole('button', { name: 'Click me' });
         await button.evaluate(node => node.addEventListener('click', () => {
-          setTimeout(() => { console.log('I was clicked'); }, 1000);
+          window.builtins.setTimeout(() => { console.log('I was clicked'); }, 1000);
         }));
         console.log('I was logged');
         await button.click();
@@ -178,7 +236,7 @@ test('should stream console messages live', async ({ runUITest }, testInfo) => {
     'I was logged',
     'I was clicked',
   ]);
-  await page.getByTitle('Stop').click();
+  await page.getByTestId('stop-button').click();
 });
 
 test('should print beforeAll console messages once', async ({ runUITest }, testInfo) => {
@@ -196,9 +254,35 @@ test('should print beforeAll console messages once', async ({ runUITest }, testI
   await page.getByTitle('Run all').click();
   await page.getByText('Console').click();
   await page.getByText('print').click();
-  await expect(page.getByTestId('status-line')).toHaveText('1/1 passed (100%)');
+  await expect(page.getByTestId('status-line')).toHaveText('1/1 (100%) — 1 passed');
   await expect(page.locator('.console-tab .console-line-message')).toHaveText([
     'before all log',
     'test log',
   ]);
+});
+
+test('should print web server output', async ({ runUITest }, { workerIndex }) => {
+  const port = workerIndex * 2 + 10500;
+  const serverPath = path.join(__dirname, 'assets', 'simple-server.js');
+  const { page } = await runUITest({
+    'test.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('connect to the server', async ({baseURL, page}) => {
+        expect(baseURL).toBe('http://localhost:${port}');
+      });
+    `,
+    'playwright.config.ts': `
+      export default {
+        webServer: {
+          command: 'node ${JSON.stringify(serverPath)} ${port}',
+          port: ${port},
+          stdout: 'pipe',
+          stderr: 'pipe',
+        }
+      };
+    `,
+  });
+  await page.getByTitle('Toggle output').click();
+  await expect(page.getByTestId('output')).toContainText('output from server');
+  await expect(page.getByTestId('output')).toContainText('error from server');
 });

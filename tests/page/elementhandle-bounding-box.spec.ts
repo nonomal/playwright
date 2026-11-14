@@ -19,9 +19,7 @@ import { test as it, expect } from './pageTest';
 
 it.skip(({ isAndroid }) => isAndroid);
 
-it('should work', async ({ page, server, browserName, headless, isLinux }) => {
-  it.fixme(browserName === 'firefox' && !headless && !isLinux);
-
+it('EH-001 should work', async ({ page, server, browserName, headless, isLinux }) => {
   await page.setViewportSize({ width: 500, height: 500 });
   await page.goto(server.PREFIX + '/grid.html');
   const elementHandle = await page.$('.box:nth-of-type(13)');
@@ -29,16 +27,16 @@ it('should work', async ({ page, server, browserName, headless, isLinux }) => {
   expect(box).toEqual({ x: 100, y: 50, width: 50, height: 50 });
 });
 
-it('should handle nested frames', async ({ page, server }) => {
+it('EH-002 should handle nested frames', async ({ page, server }) => {
   await page.setViewportSize({ width: 616, height: 500 });
   await page.goto(server.PREFIX + '/frames/nested-frames.html');
-  const nestedFrame = page.frames().find(frame => frame.name() === 'dos');
-  const elementHandle = await nestedFrame.$('div');
+  const nestedFrame = page.frameLocator('[name="2frames"]').frameLocator('[name=dos]');
+  const elementHandle = await nestedFrame.locator('div').elementHandle();
   const box = await elementHandle.boundingBox();
   expect(box).toEqual({ x: 24, y: 224, width: 268, height: 18 });
 });
 
-it('should get frame box', async ({ page, browserName }) => {
+it('EH-003 should get frame box', async ({ page, browserName }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/10977' });
   await page.setViewportSize({ width: 250, height: 250 });
   await page.setContent(`<style>
@@ -61,7 +59,7 @@ it('should get frame box', async ({ page, browserName }) => {
 });
 
 
-it('should handle scroll offset and click', async ({ page, server }) => {
+it('EH-004 should handle scroll offset and click', async ({ page, server }) => {
   await page.setContent(`
     <style>* { margin: 0; padding: 0; }</style>
     <div style="width:8000px; height:8000px;">
@@ -80,13 +78,28 @@ it('should handle scroll offset and click', async ({ page, server }) => {
   expect(await page.evaluate(() => window['__clicked'])).toBe(true);
 });
 
-it('should return null for invisible elements', async ({ page, server }) => {
+it('EH-005 should return null for invisible elements', async ({ page, server }) => {
   await page.setContent('<div style="display:none">hi</div>');
   const element = await page.$('div');
   expect(await element.boundingBox()).toBe(null);
 });
 
-it('should force a layout', async ({ page, server }) => {
+it('EH-006 should get bounding box of element inside a cross-origin iframe', async ({ page, server }) => {
+  await page.goto(server.EMPTY_PAGE);
+  await page.setContent(`
+    <div style="height:120px"></div>
+    <iframe style="border:0;margin-left:30px;width:300px;height:200px" src="${server.CROSS_PROCESS_PREFIX}/input/button.html"></iframe>
+  `);
+  const frame = page.frames()[1];
+  const button = await frame.waitForSelector('button');
+  const iframeBox = (await (await page.$('iframe')).boundingBox())!;
+  const inner = await button.evaluate(b => { const r = b.getBoundingClientRect(); return { x: r.left, y: r.top }; });
+  const box = (await button.boundingBox())!;
+  expect(Math.round(box.x)).toBe(Math.round(iframeBox.x + inner.x));
+  expect(Math.round(box.y)).toBe(Math.round(iframeBox.y + inner.y));
+});
+
+it('EH-007 should force a layout', async ({ page, server }) => {
   await page.setViewportSize({ width: 500, height: 500 });
   await page.setContent('<div style="width: 100px; height: 100px">hello</div>');
   const elementHandle = await page.$('div');
@@ -95,7 +108,7 @@ it('should force a layout', async ({ page, server }) => {
   expect(box).toEqual({ x: 8, y: 8, width: 100, height: 200 });
 });
 
-it('should work with SVG nodes', async ({ page, server }) => {
+it('EH-008 should work with SVG nodes', async ({ page, server }) => {
   await page.setContent(`
       <svg xmlns="http://www.w3.org/2000/svg" width="500" height="500">
         <rect id="theRect" x="30" y="50" width="200" height="300"></rect>
@@ -110,7 +123,7 @@ it('should work with SVG nodes', async ({ page, server }) => {
   expect(pwBoundingBox).toEqual(webBoundingBox);
 });
 
-it('should work when inline box child is outside of viewport', async ({ page, server }) => {
+it('EH-009 should work when inline box child is outside of viewport', async ({ page, server }) => {
   await page.setContent(`
       <style>
       i {

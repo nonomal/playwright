@@ -35,7 +35,15 @@ const testFiles = {
     import os from 'os';
     import path from 'path';
 
-    import { test, expect } from '@playwright/test';
+    import { test as base, expect } from '@playwright/test';
+
+    const test = base.extend({
+      inspectArtifacts: [async ({}, use, workerInfo) => {
+        await use();
+        const artifactsDir = path.join(workerInfo.project.outputDir, '.playwright-artifacts-' + workerInfo.workerIndex);
+        console.log('%%temporary screenshots: ' + JSON.stringify(fs.readdirSync(artifactsDir).filter(file => file.endsWith('.png'))));
+      }, { scope: 'worker', auto: true }],
+    });
 
     test.describe('shared', () => {
       let page;
@@ -128,9 +136,9 @@ test('should work with screenshot: on', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     ...testFiles,
     'playwright.config.ts': `
-      module.exports = { use: { screenshot: 'on' } };
+      export default { use: { screenshot: 'on' } };
     `,
-  }, { workers: 1 });
+  }, { workers: 1 }, { PLAYWRIGHT_NO_COPY_PROMPT: 'true' });
 
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(5);
@@ -138,57 +146,97 @@ test('should work with screenshot: on', async ({ runInlineTest }, testInfo) => {
   expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
     '.last-run.json',
     'artifacts-failing',
+    '  error-context.md',
     '  test-failed-1.png',
     'artifacts-own-context-failing',
+    '  error-context.md',
     '  test-failed-1.png',
     'artifacts-own-context-passing',
     '  test-finished-1.png',
     'artifacts-passing',
     '  test-finished-1.png',
     'artifacts-persistent-failing',
+    '  error-context.md',
     '  test-failed-1.png',
     'artifacts-persistent-passing',
     '  test-finished-1.png',
     'artifacts-shared-shared-failing',
+    '  error-context.md',
     '  test-failed-1.png',
-    '  test-failed-2.png',
     'artifacts-shared-shared-passing',
     '  test-finished-1.png',
-    '  test-finished-2.png',
     'artifacts-two-contexts',
     '  test-finished-1.png',
     '  test-finished-2.png',
     'artifacts-two-contexts-failing',
+    '  error-context.md',
     '  test-failed-1.png',
     '  test-failed-2.png',
   ]);
 });
 
-test('should work with screenshot: only-on-failure', async ({ runInlineTest }, testInfo) => {
+test('should work with screenshot: only-on-failure', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/44086' }
+}, async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     ...testFiles,
     'playwright.config.ts': `
-      module.exports = { use: { screenshot: 'only-on-failure' } };
+      export default { use: { screenshot: 'only-on-failure' } };
     `,
-  }, { workers: 1 });
+  }, { workers: 1 }, { PLAYWRIGHT_NO_COPY_PROMPT: 'true' });
 
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(5);
   expect(result.failed).toBe(5);
+  expect(result.outputLines).toEqual(Array(5).fill('temporary screenshots: []'));
   expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
     '.last-run.json',
     'artifacts-failing',
+    '  error-context.md',
     '  test-failed-1.png',
     'artifacts-own-context-failing',
+    '  error-context.md',
     '  test-failed-1.png',
     'artifacts-persistent-failing',
+    '  error-context.md',
     '  test-failed-1.png',
     'artifacts-shared-shared-failing',
+    '  error-context.md',
     '  test-failed-1.png',
-    '  test-failed-2.png',
     'artifacts-two-contexts-failing',
+    '  error-context.md',
     '  test-failed-1.png',
     '  test-failed-2.png',
+  ]);
+});
+
+test('should work with screenshot: on-first-failure', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('fails', async ({ page }) => {
+        await page.setContent('I am the page');
+        expect(1).toBe(2);
+      });
+    `,
+    'playwright.config.ts': `
+      export default {
+        retries: 1,
+        use: { screenshot: 'on-first-failure' }
+      };
+    `,
+  }, { workers: 1 }, { PLAYWRIGHT_NO_COPY_PROMPT: 'true' });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(0);
+  expect(result.failed).toBe(1);
+  expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
+    '.last-run.json',
+    'a-fails',
+    '  error-context.md',
+    '  test-failed-1.png',
+    'a-fails-retry1',
+    '  error-context.md',
   ]);
 });
 
@@ -204,15 +252,16 @@ test('should work with screenshot: only-on-failure & fullPage', async ({ runInli
     });
     `,
     'playwright.config.ts': `
-      module.exports = { use: { screenshot: { mode: 'only-on-failure', fullPage: true } } };
+      export default { use: { screenshot: { mode: 'only-on-failure', fullPage: true } } };
     `,
-  }, { workers: 1 });
+  }, { workers: 1 }, { PLAYWRIGHT_NO_COPY_PROMPT: 'true' });
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
   expect(result.failed).toBe(1);
   expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
     '.last-run.json',
     'artifacts-should-fail-and-take-fullPage-screenshots',
+    '  error-context.md',
     '  test-failed-1.png',
   ]);
   const screenshotFailure = fs.readFileSync(
@@ -221,13 +270,45 @@ test('should work with screenshot: only-on-failure & fullPage', async ({ runInli
   expect.soft(screenshotFailure).toMatchSnapshot('screenshot-grid-fullpage.png');
 });
 
+test('should capture a single screenshot on failure when afterAll fails', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      let page;
+      test.use({ screenshot: 'only-on-failure' });
+      test.beforeAll(async ({ browser }) => {
+        page = await browser.newPage();
+      });
+      test.afterAll(async () => {
+        await page.setContent('this is afterAll');
+        expect(1).toBe(2);
+        await page.close();
+      });
+      test('passes', async () => {
+        await page.setContent('this is test');
+      });
+    `,
+  }, { workers: 1 }, { PLAYWRIGHT_NO_COPY_PROMPT: 'true' });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(0);
+  expect(result.failed).toBe(1);
+  expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
+    '.last-run.json',
+    'a-passes',
+    '  error-context.md',
+    '  test-failed-1.png',
+  ]);
+});
+
+
 test('should work with trace: on', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     ...testFiles,
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'on' } };
+      export default { use: { trace: 'on' } };
     `,
-  }, { workers: 1 });
+  }, { workers: 1 }, { PLAYWRIGHT_NO_COPY_PROMPT: 'true' });
 
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(5);
@@ -235,24 +316,29 @@ test('should work with trace: on', async ({ runInlineTest }, testInfo) => {
   expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
     '.last-run.json',
     'artifacts-failing',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-own-context-failing',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-own-context-passing',
     '  trace.zip',
     'artifacts-passing',
     '  trace.zip',
     'artifacts-persistent-failing',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-persistent-passing',
     '  trace.zip',
     'artifacts-shared-shared-failing',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-shared-shared-passing',
     '  trace.zip',
     'artifacts-two-contexts',
     '  trace.zip',
     'artifacts-two-contexts-failing',
+    '  error-context.md',
     '  trace.zip',
   ]);
 });
@@ -261,9 +347,9 @@ test('should work with trace: retain-on-failure', async ({ runInlineTest }, test
   const result = await runInlineTest({
     ...testFiles,
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'retain-on-failure' } };
+      export default { use: { trace: 'retain-on-failure' } };
     `,
-  }, { workers: 1 });
+  }, { workers: 1 }, { PLAYWRIGHT_NO_COPY_PROMPT: 'true' });
 
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(5);
@@ -271,14 +357,19 @@ test('should work with trace: retain-on-failure', async ({ runInlineTest }, test
   expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
     '.last-run.json',
     'artifacts-failing',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-own-context-failing',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-persistent-failing',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-shared-shared-failing',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-two-contexts-failing',
+    '  error-context.md',
     '  trace.zip',
   ]);
 });
@@ -287,24 +378,39 @@ test('should work with trace: on-first-retry', async ({ runInlineTest }, testInf
   const result = await runInlineTest({
     ...testFiles,
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'on-first-retry' } };
+      export default { use: { trace: 'on-first-retry' } };
     `,
-  }, { workers: 1, retries: 1 });
+  }, { workers: 1, retries: 1 }, { PLAYWRIGHT_NO_COPY_PROMPT: 'true' });
 
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(5);
   expect(result.failed).toBe(5);
   expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
     '.last-run.json',
+    'artifacts-failing',
+    '  error-context.md',
     'artifacts-failing-retry1',
+    '  error-context.md',
     '  trace.zip',
+    'artifacts-own-context-failing',
+    '  error-context.md',
     'artifacts-own-context-failing-retry1',
+    '  error-context.md',
     '  trace.zip',
+    'artifacts-persistent-failing',
+    '  error-context.md',
     'artifacts-persistent-failing-retry1',
+    '  error-context.md',
     '  trace.zip',
+    'artifacts-shared-shared-failing',
+    '  error-context.md',
     'artifacts-shared-shared-failing-retry1',
+    '  error-context.md',
     '  trace.zip',
+    'artifacts-two-contexts-failing',
+    '  error-context.md',
     'artifacts-two-contexts-failing-retry1',
+    '  error-context.md',
     '  trace.zip',
   ]);
 });
@@ -313,34 +419,54 @@ test('should work with trace: on-all-retries', async ({ runInlineTest }, testInf
   const result = await runInlineTest({
     ...testFiles,
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'on-all-retries' } };
+      export default { use: { trace: 'on-all-retries' } };
     `,
-  }, { workers: 1, retries: 2 });
+  }, { workers: 1, retries: 2 }, { PLAYWRIGHT_NO_COPY_PROMPT: 'true' });
 
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(5);
   expect(result.failed).toBe(5);
   expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
     '.last-run.json',
+    'artifacts-failing',
+    '  error-context.md',
     'artifacts-failing-retry1',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-failing-retry2',
+    '  error-context.md',
     '  trace.zip',
+    'artifacts-own-context-failing',
+    '  error-context.md',
     'artifacts-own-context-failing-retry1',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-own-context-failing-retry2',
+    '  error-context.md',
     '  trace.zip',
+    'artifacts-persistent-failing',
+    '  error-context.md',
     'artifacts-persistent-failing-retry1',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-persistent-failing-retry2',
+    '  error-context.md',
     '  trace.zip',
+    'artifacts-shared-shared-failing',
+    '  error-context.md',
     'artifacts-shared-shared-failing-retry1',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-shared-shared-failing-retry2',
+    '  error-context.md',
     '  trace.zip',
+    'artifacts-two-contexts-failing',
+    '  error-context.md',
     'artifacts-two-contexts-failing-retry1',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-two-contexts-failing-retry2',
+    '  error-context.md',
     '  trace.zip',
   ]);
 });
@@ -349,9 +475,9 @@ test('should work with trace: retain-on-first-failure', async ({ runInlineTest }
   const result = await runInlineTest({
     ...testFiles,
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'retain-on-first-failure' } };
+      export default { use: { trace: 'retain-on-first-failure' } };
     `,
-  }, { workers: 1, retries: 2 });
+  }, { workers: 1, retries: 2 }, { PLAYWRIGHT_NO_COPY_PROMPT: 'true' });
 
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(5);
@@ -359,22 +485,129 @@ test('should work with trace: retain-on-first-failure', async ({ runInlineTest }
   expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
     '.last-run.json',
     'artifacts-failing',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-failing-retry1',
+    '  error-context.md',
+    'artifacts-failing-retry2',
+    '  error-context.md',
+    'artifacts-own-context-failing',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-own-context-failing-retry1',
+    '  error-context.md',
+    'artifacts-own-context-failing-retry2',
+    '  error-context.md',
+    'artifacts-persistent-failing',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-persistent-failing-retry1',
+    '  error-context.md',
+    'artifacts-persistent-failing-retry2',
+    '  error-context.md',
+    'artifacts-shared-shared-failing',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-shared-shared-failing-retry1',
+    '  error-context.md',
+    'artifacts-shared-shared-failing-retry2',
+    '  error-context.md',
+    'artifacts-two-contexts-failing',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-two-contexts-failing-retry1',
+    '  error-context.md',
+    'artifacts-two-contexts-failing-retry2',
+    '  error-context.md',
+  ]);
+});
+
+test('should work with trace: retain-on-failure-and-retries', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    ...testFiles,
+    'playwright.config.ts': `
+      export default { use: { trace: 'retain-on-failure-and-retries' } };
+    `,
+  }, { workers: 1, retries: 2 }, { PLAYWRIGHT_NO_COPY_PROMPT: 'true' });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(5);
+  expect(result.failed).toBe(5);
+  expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
+    '.last-run.json',
+    'artifacts-failing',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-failing-retry1',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-failing-retry2',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-own-context-failing',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-own-context-failing-retry1',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-own-context-failing-retry2',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-persistent-failing',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-persistent-failing-retry1',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-persistent-failing-retry2',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-shared-shared-failing',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-shared-shared-failing-retry1',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-shared-shared-failing-retry2',
+    '  error-context.md',
     '  trace.zip',
     'artifacts-two-contexts-failing',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-two-contexts-failing-retry1',
+    '  error-context.md',
+    '  trace.zip',
+    'artifacts-two-contexts-failing-retry2',
+    '  error-context.md',
     '  trace.zip',
   ]);
+});
+
+test('error-context should use relative path in location', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('fail', async ({ page }) => {
+        expect(1).toBe(2);
+      });
+    `,
+  }, { workers: 1 });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(1);
+
+  const errorContextPath = testInfo.outputPath('test-results', 'a-fail', 'error-context.md');
+  const content = fs.readFileSync(errorContextPath, 'utf8');
+  const locationLine = content.split('\n').find(line => line.startsWith('- Location:'))!;
+  expect(locationLine).toBeTruthy();
+  // Location should be a relative path, not absolute.
+  expect(locationLine).toContain('- Location: a.spec.ts:');
 });
 
 test('should take screenshot when page is closed in afterEach', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { screenshot: 'on' } };
+      export default { use: { screenshot: 'on' } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -387,7 +620,7 @@ test('should take screenshot when page is closed in afterEach', async ({ runInli
         expect(1).toBe(2);
       });
     `,
-  }, { workers: 1 });
+  }, { workers: 1 }, { PLAYWRIGHT_NO_COPY_PROMPT: 'true' });
 
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);

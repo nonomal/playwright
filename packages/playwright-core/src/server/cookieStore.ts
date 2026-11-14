@@ -14,44 +14,35 @@
  * limitations under the License.
  */
 
-import type * as channels from '@protocol/channels';
+import { kMaxCookieExpiresDateInSeconds } from './network';
 
-class Cookie {
+import type * as channels from './channels';
+
+export class Cookie {
   private _raw: channels.NetworkCookie;
   constructor(data: channels.NetworkCookie) {
     this._raw = data;
   }
 
-  name(): string {
+  _name(): string {
     return this._raw.name;
   }
 
-  // https://datatracker.ietf.org/doc/html/rfc6265#section-5.4
-  matches(url: URL): boolean {
-    if (this._raw.secure && (url.protocol !== 'https:' && url.hostname !== 'localhost'))
-      return false;
-    if (!domainMatches(url.hostname, this._raw.domain))
-      return false;
-    if (!pathMatches(url.pathname, this._raw.path))
-      return false;
-    return true;
-  }
-
-  equals(other: Cookie) {
+  _equals(other: Cookie) {
     return this._raw.name === other._raw.name &&
       this._raw.domain === other._raw.domain &&
       this._raw.path === other._raw.path;
   }
 
-  networkCookie(): channels.NetworkCookie {
+  _networkCookie(): channels.NetworkCookie {
     return this._raw;
   }
 
-  updateExpiresFrom(other: Cookie) {
+  _updateExpiresFrom(other: Cookie) {
     this._raw.expires = other._raw.expires;
   }
 
-  expired() {
+  _expired() {
     if (this._raw.expires === -1)
       return false;
     return this._raw.expires * 1000 < Date.now();
@@ -66,31 +57,33 @@ export class CookieStore {
       this._addCookie(new Cookie(cookie));
   }
 
-  cookies(url: URL): channels.NetworkCookie[] {
-    const result = [];
-    for (const cookie of this._cookiesIterator()) {
-      if (cookie.matches(url))
-        result.push(cookie.networkCookie());
-    }
-    return result;
-  }
-
   allCookies(): channels.NetworkCookie[] {
     const result = [];
     for (const cookie of this._cookiesIterator())
-      result.push(cookie.networkCookie());
+      result.push(cookie._networkCookie());
     return result;
   }
 
+  removeCookies(predicate: (cookie: channels.NetworkCookie) => boolean) {
+    for (const [name, cookies] of this._nameToCookies) {
+      for (const cookie of cookies) {
+        if (predicate(cookie._networkCookie()))
+          cookies.delete(cookie);
+      }
+      if (cookies.size === 0)
+        this._nameToCookies.delete(name);
+    }
+  }
+
   private _addCookie(cookie: Cookie) {
-    let set = this._nameToCookies.get(cookie.name());
+    let set = this._nameToCookies.get(cookie._name());
     if (!set) {
       set = new Set();
-      this._nameToCookies.set(cookie.name(), set);
+      this._nameToCookies.set(cookie._name(), set);
     }
     // https://datatracker.ietf.org/doc/html/rfc6265#section-5.3
     for (const other of set) {
-      if (other.equals(cookie))
+      if (other._equals(cookie))
         set.delete(other);
     }
     set.add(cookie);
@@ -109,28 +102,114 @@ export class CookieStore {
 
   private static pruneExpired(cookies: Set<Cookie>) {
     for (const cookie of cookies) {
-      if (cookie.expired())
+      if (cookie._expired())
         cookies.delete(cookie);
     }
   }
 }
 
-export function domainMatches(value: string, domain: string): boolean {
-  if (value === domain)
-    return true;
-  // Only strict match is allowed if domain doesn't start with '.' (host-only-flag is true in the spec)
-  if (!domain.startsWith('.'))
-    return false;
-  value = '.' + value;
-  return value.endsWith(domain);
+type RawCookie = {
+  name: string,
+  value: string,
+  domain?: string,
+  path?: string,
+  expires?: number,
+  httpOnly?: boolean,
+  secure?: boolean,
+  sameSite?: 'Strict' | 'Lax' | 'None',
+};
+
+// https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.6
+export function parseCookieNameValue(pair: string): { name: string, value: string } {
+  const separatorPos = pair.indexOf('=');
+  if (separatorPos === -1)
+    return { name: '', value: pair.trim() };
+  return { name: pair.slice(0, separatorPos).trim(), value: pair.slice(separatorPos + 1).trim() };
 }
 
-function pathMatches(value: string, path: string): boolean {
-  if (value === path)
-    return true;
-  if (!value.endsWith('/'))
-    value = value + '/';
-  if (!path.endsWith('/'))
-    path = path + '/';
-  return value.startsWith(path);
+// https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.8.3
+export function serializeCookieNameValue(cookie: { name: string, value: string }): string {
+  return cookie.name ? `${cookie.name}=${cookie.value}` : cookie.value;
+}
+
+export function parseRawCookie(header: string): RawCookie | null {
+  const [nameValue, ...attributes] = header.split(';');
+  const cookie: RawCookie = parseCookieNameValue(nameValue);
+  if (!cookie.name && !cookie.value)
+    return null;
+  const pairs = attributes.filter(s => s.trim().length > 0).map(p => {
+    let key = '';
+    let value = '';
+    const separatorPos = p.indexOf('=');
+    if (separatorPos === -1) {
+      // If only a key is specified, the value is left undefined.
+      key = p.trim();
+    } else {
+      // Otherwise we assume that the key is the element before the first `=`
+      key = p.slice(0, separatorPos).trim();
+      // And the value is the rest of the string.
+      value = p.slice(separatorPos + 1).trim();
+    }
+    return [key, value];
+  });
+  let maxAgeExpires: number | undefined;
+  for (const [name, value] of pairs) {
+    switch (name.toLowerCase()) {
+      case 'expires':
+        const expiresMs = (+new Date(value));
+        // https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.1
+        if (isFinite(expiresMs)) {
+          if (expiresMs <= 0)
+            cookie.expires = 0;
+          else
+            cookie.expires = Math.min(expiresMs / 1000, kMaxCookieExpiresDateInSeconds);
+        }
+        break;
+      case 'max-age':
+        // From https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.2
+        // If the attribute-value is not an optional "-" followed by digits, ignore the cookie-av.
+        if (/^-?\d+$/.test(value)) {
+          const maxAgeSec = parseInt(value, 10);
+          // If delta-seconds is less than or equal to zero (0), let expiry-time
+          // be the earliest representable date and time.
+          if (maxAgeSec <= 0)
+            maxAgeExpires = 0;
+          else
+            maxAgeExpires = Math.min(Date.now() / 1000 + maxAgeSec, kMaxCookieExpiresDateInSeconds);
+        }
+        break;
+      case 'domain':
+        cookie.domain = value.toLocaleLowerCase() || '';
+        if (cookie.domain && !cookie.domain.startsWith('.') && cookie.domain.includes('.'))
+          cookie.domain = '.' + cookie.domain;
+        break;
+      case 'path':
+        cookie.path = value || '';
+        break;
+      case 'secure':
+        cookie.secure = true;
+        break;
+      case 'httponly':
+        cookie.httpOnly = true;
+        break;
+      case 'samesite':
+        switch (value.toLowerCase()) {
+          case 'none':
+            cookie.sameSite = 'None';
+            break;
+          case 'lax':
+            cookie.sameSite = 'Lax';
+            break;
+          case 'strict':
+            cookie.sameSite = 'Strict';
+            break;
+        }
+        break;
+    }
+  }
+  // https://datatracker.ietf.org/doc/html/rfc6265#section-5.3
+  // Max-Age takes precedence over Expires, regardless of the order of attributes.
+  if (maxAgeExpires !== undefined)
+    cookie.expires = maxAgeExpires;
+  return cookie;
 }

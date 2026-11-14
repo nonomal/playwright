@@ -16,45 +16,51 @@
 
 import fs from 'fs';
 import path from 'path';
-import type { FullConfig, TestCase, Suite, TestResult, TestError, TestStep, FullResult, Location, JSONReport, JSONReportSuite, JSONReportSpec, JSONReportTest, JSONReportTestResult, JSONReportTestStep, JSONReportError } from '../../types/testReporter';
-import { formatError, prepareErrorStack, resolveOutputFile } from './base';
-import { MultiMap, toPosixPath } from 'playwright-core/lib/utils';
-import { getProjectId } from '../common/config';
-import EmptyReporter from './empty';
 
-type JSONOptions = {
-  outputFile?: string,
-  configDir: string,
-};
+import { MultiMap } from '@isomorphic/multimap';
+import { toPosixPath } from '@utils/fileUtils';
 
-class JSONReporter extends EmptyReporter {
+import { createTestFilter, filterTests, formatError, nonTerminalScreen, prepareErrorStack, resolveOutputFile, visitTests } from './base';
+import { config } from '../common';
+
+import type { ReporterV2 } from './reporterV2';
+import type { CommonReporterOptions, TestFilter } from './base';
+import type { JsonReporterOptions } from '../../types/test';
+import type { FullConfig, FullResult, JSONReport, JSONReportError, JSONReportSpec, JSONReportSuite, JSONReportTest, JSONReportTestResult, JSONReportTestStep, Location, Suite, TestCase, TestError, TestResult, TestStep } from '../../types/testReporter';
+
+class JSONReporter implements ReporterV2 {
   config!: FullConfig;
   suite!: Suite;
   private _errors: TestError[] = [];
   private _resolvedOutputFile: string | undefined;
+  private _testFilter: TestFilter | undefined;
 
-  constructor(options: JSONOptions) {
-    super();
+  constructor(options: JsonReporterOptions & CommonReporterOptions) {
     this._resolvedOutputFile = resolveOutputFile('JSON', options)?.outputFile;
+    this._testFilter = createTestFilter(options, 'JSON');
   }
 
-  override printsToStdio() {
+  version(): 'v2' {
+    return 'v2';
+  }
+
+  printsToStdio() {
     return !this._resolvedOutputFile;
   }
 
-  override onConfigure(config: FullConfig) {
+  onConfigure(config: FullConfig) {
     this.config = config;
   }
 
-  override onBegin(suite: Suite) {
+  onBegin(suite: Suite) {
     this.suite = suite;
   }
 
-  override onError(error: TestError): void {
+  onError(error: TestError): void {
     this._errors.push(error);
   }
 
-  override async onEnd(result: FullResult) {
+  async onEnd(result: FullResult) {
     await outputReport(this._serializeReport(result), this._resolvedOutputFile);
   }
 
@@ -69,7 +75,7 @@ class JSONReporter extends EmptyReporter {
             repeatEach: project.repeatEach,
             retries: project.retries,
             metadata: project.metadata,
-            id: getProjectId(project),
+            id: config.getProjectId(project),
             name: project.name,
             testDir: toPosixPath(project.testDir),
             testIgnore: serializePatterns(project.testIgnore),
@@ -89,7 +95,7 @@ class JSONReporter extends EmptyReporter {
         flaky: 0,
       },
     };
-    for (const test of this.suite.allTests())
+    for (const test of visitTests(this.suite, this._testFilter))
       ++report.stats[test.outcome()];
     return report;
   }
@@ -97,7 +103,7 @@ class JSONReporter extends EmptyReporter {
   private _mergeSuites(suites: Suite[]): JSONReportSuite[] {
     const fileSuites = new MultiMap<string, JSONReportSuite>();
     for (const projectSuite of suites) {
-      const projectId = getProjectId(projectSuite.project()!);
+      const projectId = config.getProjectId(projectSuite.project()!);
       const projectName = projectSuite.project()!.name;
       for (const fileSuite of projectSuite.suites) {
         const file = fileSuite.location!.file;
@@ -150,7 +156,7 @@ class JSONReporter extends EmptyReporter {
     }
 
     for (const spec of from.specs || []) {
-      const toSpec = to.specs.find(s => s.title === spec.title && s.file === toPosixPath(path.relative(this.config.rootDir, spec.file)) && s.line === spec.line && s.column === spec.column);
+      const toSpec = to.specs.find(s => s.title === spec.title && this._locationMatches(s, spec));
       if (toSpec)
         toSpec.tests.push(...spec.tests);
       else
@@ -159,13 +165,15 @@ class JSONReporter extends EmptyReporter {
   }
 
   private _serializeSuite(projectId: string, projectName: string, suite: Suite): null | JSONReportSuite {
-    if (!suite.allTests().length)
+    const entries = filterTests(suite.entries(), this._testFilter);
+    const suites = entries.filter(entry => entry.type !== 'test').map(suite => this._serializeSuite(projectId, projectName, suite)).filter(s => s) as JSONReportSuite[];
+    const tests = entries.filter(entry => entry.type === 'test');
+    if (!tests.length && !suites.length)
       return null;
-    const suites = suite.suites.map(suite => this._serializeSuite(projectId, projectName, suite)).filter(s => s) as JSONReportSuite[];
     return {
       title: suite.title,
       ...this._relativeLocation(suite.location),
-      specs: suite.tests.map(test => this._serializeTestSpec(projectId, projectName, test)),
+      specs: tests.map(test => this._serializeTestSpec(projectId, projectName, test)),
       suites: suites.length ? suites : undefined,
     };
   }
@@ -197,6 +205,7 @@ class JSONReporter extends EmptyReporter {
     const steps = result.steps.filter(s => s.category === 'test.step');
     const jsonResult: JSONReportTestResult = {
       workerIndex: result.workerIndex,
+      parallelIndex: result.parallelIndex,
       status: result.status,
       duration: result.duration,
       error: result.error,
@@ -206,6 +215,7 @@ class JSONReporter extends EmptyReporter {
       retry: result.retry,
       steps: steps.length ? steps.map(s => this._serializeTestStep(s)) : undefined,
       startTime: result.startTime.toISOString(),
+      annotations: result.annotations,
       attachments: result.attachments.map(a => ({
         name: a.name,
         contentType: a.contentType,
@@ -219,13 +229,14 @@ class JSONReporter extends EmptyReporter {
   }
 
   private _serializeError(error: TestError): JSONReportError {
-    return formatError(error, true);
+    return formatError(nonTerminalScreen, error);
   }
 
   private _serializeTestStep(step: TestStep): JSONReportTestStep {
     const steps = step.steps.filter(s => s.category === 'test.step');
     return {
       title: step.title,
+      subtitle: step.subtitle,
       duration: step.duration,
       error: step.error,
       steps: steps.length ? steps.map(s => this._serializeTestStep(s)) : undefined,
@@ -239,6 +250,7 @@ async function outputReport(report: JSONReport, resolvedOutputFile: string | und
     await fs.promises.mkdir(path.dirname(resolvedOutputFile), { recursive: true });
     await fs.promises.writeFile(resolvedOutputFile, reportString);
   } else {
+    // eslint-disable-next-line no-console
     console.log(reportString);
   }
 }

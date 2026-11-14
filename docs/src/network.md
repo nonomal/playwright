@@ -10,7 +10,7 @@ Playwright provides APIs to **monitor** and **modify** browser network traffic, 
 
 ## Mock APIs
 
-Check out our [API mocking guide](./mock.md) to learn more on how to 
+Check out our [API mocking guide](./mock.md) to learn more on how to
 - mock API requests and never hit the API
 - perform the API request and modify the response
 - use HAR files to mock network requests.
@@ -115,8 +115,7 @@ await page.GotoAsync("https://example.com");
 You can configure pages to load over the HTTP(S) proxy or SOCKSv5. Proxy can be either set globally
 for the entire browser, or for each browser context individually.
 
-You can optionally specify username and password for HTTP(S) proxy, you can also specify hosts to
-bypass proxy for.
+You can optionally specify username and password for HTTP(S) proxy, you can also specify hosts to bypass the [`option: Browser.newContext.proxy`] for.
 
 Here is an example of a global proxy:
 
@@ -146,8 +145,8 @@ const browser = await chromium.launch({
 ```java
 Browser browser = chromium.launch(new BrowserType.LaunchOptions()
   .setProxy(new Proxy("http://myproxy.com:3128")
-  .setUsername('usr')
-  .setPassword('pwd'));
+  .setUsername("usr")
+  .setPassword("pwd")));
 ```
 
 ```python async
@@ -179,60 +178,48 @@ await using var browser = await BrowserType.LaunchAsync(new()
 });
 ```
 
-When specifying proxy for each context individually, **Chromium on Windows** needs a hint that proxy will be set. This is done via passing a non-empty proxy server to the browser itself. Here is an example of a context-specific proxy:
+Its also possible to specify it per context:
 
-```js tab=js-test title="playwright.config.ts"
-import { defineConfig } from '@playwright/test';
-export default defineConfig({
-  use: {
-    launchOptions: {
-      // Browser proxy option is required for Chromium on Windows.
-      proxy: { server: 'per-context' }
-    },
+```js tab=js-test title="example.spec.ts"
+import { test, expect } from '@playwright/test';
+
+test('should use custom proxy on a new context', async ({ browser }) => {
+  const context = await browser.newContext({
     proxy: {
       server: 'http://myproxy.com:3128',
     }
-  }
+  });
+  const page = await context.newPage();
+
+  await context.close();
 });
 ```
 
 ```js tab=js-library
-const browser = await chromium.launch({
-  // Browser proxy option is required for Chromium on Windows.
-  proxy: { server: 'per-context' }
-});
+const browser = await chromium.launch();
 const context = await browser.newContext({
   proxy: { server: 'http://myproxy.com:3128' }
 });
 ```
 
 ```java
-Browser browser = chromium.launch(new BrowserType.LaunchOptions()
-  // Browser proxy option is required for Chromium on Windows.
-  .setProxy(new Proxy("per-context"));
-BrowserContext context = chromium.launch(new Browser.NewContextOptions()
-  .setProxy(new Proxy("http://myproxy.com:3128"));
+Browser browser = chromium.launch();
+BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+  .setProxy(new Proxy("http://myproxy.com:3128")));
 ```
 
 ```python async
-# Browser proxy option is required for Chromium on Windows.
-browser = await chromium.launch(proxy={"server": "per-context"})
+browser = await chromium.launch()
 context = await browser.new_context(proxy={"server": "http://myproxy.com:3128"})
 ```
 
 ```python sync
-# Browser proxy option is required for Chromium on Windows.
-browser = chromium.launch(proxy={"server": "per-context"})
+browser = chromium.launch()
 context = browser.new_context(proxy={"server": "http://myproxy.com:3128"})
 ```
 
 ```csharp
-var proxy = new Proxy { Server = "per-context" };
-await using var browser = await BrowserType.LaunchAsync(new()
-{
-    // Browser proxy option is required for Chromium on Windows.
-    Proxy = proxy
-});
+await using var browser = await BrowserType.LaunchAsync();
 await using var context = await browser.NewContextAsync(new()
 {
     Proxy = new Proxy { Server = "http://myproxy.com:3128" },
@@ -497,7 +484,7 @@ await page.GotoAsync("https://example.com");
 // Delete header
 await page.route('**/*', async route => {
   const headers = route.request().headers();
-  delete headers['X-Secret'];
+  delete headers['x-secret'];
   await route.continue({ headers });
 });
 
@@ -509,7 +496,7 @@ await page.route('**/*', route => route.continue({ method: 'POST' }));
 // Delete header
 page.route("**/*", route -> {
   Map<String, String> headers = new HashMap<>(route.request().headers());
-  headers.remove("X-Secret");
+  headers.remove("x-secret");
     route.resume(new Route.ResumeOptions().setHeaders(headers));
 });
 
@@ -545,7 +532,7 @@ page.route("**/*", lambda route: route.continue_(method="POST"))
 // Delete header
 await page.RouteAsync("**/*", async route => {
     var headers = new Dictionary<string, string>(route.Request.Headers.ToDictionary(x => x.Key, x => x.Value));
-    headers.Remove("X-Secret");
+    headers.Remove("x-secret");
     await route.ContinueAsync(new() { Headers = headers });
 });
 
@@ -639,7 +626,7 @@ page.route("**/title.html", route -> {
   String body = response.text();
   body = body.replace("<title>", "<title>My prefix:");
   Map<String, String> headers = response.headers();
-  headers.put("content-type": "text/html");
+  headers.put("content-type", "text/html");
   route.fulfill(new Route.FulfillOptions()
     // Pass all fields from the response.
     .setResponse(response)
@@ -712,9 +699,68 @@ await Page.RouteAsync("**/title.html", async route =>
 });
 ```
 
+## How request interception works
+
+Routes sit between the page and the browser's network stack. The handler runs before the network stack has processed the request: [`method: Route.continue`] passes it on, [`method: Route.fulfill`] answers it without touching the network, and [`method: Route.abort`] fails it.
+
+```mermaid
+sequenceDiagram
+  participant Page
+  participant Playwright
+  participant Network as Network stack
+  participant Server
+
+  Page->>Playwright: request
+  Note over Playwright: route handler runs
+  Playwright->>Network: route.continue()
+  Note over Network: adds Cookie, Host, Sec-Fetch-*, ...
+  Network->>Server: request
+  Server-->>Network: response
+  Note over Network: stores cookies
+  Network-->>Playwright: response headers as sent by the server
+  Network-->>Page: response
+```
+
+### Headers owned by the network stack
+
+Some headers are attached by the network stack right before the request is sent: `Cookie`, `Host`, `Accept-Encoding`, `Content-Length`, `Sec-Fetch-*` and a few others. This is a security boundary: an `HttpOnly` cookie, for example, is never exposed to the page. Since the route handler runs before that step, these headers are not reliably present in [`method: Request.headers`] or [`method: Request.allHeaders`], and they cannot be overridden. A `cookie` header passed to [`method: Route.continue`] is ignored in favor of the browser's cookie store.
+
+On the response side the network stack has already done its work, so [`method: Response.allHeaders`] returns the headers exactly as the server sent them, including `Set-Cookie` for `HttpOnly` cookies. To see the exact request headers that went over the wire, observe the request without routing it: with no routes installed, [`method: Request.allHeaders`] includes all of them.
+
+### Redirects
+
+Playwright treats a request and its redirects as a single unit. The handler is called once, for the original request, and the browser follows the redirect on its own. [`method: Response.request`] returns the last request in the chain, and [`method: Request.redirectedFrom`] walks it back to the one you intercepted. Headers passed to [`method: Route.continue`] apply to every hop of the chain, except `cookie`, which always comes from the cookie store.
+
+Fulfilling with a `3xx` status does not give you a second chance to intercept. Chromium and Firefox follow the redirect without calling your handler, and WebKit rejects the call. To serve different content, fulfill with that content. To send the request elsewhere, pass `url` to [`method: Route.continue`] or [`method: Route.fallback`].
+
+## Glob URL patterns
+
+Playwright uses simplified glob patterns for URL matching in network interception methods like [`method: Page.route`] or [`method: Page.waitForResponse`]. These patterns support basic wildcards:
+
+1. Asterisks:
+  - A single `*` matches any characters except `/`
+  - A double `**` matches any characters including `/`
+1. Question mark `?` matches only question mark `?`. If you want to match any character, use `*` instead.
+1. Curly braces `{}` can be used to match a list of options separated by commas `,`
+1. Backslash `\` can be used to escape any of special characters (note to escape backslash itself as `\\`)
+
+Examples:
+- `https://example.com/*.js` matches `https://example.com/file.js` but not `https://example.com/path/file.js`
+- `https://example.com/?page=1` matches `https://example.com/?page=1` but not `https://example.com`
+- `**/*.js` matches both `https://example.com/file.js` and `https://example.com/path/file.js`
+- `**/*.{png,jpg,jpeg}` matches all image requests
+
+Important notes:
+
+- The glob pattern must match the entire URL, not just a part of it.
+- When using globs for URL matching, consider the full URL structure, including the protocol and path separators.
+- For more complex matching requirements, consider using [RegExp] instead of glob patterns.
+
 ## WebSockets
 
-Playwright supports [WebSockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) inspection out of the box. Every time a WebSocket is created, the [`event: Page.webSocket`] event is fired. This event contains the [WebSocket] instance for further web socket frames inspection:
+Playwright supports [WebSockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) inspection, mocking and modifying out of the box. See our [API mocking guide](./mock.md#mock-websockets) to learn how to mock WebSockets.
+
+Every time a WebSocket is created, the [`event: Page.webSocket`] event is fired. This event contains the [WebSocket] instance for further web socket frames inspection:
 
 ```js
 page.on('websocket', ws => {
@@ -757,6 +803,11 @@ page.WebSocket += (_, ws) =>
 
 Playwright's built-in [`method: BrowserContext.route`] and [`method: Page.route`] allow your tests to natively route requests and perform mocking and interception.
 
-1. If you're using Playwright's native [`method: BrowserContext.route`] and [`method: Page.route`], and it appears network events are missing, disable Service Workers by setting [`option: Browser.newContext.serviceWorkers`] to `'block'`.
-1. It might be that you are using a mock tool such as Mock Service Worker (MSW). While this tool works out of the box for mocking responses, it adds its own Service Worker that takes over the network requests, hence making them invisible to [`method: BrowserContext.route`] and [`method: Page.route`]. If you are interested in both network testing and mocking, consider using built-in [`method: BrowserContext.route`] and [`method: Page.route`] for [response mocking](#handle-requests).
-1. If you're interested in not solely using Service Workers for testing and network mocking, but in routing and listening for requests made by Service Workers themselves, please see [this experimental feature](https://github.com/microsoft/playwright/issues/15684).
+If you're using Playwright's native [`method: BrowserContext.route`] and [`method: Page.route`], and it appears network events are missing, disable Service Workers by setting [`option: Browser.newContext.serviceWorkers`] to `'block'`.
+
+It might be that you are using a mock tool such as Mock Service Worker (MSW). While this tool works out of the box for mocking responses, it adds its own Service Worker that takes over the network requests, hence making them invisible to [`method: BrowserContext.route`] and [`method: Page.route`]. If you are interested in both network testing and mocking, consider using built-in [`method: BrowserContext.route`] and [`method: Page.route`] for [response mocking](#handle-requests).
+
+######
+* langs: js
+
+If you're interested in not solely using Service Workers for testing and network mocking, but in routing and listening for requests made by Service Workers themselves, please see [this guide](./service-workers.md).

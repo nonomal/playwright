@@ -40,10 +40,11 @@ Note that retrying assertions are async, so you must `await` them.
 | [await expect(locator).toBeInViewport()](./api/class-locatorassertions.md#locator-assertions-to-be-in-viewport) | Element intersects viewport |
 | [await expect(locator).toBeVisible()](./api/class-locatorassertions.md#locator-assertions-to-be-visible) | Element is visible |
 | [await expect(locator).toContainText()](./api/class-locatorassertions.md#locator-assertions-to-contain-text) | Element contains text |
+| [await expect(locator).toContainClass()](./api/class-locatorassertions.md#locator-assertions-to-contain-class) | Element has specified CSS classes |
 | [await expect(locator).toHaveAccessibleDescription()](./api/class-locatorassertions.md#locator-assertions-to-have-accessible-description) | Element has a matching [accessible description](https://w3c.github.io/accname/#dfn-accessible-description) |
 | [await expect(locator).toHaveAccessibleName()](./api/class-locatorassertions.md#locator-assertions-to-have-accessible-name) | Element has a matching [accessible name](https://w3c.github.io/accname/#dfn-accessible-name) |
 | [await expect(locator).toHaveAttribute()](./api/class-locatorassertions.md#locator-assertions-to-have-attribute) | Element has a DOM attribute |
-| [await expect(locator).toHaveClass()](./api/class-locatorassertions.md#locator-assertions-to-have-class) | Element has a class property |
+| [await expect(locator).toHaveClass()](./api/class-locatorassertions.md#locator-assertions-to-have-class) | Element has specified CSS class property |
 | [await expect(locator).toHaveCount()](./api/class-locatorassertions.md#locator-assertions-to-have-count) | List has exact number of children |
 | [await expect(locator).toHaveCSS()](./api/class-locatorassertions.md#locator-assertions-to-have-css) | Element has CSS property |
 | [await expect(locator).toHaveId()](./api/class-locatorassertions.md#locator-assertions-to-have-id) | Element has an ID |
@@ -53,6 +54,8 @@ Note that retrying assertions are async, so you must `await` them.
 | [await expect(locator).toHaveText()](./api/class-locatorassertions.md#locator-assertions-to-have-text) | Element matches text |
 | [await expect(locator).toHaveValue()](./api/class-locatorassertions.md#locator-assertions-to-have-value) | Input has a value |
 | [await expect(locator).toHaveValues()](./api/class-locatorassertions.md#locator-assertions-to-have-values) | Select has options selected |
+| [await expect(locator).toMatchAriaSnapshot()](./api/class-locatorassertions.md#locator-assertions-to-match-aria-snapshot) | Element matches the Aria snapshot |
+| [await expect(page).toMatchAriaSnapshot()](./api/class-pageassertions.md#page-assertions-to-match-aria-snapshot) | Page matches the Aria snapshot |
 | [await expect(page).toHaveScreenshot()](./api/class-pageassertions.md#page-assertions-to-have-screenshot-1) | Page has a screenshot |
 | [await expect(page).toHaveTitle()](./api/class-pageassertions.md#page-assertions-to-have-title) | Page has a title |
 | [await expect(page).toHaveURL()](./api/class-pageassertions.md#page-assertions-to-have-url) | Page has a URL |
@@ -89,13 +92,21 @@ Prefer [auto-retrying](#auto-retrying-assertions) assertions whenever possible. 
 | [`method: GenericAssertions.toMatchObject`] | Object contains specified properties |
 | [`method: GenericAssertions.toStrictEqual`] | Value is similar, including property types |
 | [`method: GenericAssertions.toThrow`] | Function throws an error |
-| [`method: GenericAssertions.any`] | Matches any instance of a class/primitive |
-| [`method: GenericAssertions.anything`] | Matches anything |
-| [`method: GenericAssertions.arrayContaining`] | Array contains specific elements |
-| [`method: GenericAssertions.closeTo`] | Number is approximately equal |
-| [`method: GenericAssertions.objectContaining`] | Object contains specific properties |
-| [`method: GenericAssertions.stringContaining`] | String contains a substring |
-| [`method: GenericAssertions.stringMatching`] | String matches a regular expression |
+
+## Asymmetric matchers
+
+These expressions can be nested in other assertions to allow more relaxed matching against a given condition.
+
+| Matcher | Description |
+| :- | :- |
+| [expect.any()](./api/class-genericassertions.md#generic-assertions-any) | Matches any instance of a class/primitive |
+| [expect.anything()](./api/class-genericassertions.md#generic-assertions-anything) | Matches anything |
+| [expect.arrayContaining()](./api/class-genericassertions.md#generic-assertions-array-containing) | Array contains specific elements |
+| [expect.arrayOf()](./api/class-genericassertions.md#generic-assertions-array-of) | Array contains elements of specific type |
+| [expect.closeTo()](./api/class-genericassertions.md#generic-assertions-close-to) | Number is approximately equal |
+| [expect.objectContaining()](./api/class-genericassertions.md#generic-assertions-object-containing) | Object contains specific properties |
+| [expect.stringContaining()](./api/class-genericassertions.md#generic-assertions-string-containing) | String contains a substring |
+| [expect.stringMatching()](./api/class-genericassertions.md#generic-assertions-string-matching) | String matches a regular expression |
 
 ## Negating matchers
 
@@ -223,6 +234,25 @@ await expect.poll(async () => {
 }).toBe(200);
 ```
 
+You can combine `expect.soft` with `expect.poll` to perform soft assertions in polling logic. This allows the test to continue even if the assertion inside poll fails.
+
+```js
+await expect.soft.poll(async () => {
+  const response = await page.request.get('https://api.example.com');
+  return response.status();
+}).toBe(200);
+```
+
+`expect.configure({ soft: true })` also chains with `expect.poll` and is useful when you want to reuse a configured instance.
+
+```js
+const softExpect = expect.configure({ soft: true });
+await softExpect.poll(async () => {
+  const response = await page.request.get('https://api.example.com');
+  return response.status();
+}).toBe(200);
+```
+
 ## expect.toPass
 
 You can retry blocks of code until they are passing successfully.
@@ -254,11 +284,11 @@ Note that by default `toPass` has timeout 0 and does not respect custom [expect 
 
 You can extend Playwright assertions by providing custom matchers. These matchers will be available on the `expect` object.
 
-In this example we add a custom `toHaveAmount` function. Custom matcher should return a `message` callback and a `pass` flag indicating whether the assertion passed.
+In this example we add a custom `toHaveAmount` function. Custom matcher should return a `pass` flag indicating whether the assertion passed, and a `message` callback that's used when the assertion fails.
 
 ```js title="fixtures.ts"
 import { expect as baseExpect } from '@playwright/test';
-import type { Page, Locator } from '@playwright/test';
+import type { Locator } from '@playwright/test';
 
 export { test } from '@playwright/test';
 
@@ -268,18 +298,23 @@ export const expect = baseExpect.extend({
     let pass: boolean;
     let matcherResult: any;
     try {
-      await baseExpect(locator).toHaveAttribute('data-amount', String(expected), options);
+      const expectation = this.isNot ? baseExpect(locator).not : baseExpect(locator);
+      await expectation.toHaveAttribute('data-amount', String(expected), options);
       pass = true;
     } catch (e: any) {
       matcherResult = e.matcherResult;
       pass = false;
     }
 
+    if (this.isNot) {
+      pass =!pass;
+    }
+
     const message = pass
       ? () => this.utils.matcherHint(assertionName, undefined, undefined, { isNot: this.isNot }) +
           '\n\n' +
           `Locator: ${locator}\n` +
-          `Expected: ${this.isNot ? 'not' : ''}${this.utils.printExpected(expected)}\n` +
+          `Expected: not ${this.utils.printExpected(expected)}\n` +
           (matcherResult ? `Received: ${this.utils.printReceived(matcherResult.actual)}` : '')
       : () =>  this.utils.matcherHint(assertionName, undefined, undefined, { isNot: this.isNot }) +
           '\n\n' +
@@ -307,6 +342,48 @@ test('amount', async () => {
   await expect(page.locator('.cart')).toHaveAmount(4);
 });
 ```
+
+### Generic custom matchers
+
+TypeScript cannot carry a type parameter from the matcher implementation to the call site. If the matcher is generic over the received value, its type parameter becomes `unknown` when you call the matcher on `expect`.
+
+To get the type of the received value in the matcher arguments, declare the matcher signature in the `PlaywrightTest.Matchers` interface. Its second type parameter `T` is the type of the value passed to `expect`. Note that a generic matcher also needs an explicit `this` parameter type to access `this.utils` and other matcher state.
+
+```js title="fixtures.ts"
+import { expect as baseExpect } from '@playwright/test';
+import type { ExpectMatcherState } from '@playwright/test';
+
+export const expect = baseExpect.extend({
+  toSatisfy<T>(this: ExpectMatcherState, received: T, predicate: (value: T) => boolean) {
+    const pass = predicate(received);
+    return {
+      message: () => `expected ${this.utils.printReceived(received)} to satisfy the predicate`,
+      pass,
+    };
+  },
+});
+
+declare global {
+  namespace PlaywrightTest {
+    interface Matchers<R, T = unknown> {
+      toSatisfy(predicate: (value: T) => boolean): R;
+    }
+  }
+}
+```
+
+Now the `value` argument has the type of the received value.
+
+```js title="example.spec.ts"
+import { test, expect } from './fixtures';
+
+test('generic matcher', async () => {
+  expect('hello').toSatisfy(value => value.startsWith('h'));
+  expect(42).toSatisfy(value => value > 40);
+});
+```
+
+### Compatibility with expect library
 
 :::note
 Do not confuse Playwright's `expect` with the [`expect` library](https://jestjs.io/docs/expect). The latter is not fully integrated with Playwright test runner, so make sure to use Playwright's own `expect`.

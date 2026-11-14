@@ -15,9 +15,26 @@
  * limitations under the License.
  */
 
-import { test as it, expect } from './pageTest';
+import type { Page } from '../../packages/playwright-test';
+import { test as it, expect as baseExpect } from './pageTest';
 
-it('should emulate type @smoke', async ({ page }) => {
+const expect = baseExpect.extend({
+  async toMatchMedia(page: Page, mediaQuery: string) {
+    const pass = await page.evaluate(mediaQuery => matchMedia(mediaQuery).matches, mediaQuery).catch(() => false);
+    return {
+      message() {
+        if (pass)
+          return `Expected "${mediaQuery}" not to match, but it did`;
+        else
+          return `Expected "${mediaQuery}" to match, but it did not`;
+      },
+      pass,
+      name: 'toMatchMedia',
+    };
+  },
+});
+
+it('EM-001 should emulate type @smoke', async ({ page }) => {
   expect(await page.evaluate(() => matchMedia('screen').matches)).toBe(true);
   expect(await page.evaluate(() => matchMedia('print').matches)).toBe(false);
   await page.emulateMedia({ media: 'print' });
@@ -31,14 +48,14 @@ it('should emulate type @smoke', async ({ page }) => {
   expect(await page.evaluate(() => matchMedia('print').matches)).toBe(false);
 });
 
-it('should throw in case of bad media argument', async ({ page }) => {
+it('EM-002 should throw in case of bad media argument', async ({ page }) => {
   let error = null;
   // @ts-expect-error 'bad' is not a valid media type
   await page.emulateMedia({ media: 'bad' }).catch(e => error = e);
   expect(error.message).toContain('media: expected one of (screen|print|no-override)');
 });
 
-it('should emulate colorScheme should work @smoke', async ({ page }) => {
+it('EM-003 should emulate colorScheme should work @smoke', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' });
   expect(await page.evaluate(() => matchMedia('(prefers-color-scheme: light)').matches)).toBe(true);
   expect(await page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)).toBe(false);
@@ -47,7 +64,7 @@ it('should emulate colorScheme should work @smoke', async ({ page }) => {
   expect(await page.evaluate(() => matchMedia('(prefers-color-scheme: light)').matches)).toBe(false);
 });
 
-it('should default to light', async ({ page }) => {
+it('EM-004 should default to light', async ({ page }) => {
   expect(await page.evaluate(() => matchMedia('(prefers-color-scheme: light)').matches)).toBe(true);
   expect(await page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)).toBe(false);
 
@@ -60,14 +77,14 @@ it('should default to light', async ({ page }) => {
   expect(await page.evaluate(() => matchMedia('(prefers-color-scheme: light)').matches)).toBe(true);
 });
 
-it('should throw in case of bad colorScheme argument', async ({ page }) => {
+it('EM-005 should throw in case of bad colorScheme argument', async ({ page }) => {
   let error = null;
   // @ts-expect-error 'bad' is not a valid media type
   await page.emulateMedia({ colorScheme: 'bad' }).catch(e => error = e);
   expect(error.message).toContain('colorScheme: expected one of (dark|light|no-preference|no-override)');
 });
 
-it('should work during navigation', async ({ page, server }) => {
+it('EM-006 should work during navigation', async ({ page, server }) => {
   await page.emulateMedia({ colorScheme: 'light' });
   const navigated = page.goto(server.EMPTY_PAGE);
   for (let i = 0; i < 9; i++) {
@@ -80,7 +97,7 @@ it('should work during navigation', async ({ page, server }) => {
   expect(await page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)).toBe(true);
 });
 
-it('should change the actual colors in css', async ({ page }) => {
+it('EM-007 should change the actual colors in css', async ({ page }) => {
   await page.setContent(`
     <style>
       @media (prefers-color-scheme: dark) {
@@ -113,7 +130,7 @@ it('should change the actual colors in css', async ({ page }) => {
   expect(await getBackgroundColor()).toBe('rgb(255, 255, 255)');
 });
 
-it('should emulate reduced motion', async ({ page }) => {
+it('EM-008 should emulate reduced motion', async ({ page }) => {
   expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: no-preference)').matches)).toBe(true);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
@@ -124,7 +141,35 @@ it('should emulate reduced motion', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: null });
 });
 
-it('should emulate forcedColors ', async ({ page, browserName }) => {
+it('EM-009 should keep reduced motion and color emulation after reload', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/31328' });
+
+  // Pre-conditions
+  expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toEqual(false);
+  expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(false);
+
+  // Emulation
+  await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' });
+  expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toEqual(true);
+  expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
+
+  // Force CanonicalBrowsingContext replacement in Firefox.
+  server.setRoute('/empty.html', (req, res) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    // Note: without 'onload', Firefox sometimes does not fire the load event
+    // over the protocol. The reason is unclear.
+    res.end(`
+      <div>Hello there!</div>
+      <script>window.onload = () => console.log('onload')</script>
+    `);
+  });
+  await page.goto(server.EMPTY_PAGE);
+
+  expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toEqual(true);
+  expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
+});
+
+it('EM-010 should emulate forcedColors ', async ({ page, browserName }) => {
   expect(await page.evaluate(() => matchMedia('(forced-colors: none)').matches)).toBe(true);
   await page.emulateMedia({ forcedColors: 'none' });
   expect(await page.evaluate(() => matchMedia('(forced-colors: none)').matches)).toBe(true);
@@ -134,4 +179,23 @@ it('should emulate forcedColors ', async ({ page, browserName }) => {
   expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
   await page.emulateMedia({ forcedColors: null });
   expect(await page.evaluate(() => matchMedia('(forced-colors: none)').matches)).toBe(true);
+});
+
+it('EM-011 should emulate contrast ', async ({ page }) => {
+  await expect(page).toMatchMedia('(prefers-contrast: no-preference)');
+  await page.emulateMedia({ contrast: 'no-preference' });
+  await expect(page).toMatchMedia('(prefers-contrast: no-preference)');
+  await expect(page).not.toMatchMedia('(prefers-contrast: more)');
+  await page.emulateMedia({ contrast: 'more' });
+  await expect(page).not.toMatchMedia('(prefers-contrast: no-preference)');
+  await expect(page).toMatchMedia('(prefers-contrast: more)');
+  await page.emulateMedia({ contrast: null });
+  await expect(page).toMatchMedia('(prefers-contrast: no-preference)');
+});
+
+it('EM-012 should report hover and fine pointer for desktop', async ({ page, isAndroid }) => {
+  it.skip(isAndroid);
+
+  await expect(page).toMatchMedia('(hover: hover)');
+  await expect(page).toMatchMedia('(pointer: fine)');
 });

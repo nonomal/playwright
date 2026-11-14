@@ -14,10 +14,32 @@
   limitations under the License.
 */
 
-.action-title {
+.action-title > .hbox {
+  align-items: center;
+}
+
+.action-title-line {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.action-title-subtitle {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  color: var(--vscode-tab-inactiveForeground);
+  margin-top: -8px;
+}
+
+.action-title-method {
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.action-title-param {
+  color: var(--vscode-editorBracketHighlight-foreground1);
 }
 
 .action-location {
@@ -27,10 +49,20 @@
   color: var(--vscode-foreground);
 }
 
-.action-location > span {
+.action-location > button {
   margin: 0 4px;
   cursor: pointer;
   text-decoration: underline;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+}
+
+.action-location > button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
 }
 
 .action-duration {
@@ -41,26 +73,15 @@
   color: var(--vscode-editorCodeLens-foreground);
 }
 
+.action-skipped {
+  margin-right: 4px;
+}
+
 .action-icon {
   flex: none;
   display: flex;
   align-items: center;
   padding-right: 3px;
-}
-
-.action-icons {
-  flex: none;
-  display: flex;
-  flex-direction: row;
-  cursor: pointer;
-  height: 20px;
-  position: relative;
-  top: 1px;
-  border-bottom: 1px solid transparent;
-}
-
-.action-icons:hover {
-  border-bottom: 1px solid var(--vscode-sideBarTitle-foreground);
 }
 
 .action-error {
@@ -70,11 +91,18 @@
   flex: none;
 }
 
-.action-selector {
+.action-parameter {
   display: inline;
   flex: none;
   padding-left: 5px;
+}
+
+.action-locator-parameter {
   color: var(--vscode-charts-orange);
+}
+
+.action-generic-parameter {
+  color: var(--vscode-charts-purple);
 }
 
 .action-url {
@@ -85,8 +113,13 @@
 }
 
 .action-list-show-all {
-  display: flex;
-  cursor: pointer;
+  align-self: flex-start;
   height: 28px;
-  align-items: center;
+}
+
+.action-list-container {
+  min-height: 0;
+  flex: auto;
+  display: flex;
+  flex-direction: column;
 }

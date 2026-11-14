@@ -104,38 +104,23 @@ await page.Keyboard.PressAsync("Shift+A");
 An example to trigger select-all with the keyboard
 
 ```js
-// on Windows and Linux
-await page.keyboard.press('Control+A');
-// on macOS
-await page.keyboard.press('Meta+A');
+await page.keyboard.press('ControlOrMeta+A');
 ```
 
 ```java
-// on Windows and Linux
-page.keyboard().press("Control+A");
-// on macOS
-page.keyboard().press("Meta+A");
+page.keyboard().press("ControlOrMeta+A");
 ```
 
 ```python async
-# on windows and linux
-await page.keyboard.press("Control+A")
-# on mac_os
-await page.keyboard.press("Meta+A")
+await page.keyboard.press("ControlOrMeta+A")
 ```
 
 ```python sync
-# on windows and linux
-page.keyboard.press("Control+A")
-# on mac_os
-page.keyboard.press("Meta+A")
+page.keyboard.press("ControlOrMeta+A")
 ```
 
 ```csharp
-// on Windows and Linux
-await page.Keyboard.PressAsync("Control+A");
-// on macOS
-await page.Keyboard.PressAsync("Meta+A");
+await page.Keyboard.PressAsync("ControlOrMeta+A");
 ```
 
 ## async method: Keyboard.down
@@ -184,7 +169,7 @@ Dispatches only `input` event, does not emit the `keydown`, `keyup` or `keypress
 **Usage**
 
 ```js
-page.keyboard.insertText('嗨');
+await page.keyboard.insertText('嗨');
 ```
 
 ```java
@@ -200,7 +185,7 @@ page.keyboard.insert_text("嗨")
 ```
 
 ```csharp
-await page.Keyboard.PressAsync("嗨");
+await page.Keyboard.InsertTextAsync("嗨");
 ```
 
 :::note
@@ -257,7 +242,7 @@ await browser.close();
 Page page = browser.newPage();
 page.navigate("https://keycode.info");
 page.keyboard().press("A");
-page.screenshot(new Page.ScreenshotOptions().setPath(Paths.get("A.png"));
+page.screenshot(new Page.ScreenshotOptions().setPath(Paths.get("A.png")));
 page.keyboard().press("ArrowLeft");
 page.screenshot(new Page.ScreenshotOptions().setPath(Paths.get("ArrowLeft.png")));
 page.keyboard().press("Shift+O");

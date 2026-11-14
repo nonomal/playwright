@@ -15,13 +15,15 @@
  */
 
 import { playwrightTest as it, expect } from '../config/browserTest';
-import { parseCSS, serializeSelector as serialize } from '../../packages/playwright-core/lib/utils/isomorphic/cssParser';
+import { iso } from '../../packages/playwright-core/lib/coreBundle';
+
+const { parseCSS, serializeSelector: serialize } = iso;
 
 const parse = (selector: string) => {
   return parseCSS(selector, new Set(['text', 'not', 'has', 'react', 'scope', 'right-of', 'is'])).selector;
 };
 
-it('should parse css', async () => {
+it('PS-050 should parse css', async () => {
   expect(serialize(parse('div'))).toBe('div');
   expect(serialize(parse('div.class'))).toBe('div.class');
   expect(serialize(parse('.class'))).toBe('.class');
@@ -69,7 +71,7 @@ it('should parse css', async () => {
   expect(serialize(parse(':is(foo, bar>baz.cls+:not(qux))'))).toBe(':is(foo, bar > baz.cls + :not(qux))');
 });
 
-it('should throw on malformed css', async () => {
+it('PS-051 should throw on malformed css', async () => {
   function expectError(selector: string) {
     let error = { message: '' };
     try {
@@ -77,7 +79,8 @@ it('should throw on malformed css', async () => {
     } catch (e) {
       error = e;
     }
-    expect(error.message).toContain(`while parsing selector "${selector}"`);
+    expect(error.message).toContain(`while parsing css selector "${selector}"`);
+    expect(error.message).toContain(`Did you mean to CSS.escape it?`);
   }
 
   expectError('');

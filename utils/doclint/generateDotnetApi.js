@@ -61,9 +61,9 @@ documentation.setLinkRenderer(item => {
   else if (item.member)
     return `<see cref="I${toTitleCase(item.member.clazz.name)}.${toMemberName(item.member)}${asyncSuffix}"/>`;
   else if (item.option)
-    return `<paramref name="${item.option}"/>`;
+    return `<paramref name="${item.option.name}"/>`;
   else if (item.param)
-    return `<paramref name="${item.param}"/>`;
+    return `<paramref name="${item.param.name}"/>`;
   else
     throw new Error('Unknown link format.');
 });
@@ -77,14 +77,19 @@ const classNameMap = new Map(documentation.classesArray.map(x => [x.name, `I${to
 // map some types that we know of
 classNameMap.set('Error', 'Exception');
 classNameMap.set('TimeoutError', 'TimeoutException');
+classNameMap.set('PlaywrightException', 'PlaywrightException');
+classNameMap.set('PlaywrightAssertionException', 'PlaywrightAssertionException');
 classNameMap.set('EvaluationArgument', 'object');
 classNameMap.set('boolean', 'bool');
 classNameMap.set('any', 'object');
 classNameMap.set('Buffer', 'byte[]');
 classNameMap.set('path', 'string');
+classNameMap.set('Date', 'DateTime');
 classNameMap.set('URL', 'string');
 classNameMap.set('RegExp', 'Regex');
 classNameMap.set('Readable', 'Stream');
+classNameMap.set('Disposable', 'IAsyncDisposable');
+classNameMap.set('Promise', 'Task');
 
 /**
  *
@@ -131,6 +136,12 @@ function writeFile(kind, name, spec, body, folder, extendsName = null) {
 function renderClass(clazz) {
   const name = classNameMap.get(clazz.name);
   if (name === 'TimeoutException')
+    return;
+  if (name === 'PlaywrightException')
+    return;
+  if (name === 'PlaywrightAssertionException')
+    return;
+  if (name === 'IAsyncDisposable')
     return;
 
   const body = [];
@@ -238,7 +249,7 @@ for (const [name, literals] of enumTypes)
  * @param {string} name
  */
 function toArgumentName(name) {
-  return name === 'event' ? `@${name}` : name;
+  return ['event', 'ref'].includes(name) ? `@${name}` : name;
 }
 
 /**
@@ -288,8 +299,9 @@ function renderConstructors(name, type, out) {
 /**
  * @param {Documentation.Member} member
  * @param {string[]} out
+ * @param {{trimRunAndPrefix?: boolean}} [options]
  */
-function renderMemberDoc(member, out) {
+function renderMemberDoc(member, out, options) {
   /** @type {Documentation.MarkdownNode[]} */
   const nodes = [];
   if (member.deprecated)
@@ -297,8 +309,27 @@ function renderMemberDoc(member, out) {
   if (member.discouraged)
     nodes.push({ type: 'text', text: member.discouraged });
   if (member.spec)
-    nodes.push(...member.spec);
+    nodes.push(...(options?.trimRunAndPrefix ? withoutUsageExamples(member.spec) : member.spec));
   out.push(...XmlDoc.renderXmlDoc(nodes, maxDocumentationColumnWidth));
+}
+
+/**
+ * The usage examples of a `RunAnd*` method call the variant that performs the
+ * action, so they don't apply to the `WaitFor*` variant without it.
+ * @param {Documentation.MarkdownNode[]} spec
+ * @returns {Documentation.MarkdownNode[]}
+ */
+function withoutUsageExamples(spec) {
+  return spec.filter((node, index) => {
+    if (node.type === 'code')
+      return false;
+    if (node.type !== 'text')
+      return true;
+    if (node.text === '**Usage**')
+      return false;
+    // The sentence introducing an example, e.g. "Consider this example:".
+    return !(node.text.endsWith(':') && spec[index + 1]?.type === 'code');
+  });
 }
 
 /**
@@ -319,10 +350,13 @@ function renderMember(member, parent, options, out) {
     if (!member.type)
       throw new Error(`No Event Type for ${name} in ${parent.name}`);
     out.push('');
-    renderMemberDoc(member, out);
+    renderMemberDoc(member, out, options);
     if (member.deprecated)
       out.push(`[System.Obsolete]`);
-    out.push(`event EventHandler<${type}> ${name};`);
+    if (type === 'void')
+      out.push(`event EventHandler ${name};`);
+    else
+      out.push(`event EventHandler<${type}> ${name};`);
     return;
   }
 
@@ -336,7 +370,7 @@ function renderMember(member, parent, options, out) {
       const { name, jsonName } = overload;
       let { type } = overload;
       out.push('');
-      renderMemberDoc(member, out);
+      renderMemberDoc(member, out, options);
       if (!member.clazz)
         out.push(`${member.required ? '[Required]\n' : ''}[JsonPropertyName("${jsonName}")]`);
       if (member.deprecated)
@@ -381,6 +415,12 @@ function getPropertyOverloads(type, member, name, parent) {
  * @param {*} parent
  */
 function generateNameDefault(member, name, t, parent) {
+  const structName = t.langAliases?.csharp || t.langAliases?.default;
+  if (structName) {
+    registerModelType(structName, t);
+    return structName;
+  }
+
   if (!t.properties
     && !t.templates
     && !t.union
@@ -399,37 +439,24 @@ function generateNameDefault(member, name, t, parent) {
       if (names[2] === names[1])
         names.pop(); // get rid of duplicates, cheaply
       let attemptedName = names.pop();
-      const typesDiffer = function(left, right) {
+      const typesDiffer = function(/** @type {Documentation.Type} */ left, /** @type {Documentation.Type} */ right) {
         if (left.expression && right.expression)
           return left.expression !== right.expression;
-        return JSON.stringify(right.properties) !== JSON.stringify(left.properties);
+        const toExpression = (/** @type {Documentation.Member} */ t) => t.name + t.type?.expression;
+        const leftOverRightProperties = new Set(left.properties?.map(toExpression) ?? []);
+        for (const prop of right.properties ?? []) {
+          const expression = toExpression(prop);
+          if (!leftOverRightProperties.has(expression))
+            return true;
+          leftOverRightProperties.delete(expression);
+        }
+        return leftOverRightProperties.size > 0;
       };
       while (true) {
         // crude attempt at removing plurality
         if (attemptedName.endsWith('s')
           && !['properties', 'httpcredentials'].includes(attemptedName.toLowerCase()))
           attemptedName = attemptedName.substring(0, attemptedName.length - 1);
-
-        // For some of these we don't want to generate generic types.
-        // For some others we simply did not have the code that was deduping the names.
-        if (attemptedName === 'BoundingBox')
-          attemptedName = `${parent.name}BoundingBoxResult`;
-        if (attemptedName === 'BrowserContextCookie')
-          attemptedName = 'BrowserContextCookiesResult';
-        if (attemptedName === 'File' || (parent.name === 'FormData' && ['SetValue', 'AppendValue'].includes(attemptedName)))
-          attemptedName = `FilePayload`;
-        if (attemptedName === 'Size')
-          attemptedName = 'RequestSizesResult';
-        if (attemptedName === 'ViewportSize' && parent.name === 'Page')
-          attemptedName = 'PageViewportSizeResult';
-        if (attemptedName === 'SecurityDetail')
-          attemptedName = 'ResponseSecurityDetailsResult';
-        if (attemptedName === 'ServerAddr')
-          attemptedName = 'ResponseServerAddrResult';
-        if (attemptedName === 'Timing')
-          attemptedName = 'RequestTimingResult';
-        if (attemptedName === 'HeadersArray')
-          attemptedName = 'Header';
 
         const probableType = modelTypes.get(attemptedName);
         if ((probableType && typesDiffer(t, probableType))
@@ -511,7 +538,8 @@ function renderMethod(member, parent, name, options, out) {
     && !name.startsWith('Get')
     && name !== 'CreateFormData'
     && !name.startsWith('PostDataJSON')
-    && !name.startsWith('As')) {
+    && !name.startsWith('As')
+    && name !== 'ConnectToServer') {
     if (!member.async) {
       if (member.spec && !options.nodocs)
         out.push(...XmlDoc.renderXmlDoc(member.spec, maxDocumentationColumnWidth));
@@ -644,7 +672,7 @@ function renderMethod(member, parent, name, options, out) {
 
   if (!explodedArgs.length) {
     if (!options.nodocs) {
-      renderMemberDoc(member, out);
+      renderMemberDoc(member, out, options);
       paramDocs.forEach((value, i) => printArgDoc(i, value, out));
     }
     if (member.deprecated)
@@ -654,7 +682,7 @@ function renderMethod(member, parent, name, options, out) {
     let containsOptionalExplodedArgs = false;
     explodedArgs.forEach((explodedArg, argIndex) => {
       if (!options.nodocs)
-        renderMemberDoc(member, out);
+        renderMemberDoc(member, out, options);
       const overloadedArgs = [];
       for (let i = 0; i < args.length; i++) {
         const arg = args[i];
@@ -683,7 +711,7 @@ function renderMethod(member, parent, name, options, out) {
     if (containsOptionalExplodedArgs) {
       const filteredArgs = args.filter(x => x !== 'OPTIONAL_EXPLODED_ARG');
       if (!options.nodocs)
-        renderMemberDoc(member, out);
+        renderMemberDoc(member, out, options);
       filteredArgs.forEach(arg => {
         if (arg === 'EXPLODED_ARG')
           throw new Error(`Unsupported required union arg combined an optional union inside ${member.name}`);
@@ -691,7 +719,7 @@ function renderMethod(member, parent, name, options, out) {
         if (!options.nodocs)
           printArgDoc(argType, paramDocs.get(argType), out);
       });
-      out.push(`${type} ${name}(${filteredArgs.join(', ')});`);
+      out.push(`${modifiers}${type} ${toAsync(name, member.async)}(${filteredArgs.join(', ')});`);
     }
   }
 }
@@ -709,7 +737,7 @@ function translateType(type, parent, generateNameCallback = t => t.name, optiona
   if (type.expression === '[null]|[Error]')
     return 'void';
 
-  if (type.name == 'Promise' && type.templates?.[0].name === 'any')
+  if (type.name === 'Promise' && type.templates?.[0].name === 'any')
     return 'Task';
 
   if (type.union) {
@@ -722,8 +750,6 @@ function translateType(type, parent, generateNameCallback = t => t.name, optiona
       console.warn(`${type.name} should be a 'string', but was a ${type.expression}`);
       return `string`;
     }
-    if (type.union.length === 2 && type.union[1].name === 'Array' && type.union[1].templates[0].name === type.union[0].name)
-      return `IEnumerable<${type.union[0].name}>`; // an example of this is [string]|[Array]<[string]>
     if (type.expression === '[float]|"raf"')
       return `Polling`; // hardcoded because there's no other way to denote this
 
@@ -829,8 +855,9 @@ function translateType(type, parent, generateNameCallback = t => t.name, optiona
  * @param {Documentation.Type} type
  */
 function registerModelType(typeName, type) {
-  if (['object', 'string', 'int'].includes(typeName))
+  if (['object', 'string', 'int', 'long'].includes(typeName))
     return;
+
   if (typeName.endsWith('Option'))
     return;
 

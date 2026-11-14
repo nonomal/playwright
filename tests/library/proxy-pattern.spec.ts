@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
-import { parsePattern } from '../../packages/playwright-core/lib/common/socksProxy';
+import { utils } from '../../packages/playwright-core/lib/coreBundle';
 import { playwrightTest as test, expect } from '../config/browserTest';
 
-test('socks proxy patter matcher', async ({}) => {
+const { parsePattern } = utils;
+
+test('PR-040 socks proxy patter matcher', async ({}) => {
   const m1 = parsePattern('*');
   expect.soft(m1('example.com', 80)).toBe(true);
   expect.soft(m1('some.long.example.com', 80)).toBe(true);

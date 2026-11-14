@@ -26,7 +26,7 @@ const createTagSelector = () => ({
   }
 });
 
-it('should work', async ({ playwright, browser }) => {
+it('SE-160 should work', async ({ playwright, browser }) => {
   // Register one engine before creating context.
   await playwright.selectors.register('tag', `(${createTagSelector.toString()})()`);
 
@@ -52,7 +52,9 @@ it('should work', async ({ playwright, browser }) => {
   await context.close();
 });
 
-it('should work when registered on global', async ({ browser }) => {
+it('SE-161 should work when registered on global', async ({ browser, mode }) => {
+  it.skip(mode === 'driver', 'We expect registering selectors on the right Playwright instance.');
+
   await require('@playwright/test').selectors.register('oop-tag', `(${createTagSelector.toString()})()`);
 
   const context = await browser.newContext();
@@ -73,16 +75,15 @@ it('should work when registered on global', async ({ browser }) => {
   await context.close();
 });
 
-it('should work with path', async ({ playwright, browser, asset }) => {
-  const page = await browser.newPage();
+it('SE-162 should work with path', async ({ playwright, browser, asset }) => {
   await playwright.selectors.register('foo', { path: asset('sectionselectorengine.js') });
+  const page = await browser.newPage();
   await page.setContent('<section></section>');
   expect(await page.$eval('foo=whatever', e => e.nodeName)).toBe('SECTION');
   await page.close();
 });
 
-it('should work in main and isolated world', async ({ playwright, browser }) => {
-  const page = await browser.newPage();
+it('SE-163 should work in main and isolated world', async ({ playwright, browser }) => {
   const createDummySelector = () => ({
     query(root, selector) {
       return window['__answer'];
@@ -93,6 +94,7 @@ it('should work in main and isolated world', async ({ playwright, browser }) => 
   });
   await playwright.selectors.register('main', createDummySelector);
   await playwright.selectors.register('isolated', createDummySelector, { contentScript: true });
+  const page = await browser.newPage();
   await page.setContent('<div><span><section></section></span></div>');
   await page.evaluate(() => window['__answer'] = document.querySelector('span'));
   // Works in main if asked.
@@ -114,7 +116,7 @@ it('should work in main and isolated world', async ({ playwright, browser }) => 
   await page.close();
 });
 
-it('should handle errors', async ({ playwright, browser }) => {
+it('SE-164 should handle errors', async ({ playwright, browser }) => {
   const page = await browser.newPage();
   let error = await page.$('neverregister=ignored').catch(e => e);
   expect(error.message).toContain('Unknown engine "neverregister" while parsing selector neverregister=ignored');
@@ -143,8 +145,12 @@ it('should handle errors', async ({ playwright, browser }) => {
   await page.close();
 });
 
-it('should not rely on engines working from the root', async ({ playwright, browser }) => {
-  const page = await browser.newPage();
+it('SE-165 should throw "already registered" error when registering', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/36467' } }, async ({ playwright }) => {
+  await playwright.selectors.register('alreadyRegistered', createTagSelector);
+  await expect(playwright.selectors.register('alreadyRegistered', createTagSelector)).rejects.toThrowError('selectors.register: "alreadyRegistered" selector engine has been already registered');
+});
+
+it('SE-166 should not rely on engines working from the root', async ({ playwright, browser }) => {
   const createValueEngine = () => ({
     query(root, selector) {
       return root && root.value.includes(selector) ? root : undefined;
@@ -153,15 +159,14 @@ it('should not rely on engines working from the root', async ({ playwright, brow
       return root && root.value.includes(selector) ? [root] : [];
     },
   });
-
   await playwright.selectors.register('__value', createValueEngine);
+  const page = await browser.newPage();
   await page.setContent(`<input id=input1 value=value1><input id=input2 value=value2>`);
   expect(await page.$eval('input >> __value=value2', e => e.id)).toBe('input2');
   await page.close();
 });
 
-it('should throw a nice error if the selector returns a bad value', async ({ playwright, browser }) => {
-  const page = await browser.newPage();
+it('SE-167 should throw a nice error if the selector returns a bad value', async ({ playwright, browser }) => {
   const createFakeEngine = () => ({
     query(root, selector) {
       return [document.body];
@@ -172,6 +177,7 @@ it('should throw a nice error if the selector returns a bad value', async ({ pla
   });
 
   await playwright.selectors.register('__fake', createFakeEngine);
+  const page = await browser.newPage();
   const error = await page.$('__fake=value2').catch(e => e);
   expect(error.message).toContain('Expected a Node but got [object Array]');
   await page.close();

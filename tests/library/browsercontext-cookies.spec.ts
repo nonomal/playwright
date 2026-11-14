@@ -17,11 +17,11 @@
 
 import { contextTest as it, expect } from '../config/browserTest';
 
-it('should return no cookies in pristine browser context', async ({ context, page, server }) => {
+it('CO-001 should return no cookies in pristine browser context', async ({ context, page, server }) => {
   expect(await context.cookies()).toEqual([]);
 });
 
-it('should get a cookie @smoke', async ({ context, page, server, defaultSameSiteCookieValue }) => {
+it('CO-002 should get a cookie @smoke', async ({ context, page, server, defaultSameSiteCookieValue }) => {
   await page.goto(server.EMPTY_PAGE);
   const documentCookie = await page.evaluate(() => {
     document.cookie = 'username=John Doe';
@@ -31,7 +31,7 @@ it('should get a cookie @smoke', async ({ context, page, server, defaultSameSite
   expect(await context.cookies()).toEqual([{
     name: 'username',
     value: 'John Doe',
-    domain: 'localhost',
+    domain: server.HOSTNAME,
     path: '/',
     expires: -1,
     httpOnly: false,
@@ -40,7 +40,7 @@ it('should get a cookie @smoke', async ({ context, page, server, defaultSameSite
   }]);
 });
 
-it('should get a non-session cookie', async ({ context, page, server, defaultSameSiteCookieValue }) => {
+it('CO-003 should get a non-session cookie', async ({ context, page, server, defaultSameSiteCookieValue }) => {
   await page.goto(server.EMPTY_PAGE);
   // @see https://en.wikipedia.org/wiki/Year_2038_problem
   const date = +(new Date('1/1/2038'));
@@ -55,7 +55,7 @@ it('should get a non-session cookie', async ({ context, page, server, defaultSam
   expect(cookies[0]).toEqual({
     name: 'username',
     value: 'John Doe',
-    domain: 'localhost',
+    domain: server.HOSTNAME,
     path: '/',
     // We will check this separately.
     expires: expect.anything(),
@@ -72,7 +72,39 @@ it('should get a non-session cookie', async ({ context, page, server, defaultSam
   expect(cookies[0].expires).toBeGreaterThan((Date.now() + FOUR_HUNDRED_DAYS - FIVE_MINUTES) / 1000);
 });
 
-it('should properly report httpOnly cookie', async ({ context, page, server }) => {
+it('CO-004 should allow adding cookies with >400 days expiration', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/37903' }
+}, async ({ context, server }) => {
+  // Browsers start to cap cookies with 400 days max expires value.
+  // See https://github.com/httpwg/http-extensions/pull/1732
+  // Chromium patch: https://chromium.googlesource.com/chromium/src/+/aaa5d2b55478eac2ee642653dcd77a50ac3faff6
+  const expire = Date.now() / 1000 + 401 * 24 * 3600;
+  await context.addCookies([
+    {
+      name: 'username',
+      value: 'John Doe',
+      domain: server.HOSTNAME,
+      path: '/',
+      expires: expire,
+      httpOnly: false,
+      secure: false,
+      sameSite: 'Lax',
+    }
+  ]);
+
+  const cookies = await context.cookies();
+  expect(cookies.length).toBe(1);
+  expect(cookies[0]).toEqual(expect.objectContaining({
+    name: 'username',
+    value: 'John Doe',
+    domain: server.HOSTNAME,
+    path: '/'
+  }));
+  expect(cookies[0].expires).toBeGreaterThan(0);
+  expect(cookies[0].expires).toBeLessThanOrEqual(expire);
+});
+
+it('CO-005 should properly report httpOnly cookie', async ({ context, page, server }) => {
   server.setRoute('/empty.html', (req, res) => {
     res.setHeader('Set-Cookie', 'name=value;HttpOnly; Path=/');
     res.end();
@@ -83,8 +115,8 @@ it('should properly report httpOnly cookie', async ({ context, page, server }) =
   expect(cookies[0].httpOnly).toBe(true);
 });
 
-it('should properly report "Strict" sameSite cookie', async ({ context, page, server, browserName, platform }) => {
-  it.fail(browserName === 'webkit' && platform === 'win32');
+it('CO-006 should properly report "Strict" sameSite cookie', async ({ context, page, server, browserName, platform, channel }) => {
+  it.fail(browserName === 'webkit' && platform === 'win32' && channel !== 'webkit-wsl');
 
   server.setRoute('/empty.html', (req, res) => {
     res.setHeader('Set-Cookie', 'name=value;SameSite=Strict');
@@ -96,8 +128,8 @@ it('should properly report "Strict" sameSite cookie', async ({ context, page, se
   expect(cookies[0].sameSite).toBe('Strict');
 });
 
-it('should properly report "Lax" sameSite cookie', async ({ context, page, server, browserName, platform }) => {
-  it.fail(browserName === 'webkit' && platform === 'win32');
+it('CO-007 should properly report "Lax" sameSite cookie', async ({ context, page, server, browserName, platform, channel }) => {
+  it.fail(browserName === 'webkit' && platform === 'win32' && channel !== 'webkit-wsl');
 
   server.setRoute('/empty.html', (req, res) => {
     res.setHeader('Set-Cookie', 'name=value;SameSite=Lax');
@@ -109,7 +141,7 @@ it('should properly report "Lax" sameSite cookie', async ({ context, page, serve
   expect(cookies[0].sameSite).toBe('Lax');
 });
 
-it('should get multiple cookies', async ({ context, page, server, defaultSameSiteCookieValue }) => {
+it('CO-008 should get multiple cookies', async ({ context, page, server, defaultSameSiteCookieValue }) => {
   await page.goto(server.EMPTY_PAGE);
   const documentCookie = await page.evaluate(() => {
     document.cookie = 'username=John Doe';
@@ -122,7 +154,7 @@ it('should get multiple cookies', async ({ context, page, server, defaultSameSit
     {
       name: 'password',
       value: '1234',
-      domain: 'localhost',
+      domain: server.HOSTNAME,
       path: '/',
       expires: -1,
       httpOnly: false,
@@ -132,7 +164,7 @@ it('should get multiple cookies', async ({ context, page, server, defaultSameSit
     {
       name: 'username',
       value: 'John Doe',
-      domain: 'localhost',
+      domain: server.HOSTNAME,
       path: '/',
       expires: -1,
       httpOnly: false,
@@ -142,7 +174,7 @@ it('should get multiple cookies', async ({ context, page, server, defaultSameSit
   ]));
 });
 
-it('should get cookies from multiple urls', async ({ context, browserName, isWindows }) => {
+it('CO-009 should get cookies from multiple urls', async ({ context, browserName, isWindows, channel }) => {
   await context.addCookies([{
     url: 'https://foo.com',
     name: 'doggo',
@@ -168,7 +200,7 @@ it('should get cookies from multiple urls', async ({ context, browserName, isWin
     expires: -1,
     httpOnly: false,
     secure: true,
-    sameSite: (browserName === 'webkit' && isWindows) ? 'None' : 'Lax',
+    sameSite: (browserName === 'webkit' && isWindows && channel !== 'webkit-wsl') ? 'None' : 'Lax',
   }, {
     name: 'doggo',
     value: 'woofs',
@@ -181,7 +213,7 @@ it('should get cookies from multiple urls', async ({ context, browserName, isWin
   }]));
 });
 
-it('should work with subdomain cookie', async ({ context, browserName, isWindows }) => {
+it('CO-010 should work with subdomain cookie', async ({ context, browserName, isWindows, channel }) => {
   await context.addCookies([{
     domain: '.foo.com',
     path: '/',
@@ -198,7 +230,7 @@ it('should work with subdomain cookie', async ({ context, browserName, isWindows
     expires: -1,
     httpOnly: false,
     secure: true,
-    sameSite: (browserName === 'webkit' && isWindows) ? 'None' : 'Lax',
+    sameSite: (browserName === 'webkit' && isWindows && channel !== 'webkit-wsl') ? 'None' : 'Lax',
   }]);
   expect(await context.cookies('https://sub.foo.com')).toEqual([{
     name: 'doggo',
@@ -208,11 +240,30 @@ it('should work with subdomain cookie', async ({ context, browserName, isWindows
     expires: -1,
     httpOnly: false,
     secure: true,
-    sameSite: (browserName === 'webkit' && isWindows) ? 'None' : 'Lax',
+    sameSite: (browserName === 'webkit' && isWindows && channel !== 'webkit-wsl') ? 'None' : 'Lax',
   }]);
 });
 
-it('should return cookies with empty value', async ({ context, page, server }) => {
+it('CO-011 should only return cookies that apply to the url', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43078' },
+}, async ({ context }) => {
+  await context.addCookies([
+    { name: 'hostonly', value: 'v', domain: 'foo.com', path: '/api' },
+    { name: 'subdomains', value: 'v', domain: '.foo.com', path: '/api' },
+    { name: 'slash', value: 'v', domain: 'foo.com', path: '/foo/' },
+  ]);
+  const names = async (url: string) => (await context.cookies(url)).map(c => c.name).sort();
+  expect(await names('http://foo.com/api')).toEqual(['hostonly', 'subdomains']);
+  expect(await names('http://foo.com/api/x')).toEqual(['hostonly', 'subdomains']);
+  expect(await names('http://foo.com/apiv2')).toEqual([]);
+  expect(await names('http://sub.foo.com/api')).toEqual(['subdomains']);
+  expect(await names('http://notfoo.com/api')).toEqual([]);
+  expect(await names('http://foo.com/foo')).toEqual([]);
+  expect(await names('http://foo.com/foo/')).toEqual(['slash']);
+  expect(await names('http://foo.com/foo/bar')).toEqual(['slash']);
+});
+
+it('CO-012 should return cookies with empty value', async ({ context, page, server }) => {
   server.setRoute('/empty.html', (req, res) => {
     res.setHeader('Set-Cookie', 'name=;Path=/');
     res.end();
@@ -227,7 +278,7 @@ it('should return cookies with empty value', async ({ context, page, server }) =
   ]);
 });
 
-it('should return secure cookies based on HTTP(S) protocol', async ({ context, browserName, isWindows }) => {
+it('CO-013 should return secure cookies based on HTTP(S) protocol', async ({ context, browserName, isWindows, channel }) => {
   await context.addCookies([{
     url: 'https://foo.com',
     name: 'doggo',
@@ -250,7 +301,7 @@ it('should return secure cookies based on HTTP(S) protocol', async ({ context, b
     expires: -1,
     httpOnly: false,
     secure: false,
-    sameSite: (browserName === 'webkit' && isWindows) ? 'None' : 'Lax',
+    sameSite: (browserName === 'webkit' && isWindows && channel !== 'webkit-wsl') ? 'None' : 'Lax',
   }, {
     name: 'doggo',
     value: 'woofs',
@@ -259,7 +310,7 @@ it('should return secure cookies based on HTTP(S) protocol', async ({ context, b
     expires: -1,
     httpOnly: false,
     secure: true,
-    sameSite: (browserName === 'webkit' && isWindows) ? 'None' : 'Lax',
+    sameSite: (browserName === 'webkit' && isWindows && channel !== 'webkit-wsl') ? 'None' : 'Lax',
   }]));
   expect(await context.cookies('http://foo.com/')).toEqual([{
     name: 'catto',
@@ -269,11 +320,18 @@ it('should return secure cookies based on HTTP(S) protocol', async ({ context, b
     expires: -1,
     httpOnly: false,
     secure: false,
-    sameSite: (browserName === 'webkit' && isWindows) ? 'None' : 'Lax',
+    sameSite: (browserName === 'webkit' && isWindows && channel !== 'webkit-wsl') ? 'None' : 'Lax',
   }]);
 });
 
-it('should add cookies with an expiration', async ({ context }) => {
+for (const host of ['127.0.0.1', '[::1]']) {
+  it(`CO-014 should return secure cookies for http ${host}`, { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43115' } }, async ({ context }) => {
+    await context.addCookies([{ name: 'a', value: 'v', domain: host, path: '/', secure: true }]);
+    expect((await context.cookies(`http://${host}/`)).map(c => c.name)).toEqual(['a']);
+  });
+}
+
+it('CO-015 should add cookies with an expiration', async ({ context }) => {
   const expires = Math.floor((Date.now() / 1000)) + 3600;
   await context.addCookies([{
     url: 'https://foo.com',
@@ -321,39 +379,9 @@ it('should add cookies with an expiration', async ({ context }) => {
   }])).rejects.toThrow(/Cookie should have a valid expires/);
 });
 
-it('should be able to send third party cookies via an iframe', async ({ browser, httpsServer, browserName, isMac }) => {
-  it.fixme(browserName === 'webkit' && isMac);
-  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16937' });
-
-  const context = await browser.newContext({
-    ignoreHTTPSErrors: true,
-  });
-  try {
-    const page = await context.newPage();
-    await page.goto(httpsServer.EMPTY_PAGE);
-    await context.addCookies([{
-      domain: new URL(httpsServer.CROSS_PROCESS_PREFIX).hostname,
-      path: '/',
-      name: 'cookie1',
-      value: 'yes',
-      httpOnly: true,
-      secure: true,
-      sameSite: 'None'
-    }]);
-    const [response] = await Promise.all([
-      httpsServer.waitForRequest('/grid.html'),
-      page.setContent(`<iframe src="${httpsServer.CROSS_PROCESS_PREFIX}/grid.html"></iframe>`)
-    ]);
-    expect(response.headers['cookie']).toBe('cookie1=yes');
-  } finally {
-    await context.close();
-  }
-});
-
-it('should support requestStorageAccess', async ({ page, server, channel, browserName, isMac, isLinux, isWindows }) => {
+it('CO-016 should support requestStorageAccess', async ({ page, server, channel, browserName, isMac, isLinux, isWindows, macVersion }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/17285' });
   it.skip(browserName === 'chromium', 'requestStorageAccess API is not available in Chromium');
-  it.skip(channel === 'firefox-beta', 'hasStorageAccess returns true, but no cookie is sent');
 
   server.setRoute('/set-cookie.html', (req, res) => {
     res.setHeader('Set-Cookie', 'name=value; Path=/');
@@ -375,7 +403,7 @@ it('should support requestStorageAccess', async ({ page, server, channel, browse
       expect(serverRequest.headers.cookie).toBe('name=value');
     }
   } else {
-    if (isLinux && browserName === 'webkit')
+    if (browserName === 'webkit' && (isLinux || channel === 'webkit-wsl'))
       expect(await frame.evaluate(() => document.hasStorageAccess())).toBeTruthy();
     else
       expect(await frame.evaluate(() => document.hasStorageAccess())).toBeFalsy();
@@ -384,7 +412,7 @@ it('should support requestStorageAccess', async ({ page, server, channel, browse
         server.waitForRequest('/title.html'),
         frame.evaluate(() => fetch('/title.html'))
       ]);
-      if (!isMac && browserName === 'webkit')
+      if (isWindows && browserName === 'webkit' && channel !== 'webkit-wsl')
         expect(serverRequest.headers.cookie).toBe('name=value');
       else
         expect(serverRequest.headers.cookie).toBeFalsy();
@@ -396,14 +424,16 @@ it('should support requestStorageAccess', async ({ page, server, channel, browse
         server.waitForRequest('/title.html'),
         frame.evaluate(() => fetch('/title.html'))
       ]);
-      expect(serverRequest.headers.cookie).toBe('name=value');
+      if (browserName === 'webkit' && (isLinux || channel === 'webkit-wsl'))
+        expect(serverRequest.headers.cookie).toBe(undefined);
+      else
+        expect(serverRequest.headers.cookie).toBe('name=value');
     }
   }
 });
 
-it('should parse cookie with large Max-Age correctly', async ({ server, page, defaultSameSiteCookieValue, browserName, platform }) => {
+it('CO-017 should parse cookie with large Max-Age correctly', async ({ server, page, defaultSameSiteCookieValue, browserName, platform }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30305' });
-  it.fixme(browserName === 'webkit' && platform === 'linux', 'https://github.com/microsoft/playwright/issues/30305');
 
   server.setRoute('/foobar', (req, res) => {
     res.setHeader('set-cookie', [
@@ -418,7 +448,7 @@ it('should parse cookie with large Max-Age correctly', async ({ server, page, de
     {
       name: 'cookie1',
       value: 'value1',
-      domain: 'localhost',
+      domain: server.HOSTNAME,
       path: '/',
       expires: expect.any(Number),
       httpOnly: false,
@@ -426,4 +456,33 @@ it('should parse cookie with large Max-Age correctly', async ({ server, page, de
       sameSite: defaultSameSiteCookieValue,
     },
   ]);
+});
+
+it('CO-018 iframe should inherit cookies from parent', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/35439' } }, async ({ page, isLinux, browserName }) => {
+  await page.route('**/*', async (route, request) => {
+    if (request.url().includes('sub.example.test')) {
+      await route.fulfill({
+        body: `
+            <p id="result"></p>
+            <script>document.getElementById('result').textContent = document.cookie || 'no cookies';</script>
+        `,
+        contentType: 'text/html',
+      });
+      return;
+    }
+    await route.fulfill({
+      headers: { 'set-cookie': 'testCookie=value; SameSite=Lax; Domain=example.test' },
+      contentType: 'text/html',
+      body: `
+          <p id="result"></p>
+          <script>document.getElementById('result').textContent = document.cookie || 'no cookies';</script>
+          <iframe src="http://sub.example.test"></iframe>
+      `
+    });
+  });
+
+  await page.goto('http://example.test');
+
+  await expect(page.locator('body')).toContainText('testCookie=value');
+  await expect(page.frameLocator('iframe').locator('body')).toContainText('testCookie=value');
 });

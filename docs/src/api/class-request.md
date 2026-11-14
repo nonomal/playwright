@@ -113,7 +113,8 @@ You can use [`method: Request.allHeaders`] for complete list of headers that inc
 
 ## async method: Request.headersArray
 * since: v1.15
-- returns: <[Array]<[Object]>>
+- returns: "HttpHeader" <[Array]<[Object]>>
+  * alias-csharp: Header
   - `name` <[string]> Name of the header.
   - `value` <[string]> Value of the header.
 
@@ -124,7 +125,7 @@ Headers with multiple entries, such as `Set-Cookie`, appear in the array multipl
 * since: v1.15
 - returns: <[null]|[string]>
 
-Returns the value of the header matching the name. The name is case insensitive.
+Returns the value of the header matching the name. The name is case-insensitive.
 
 ### param: Request.headerValue.name
 * since: v1.15
@@ -277,7 +278,7 @@ Console.WriteLine(request.RedirectedFrom?.RedirectedTo == request); // True
 
 Contains the request's resource type as it was perceived by the rendering engine. ResourceType will be one of the
 following: `document`, `stylesheet`, `image`, `media`, `font`, `script`, `texttrack`, `xhr`, `fetch`, `eventsource`,
-`websocket`, `manifest`, `other`.
+`websocket`, `manifest`, `beacon`, `ping`, `cspreport`, `other`.
 
 ## async method: Request.response
 * since: v1.8
@@ -285,9 +286,19 @@ following: `document`, `stylesheet`, `image`, `media`, `font`, `script`, `texttr
 
 Returns the matching [Response] object, or `null` if the response was not received due to error.
 
+## method: Request.existingResponse
+* since: v1.59
+- returns: <[null]|[Response]>
+
+Returns the [Response] object if the response has already been received, `null` otherwise.
+
+Unlike [`method: Request.response`], this method does not wait for the response to arrive. It returns
+immediately with the response object if the response has been received, or `null` if the response
+has not been received yet.
+
 ## method: Request.serviceWorker
 * since: v1.24
-* langs: js
+* langs: js, python
 - returns: <[null]|[Worker]>
 
 The Service [Worker] that is performing the request.
@@ -300,7 +311,9 @@ Requests originated in a Service Worker do not have a [`method: Request.frame`] 
 
 ## async method: Request.sizes
 * since: v1.15
-- returns: <[Object]>
+- returns: "RequestSizes" <[Object]>
+  * alias-csharp: RequestSizesResult
+  * alias-java: Sizes
   - `requestBodySize` <[int]> Size of the request body (POST data payload) in bytes. Set to 0 if there was no body.
   - `requestHeadersSize` <[int]> Total number of bytes from the start of the HTTP request message until (and including) the double CRLF before the body.
   - `responseBodySize` <[int]> Size of the received response body (encoded) in bytes.
@@ -308,27 +321,8 @@ Requests originated in a Service Worker do not have a [`method: Request.frame`] 
 
 Returns resource size information for given request.
 
-## method: Request.timing
+## method: Request.timing = %%-resource-timing-%%
 * since: v1.8
-- returns: <[Object]>
-  - `startTime` <[float]> Request start time in milliseconds elapsed since January 1, 1970 00:00:00 UTC
-  - `domainLookupStart` <[float]> Time immediately before the browser starts the domain name lookup for the
-    resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
-  - `domainLookupEnd` <[float]> Time immediately after the browser starts the domain name lookup for the resource.
-    The value is given in milliseconds relative to `startTime`, -1 if not available.
-  - `connectStart` <[float]> Time immediately before the user agent starts establishing the connection to the server
-    to retrieve the resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
-  - `secureConnectionStart` <[float]> Time immediately before the browser starts the handshake process to secure the
-    current connection. The value is given in milliseconds relative to `startTime`, -1 if not available.
-  - `connectEnd` <[float]> Time immediately before the user agent starts establishing the connection to the server
-    to retrieve the resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
-  - `requestStart` <[float]> Time immediately before the browser starts requesting the resource from the server,
-    cache, or local resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
-  - `responseStart` <[float]> Time immediately after the browser receives the first byte of the response from the server,
-    cache, or local resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
-  - `responseEnd` <[float]> Time immediately after the browser receives the last byte of the resource or immediately
-    before the transport connection is closed, whichever comes first. The value is given in milliseconds relative to
-    `startTime`, -1 if not available.
 
 Returns resource timing information for given request. Most of the timing values become available upon the response,
 `responseEnd` becomes available when request finishes. Find more information at

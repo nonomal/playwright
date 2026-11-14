@@ -17,7 +17,7 @@
 
 import { contextTest as it, expect } from '../config/browserTest';
 
-it('should close browser with beforeunload page', async ({ server, browserType }) => {
+it('BU-001 should close browser with beforeunload page', async ({ server, browserType }) => {
   const browser = await browserType.launch();
   const page = await browser.newPage();
   await page.goto(server.PREFIX + '/beforeunload.html');
@@ -27,7 +27,7 @@ it('should close browser with beforeunload page', async ({ server, browserType }
   await browser.close();
 });
 
-it('should close browsercontext with beforeunload page', async ({ server, page, context }) => {
+it('BU-002 should close browsercontext with beforeunload page', async ({ server, page, context }) => {
   await page.goto(server.PREFIX + '/beforeunload.html');
   // We have to interact with a page so that 'beforeunload' handlers
   // fire.
@@ -35,7 +35,7 @@ it('should close browsercontext with beforeunload page', async ({ server, page, 
   await context.close();
 });
 
-it('should be able to navigate away from page with beforeunload', async ({ server, page, context }) => {
+it('BU-003 should be able to navigate away from page with beforeunload', async ({ server, page, context }) => {
   await page.goto(server.PREFIX + '/beforeunload.html');
   // We have to interact with a page so that 'beforeunload' handlers
   // fire.
@@ -43,7 +43,7 @@ it('should be able to navigate away from page with beforeunload', async ({ serve
   await page.goto(server.EMPTY_PAGE);
 });
 
-it('should close page with beforeunload listener', async ({ context, server }) => {
+it('BU-004 should close page with beforeunload listener', async ({ context, server }) => {
   const newPage = await context.newPage();
   await newPage.goto(server.PREFIX + '/beforeunload.html');
   // We have to interact with a page so that 'beforeunload' handlers
@@ -52,7 +52,7 @@ it('should close page with beforeunload listener', async ({ context, server }) =
   await newPage.close();
 });
 
-it('should run beforeunload if asked for @smoke', async ({ context, server, browserName }) => {
+it('BU-005 should run beforeunload if asked for @smoke', async ({ context, server, browserName }) => {
   const newPage = await context.newPage();
   await newPage.goto(server.PREFIX + '/beforeunload.html');
   // We have to interact with a page so that 'beforeunload' handlers
@@ -76,7 +76,7 @@ it('should run beforeunload if asked for @smoke', async ({ context, server, brow
   ]);
 });
 
-it('should access page after beforeunload', async ({ page, server }) => {
+it('BU-006 should access page after beforeunload', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/beforeunload.html');
   // We have to interact with a page so that 'beforeunload' handlers
   // fire.
@@ -89,7 +89,7 @@ it('should access page after beforeunload', async ({ page, server }) => {
   await page.evaluate(() => document.title);
 });
 
-it('should not stall on evaluate when dismissing beforeunload', async ({ page, server }) => {
+it('BU-007 should not stall on evaluate when dismissing beforeunload', async ({ page, server }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/23141' });
 
   await page.goto(server.PREFIX + '/beforeunload.html');
@@ -104,3 +104,107 @@ it('should not stall on evaluate when dismissing beforeunload', async ({ page, s
   ]);
 });
 
+it('BU-008 should not stall on click when dismissing beforeunload', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/33806' });
+
+  await page.goto(server.EMPTY_PAGE);
+  await page.setContent(`<a href="${server.PREFIX}/frames/one-frame.html">click me</a>`);
+
+  await page.evaluate(() => {
+    window.onbeforeunload = () => false;
+  });
+  page.on('dialog', async dialog => {
+    await dialog.dismiss();
+  });
+
+  await page.getByRole('link').click({ noWaitAfter: true });
+  await page.evaluate(() => {
+    window.onbeforeunload = null;
+  });
+
+  // This line should not timeout.
+  await page.getByRole('link').click({ timeout: 5000 });
+  await expect(page).toHaveURL(server.PREFIX + '/frames/one-frame.html');
+});
+
+it('BU-009 should support dismissing the dialog multiple times', async ({ page, server }) => {
+  await page.goto(server.PREFIX + '/beforeunload.html');
+
+  // We have to interact with a page so that 'beforeunload' handlers
+  // fire (in Firefox).
+  await page.click('body');
+
+  const [dialog] = await Promise.all([
+    page.waitForEvent('dialog'),
+    page.close({ runBeforeUnload: true })
+  ]);
+
+  await dialog.dismiss();
+
+  const [dialog2] = await Promise.all([
+    page.waitForEvent('dialog'),
+    page.close({ runBeforeUnload: true })
+  ]);
+
+  await dialog2.dismiss();
+});
+
+it('BU-010 should support closing the page after a previous dismiss', async ({ page, server }) => {
+  await page.goto(server.PREFIX + '/beforeunload.html');
+
+  // We have to interact with a page so that 'beforeunload' handlers
+  // fire (in Firefox).
+  await page.click('body');
+
+  const [dialog] = await Promise.all([
+    page.waitForEvent('dialog'),
+    page.close({ runBeforeUnload: true })
+  ]);
+
+  await dialog.dismiss();
+
+  await page.close();
+  await expect(page.isClosed()).toBe(true);
+});
+
+it('BU-011 should support closing the page via a subsequent onbeforeunload dialog', async ({ page, server }) => {
+  await page.goto(server.PREFIX + '/beforeunload.html');
+
+  // We have to interact with a page so that 'beforeunload' handlers
+  // fire (in Firefox).
+  await page.click('body');
+
+  const [dialog] = await Promise.all([
+    page.waitForEvent('dialog'),
+    page.close({ runBeforeUnload: true })
+  ]);
+
+  await dialog.accept();
+
+  await page.waitForEvent('close');
+  await expect(page.isClosed()).toBe(true);
+});
+
+it('BU-012 does not get stalled by beforeUnload', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/38731' },
+}, async ({ page, server }) => {
+  await page.goto(server.HELLO_WORLD);
+
+  await page.evaluate(() => {
+    window.addEventListener('beforeunload', event => {
+      event.preventDefault();
+    });
+  });
+  page.on('dialog', dialog => dialog.dismiss());
+
+  // We have to interact with a page so that 'beforeunload' handlers
+  // fire.
+  await page.click('body');
+
+  await page.route('**/api', route => route.fulfill({ status: 200, body: 'ok' }));
+  await page.evaluate(async () => fetch(new URL('/api', window.location.href)));
+
+  await page.close({ runBeforeUnload: true });
+
+  await page.evaluate(async () => fetch(new URL('/api', window.location.href)));
+});

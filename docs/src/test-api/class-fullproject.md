@@ -22,6 +22,12 @@ See [`property: TestProject.grep`].
 
 See [`property: TestProject.grepInvert`].
 
+## property: FullProject.ignoreSnapshots
+* since: v1.59
+- type: <[boolean]>
+
+See [`property: TestProject.ignoreSnapshots`].
+
 ## property: FullProject.metadata
 * since: v1.10
 - type: <[Metadata]>
@@ -56,7 +62,7 @@ See [`property: TestProject.repeatEach`].
 * since: v1.10
 - type: <[int]>
 
-See [`property: TestProject.retries`].
+See [`property: TestProject.retries`]. When retries are configured as a list, this is the largest `count` in the list.
 
 ## property: FullProject.teardown
 * since: v1.34
@@ -93,3 +99,11 @@ See [`property: TestProject.timeout`].
 - type: <[Fixtures]>
 
 See [`property: TestProject.use`].
+
+## property: FullProject.webServer
+* since: v1.66
+- type: <[Array]<[Object]>>
+
+The servers configured in [`property: TestProject.webServer`], normalized to an array.
+Does not include top-level servers.
+This property is an empty array in merged reports because server configuration is not serialized.

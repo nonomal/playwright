@@ -17,7 +17,7 @@
 
 import { browserTest as it, expect } from '../config/browserTest';
 
-it('should work @smoke', async ({ contextFactory, server }) => {
+it('NE-131 should work @smoke', async ({ contextFactory, server }) => {
   const context = await contextFactory();
   const page = await context.newPage();
   const [request] = await Promise.all([
@@ -33,7 +33,7 @@ it('should work @smoke', async ({ contextFactory, server }) => {
   await context.close();
 });
 
-it('should work for subresource', async ({ contextFactory, server, browserName, platform }) => {
+it('NE-132 should work for subresource', async ({ contextFactory, server, browserName, platform }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20654' });
   it.fixme(browserName === 'webkit' && platform === 'win32', 'responseStart is wrong due upstream webkit/libcurl bug');
   const context = await contextFactory();
@@ -51,9 +51,9 @@ it('should work for subresource', async ({ contextFactory, server, browserName, 
   await context.close();
 });
 
-it('should work for SSL', async ({ browser, httpsServer, browserName, platform }) => {
+it('NE-133 should work for SSL', async ({ browser, httpsServer, browserName, platform }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20654' });
-  it.fixme(browserName === 'webkit' && platform === 'win32', 'responseStart is wrong due upstream webkit/libcurl bug');
+
   const page = await browser.newPage({ ignoreHTTPSErrors: true });
   const [request] = await Promise.all([
     page.waitForEvent('requestfinished'),
@@ -68,7 +68,7 @@ it('should work for SSL', async ({ browser, httpsServer, browserName, platform }
   await page.close();
 });
 
-it('should work for redirect', async ({ contextFactory, browserName, server }) => {
+it('NE-134 should work for redirect', async ({ contextFactory, browserName, server }) => {
   it.fixme(browserName === 'webkit', `In WebKit, redirects don't carry the timing info`);
 
   const context = await contextFactory();
@@ -100,9 +100,9 @@ it('should work for redirect', async ({ contextFactory, browserName, server }) =
   await context.close();
 });
 
-it('should work when serving from memory cache', async ({ contextFactory, server, browserName }) => {
+it('NE-135 should work when serving from memory cache', async ({ contextFactory, server, browserName, isBidi }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright-java/issues/1080' });
-  it.fixme(browserName === 'firefox', 'Response event is not fired in Firefox');
+  it.fixme(browserName === 'firefox' && !isBidi, 'Response event is not fired in Firefox');
   server.setRoute('/one-style.css', (req, res) => {
     res.writeHead(200, {
       'Content-Type': 'text/css',

@@ -16,14 +16,16 @@
 
 import { test, expect } from './playwright-test-fixtures';
 import { parseTrace, parseTraceRaw } from '../config/utils';
+
 import fs from 'fs';
+import path from 'path';
 
 test.describe.configure({ mode: 'parallel' });
 
 test('should stop tracing with trace: on-first-retry, when not retrying', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'on-first-retry' } };
+      export default { use: { trace: 'on-first-retry' } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -56,10 +58,12 @@ test('should stop tracing with trace: on-first-retry, when not retrying', async 
   expect(fs.existsSync(testInfo.outputPath('test-results', 'a-shared-flaky-retry1', 'trace.zip'))).toBeTruthy();
 });
 
-test('should record api trace', async ({ runInlineTest, server }, testInfo) => {
+test('should record api trace', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/44027' },
+}, async ({ runInlineTest, server }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'on' } };
+      export default { use: { trace: 'on', viewport: { width: 900, height: 600 } } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -87,50 +91,55 @@ test('should record api trace', async ({ runInlineTest, server }, testInfo) => {
   expect(result.failed).toBe(1);
   // One trace file for request context and one for each APIRequestContext
   const trace1 = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
-  expect(trace1.actionTree).toEqual([
+  expect(trace1.model.browserName).toBe('chromium');
+  expect(trace1.model.options.viewport).toEqual({ width: 900, height: 600 });
+  expect(trace1.model.renderActionTree()).toEqual([
     'Before Hooks',
-    '  fixture: request',
-    '    apiRequest.newContext',
-    '  fixture: browser',
-    '    browserType.launch',
-    '  fixture: context',
-    '    browser.newContext',
-    '  fixture: page',
-    '    browserContext.newPage',
-    'page.goto',
-    'apiRequestContext.get',
+    '  Fixture "request"',
+    '    Create request context',
+    '  Fixture "browser"',
+    '    Launch browser',
+    '  Fixture "context"',
+    '    Create context',
+    '  Fixture "page"',
+    '    Create page',
+    'Navigate about:blank',
+    `GET ${server.HOST}/empty.html`,
     'After Hooks',
-    '  fixture: page',
-    '  fixture: context',
-    '  fixture: request',
-    '    apiRequestContext.dispose',
+    '  Fixture "page"',
+    '  Fixture "context"',
+    '    Close context',
+    '  Fixture "request"',
   ]);
   const trace2 = await parseTrace(testInfo.outputPath('test-results', 'a-api-pass', 'trace.zip'));
-  expect(trace2.actionTree).toEqual([
+  expect(trace2.model.browserName).toBe('');
+  expect(trace2.model.options).toEqual({});
+  expect(trace2.model.renderActionTree()).toEqual([
     'Before Hooks',
-    'apiRequest.newContext',
-    'apiRequestContext.get',
+    'Create request context',
+    `GET ${server.HOST}/empty.html`,
     'After Hooks',
   ]);
   const trace3 = await parseTrace(testInfo.outputPath('test-results', 'a-fail', 'trace.zip'));
-  expect(trace3.actionTree).toEqual([
+  expect(trace3.model.renderActionTree()).toEqual([
     'Before Hooks',
-    '  fixture: request',
-    '    apiRequest.newContext',
-    '  fixture: context',
-    '    browser.newContext',
-    '  fixture: page',
-    '    browserContext.newPage',
-    'page.goto',
-    'apiRequestContext.get',
-    'expect.toBe',
+    '  Fixture "request"',
+    '    Create request context',
+    '  Fixture "context"',
+    '    Create context',
+    '  Fixture "page"',
+    '    Create page',
+    'Navigate about:blank',
+    `GET ${server.HOST}/empty.html`,
+    'Expect "toBe"',
     'After Hooks',
-    '  fixture: page',
-    '  fixture: context',
-    '  fixture: request',
-    '    apiRequestContext.dispose',
+    '  Fixture "page"',
+    '  Fixture "context"',
+    '    Close context',
+    '  Fixture "request"',
+    'Attach "error-context"',
     'Worker Cleanup',
-    '  fixture: browser',
+    '  Fixture "browser"',
   ]);
 });
 
@@ -151,7 +160,7 @@ test('should not throw with trace: on-first-retry and two retries in the same wo
   const result = await runInlineTest({
     ...files,
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'on-first-retry' } };
+      export default { use: { trace: 'on-first-retry' } };
     `,
     'helper.ts': `
       import { test as base } from '@playwright/test';
@@ -187,9 +196,11 @@ test('should not mixup network files between contexts', async ({ runInlineTest, 
       test.beforeAll(async ({ browser }) => {
         page1 = await browser.newPage();
         await page1.goto("${server.EMPTY_PAGE}");
+        await page1.request.get("${server.PREFIX}/simple.json?context=1");
 
         page2 = await browser.newPage();
         await page2.goto("${server.EMPTY_PAGE}");
+        await page2.request.get("${server.PREFIX}/simple.json?context=2");
       });
 
       test.afterAll(async () => {
@@ -199,18 +210,49 @@ test('should not mixup network files between contexts', async ({ runInlineTest, 
 
       test('example', async ({ page }) => {
         await page.goto("${server.EMPTY_PAGE}");
+        await page.request.get("${server.PREFIX}/simple.json?context=3");
       });
     `,
   }, { workers: 1, timeout: 15000 });
   expect(result.exitCode).toEqual(0);
   expect(result.passed).toBe(1);
-  expect(fs.existsSync(testInfo.outputPath('test-results', 'a-example', 'trace.zip'))).toBe(true);
+  const tracePath = testInfo.outputPath('test-results', 'a-example', 'trace.zip');
+  const { resources } = await parseTraceRaw(tracePath);
+  const traceEntries = [...resources].filter(([name]) => name.endsWith('.trace')).map(([name, content]) => ({
+    prefix: name.slice(0, -'.trace'.length),
+    contextOptions: JSON.parse(content.toString().split('\n')[0]),
+  })).filter(entry => entry.contextOptions.origin === 'library');
+  // Each of the 3 browser contexts and 3 api request contexts produces
+  // a trace chunk per test phase it was recording during.
+  const browserTraces = traceEntries.filter(entry => entry.contextOptions.browserName);
+  const apiTraces = traceEntries.filter(entry => !entry.contextOptions.browserName);
+  expect(browserTraces.length).toBeGreaterThanOrEqual(3);
+  expect(apiTraces.length).toBeGreaterThanOrEqual(3);
+  for (const entry of browserTraces) {
+    const network = resources.get(entry.prefix + '.network')!.toString();
+    expect(network).not.toContain('?context=');
+  }
+  const apiURLs = [
+    server.PREFIX + '/simple.json?context=1',
+    server.PREFIX + '/simple.json?context=2',
+    server.PREFIX + '/simple.json?context=3',
+  ];
+  // Api request context network files are chunk-specific, so each of the requests
+  // must show up in exactly one network file.
+  const apiURLsByTrace = apiTraces.map(entry => {
+    const network = resources.get(entry.prefix + '.network')!.toString();
+    return apiURLs.filter(url => network.includes(url));
+  });
+  expect(apiURLsByTrace.every(urls => urls.length <= 1)).toBe(true);
+  expect(apiURLsByTrace.flat().sort()).toEqual(apiURLs);
+  const trace = await parseTrace(tracePath);
+  expect(trace.model.resources.filter(resource => resource._apiRequestRef).map(resource => resource.request.url).sort()).toEqual(apiURLs);
 });
 
 test('should save sources when requested', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         use: {
           trace: 'on',
         }
@@ -224,14 +266,69 @@ test('should save sources when requested', async ({ runInlineTest }, testInfo) =
     `,
   }, { workers: 1 });
   expect(result.exitCode).toEqual(0);
-  const { resources } = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
-  expect([...resources.keys()].filter(name => name.startsWith('resources/src@'))).toHaveLength(1);
+  const { resources } = await parseTraceRaw(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
+  expect([...resources.keys()].filter(name => name.startsWith('src/'))).toHaveLength(1);
+});
+
+test('should expand snapshots object in trace option', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      export default {
+        use: {
+          trace: { mode: 'on', snapshots: { dom: true, aria: true, screen: true } },
+        }
+      };
+    `,
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({ page }) => {
+        await page.setContent('<button>Click me</button>');
+        await page.locator('button').click();
+      });
+    `,
+  }, { workers: 1 });
+  expect(result.exitCode).toEqual(0);
+  expect(result.passed).toBe(1);
+
+  const { model } = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
+  const click = model.actions.find(a => a.method === 'click')!;
+  expect(model.hasDomSnapshotForCall(click.callId, 'after')).toBeTruthy();
+  expect(model.screenshotForCall(click.callId, 'after')).toBeTruthy();
+  expect(model.ariaSnapshotForCall(click.callId, 'after')).toBeTruthy();
+});
+
+test('should keep trace config options when forcing mode with --trace', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      export default {
+        use: {
+          trace: { mode: 'on-first-retry', snapshots: { dom: true, aria: true, screen: true } },
+        }
+      };
+    `,
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({ page }) => {
+        await page.setContent('<button>Click me</button>');
+        await page.locator('button').click();
+      });
+    `,
+  }, { workers: 1, trace: 'on' });
+  expect(result.exitCode).toEqual(0);
+  expect(result.passed).toBe(1);
+
+  // The 'on' mode is forced, while the snapshots configuration is preserved.
+  const { model } = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
+  const click = model.actions.find(a => a.method === 'click')!;
+  expect(model.hasDomSnapshotForCall(click.callId, 'after')).toBeTruthy();
+  expect(model.screenshotForCall(click.callId, 'after')).toBeTruthy();
+  expect(model.ariaSnapshotForCall(click.callId, 'after')).toBeTruthy();
 });
 
 test('should not save sources when not requested', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         use: {
           trace: {
             mode: 'on',
@@ -248,14 +345,14 @@ test('should not save sources when not requested', async ({ runInlineTest }, tes
     `,
   }, { workers: 1 });
   expect(result.exitCode).toEqual(0);
-  const { resources } = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
-  expect([...resources.keys()].filter(name => name.startsWith('resources/src@'))).toHaveLength(0);
+  const { resources } = await parseTraceRaw(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
+  expect([...resources.keys()].filter(name => name.startsWith('src/'))).toHaveLength(0);
 });
 
 test('should work in serial mode', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'retain-on-failure' } };
+      export default { use: { trace: 'retain-on-failure' } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -290,7 +387,7 @@ test('should work in serial mode', async ({ runInlineTest }, testInfo) => {
 test('should not override trace file in afterAll', async ({ runInlineTest, server }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'retain-on-failure' } };
+      export default { use: { trace: 'retain-on-failure' } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -315,28 +412,28 @@ test('should not override trace file in afterAll', async ({ runInlineTest, serve
   expect(result.failed).toBe(1);
   const trace1 = await parseTrace(testInfo.outputPath('test-results', 'a-test-1', 'trace.zip'));
 
-  expect(trace1.actionTree).toEqual([
+  expect(trace1.model.renderActionTree()).toEqual([
     'Before Hooks',
-    '  fixture: browser',
-    '    browserType.launch',
-    '  fixture: context',
-    '    browser.newContext',
-    '  fixture: page',
-    '    browserContext.newPage',
-    'page.goto',
+    '  Fixture "browser"',
+    '    Launch browser',
+    '  Fixture "context"',
+    '    Create context',
+    '  Fixture "page"',
+    '    Create page',
+    'Navigate about:blank',
     'After Hooks',
-    '  fixture: page',
-    '  fixture: context',
+    '  Fixture "page"',
+    '  Fixture "context"',
+    '    Close context',
     '  afterAll hook',
-    '    fixture: request',
-    '      apiRequest.newContext',
-    '    apiRequestContext.get',
-    '    fixture: request',
-    '      apiRequestContext.dispose',
+    '    Fixture "request"',
+    '      Create request context',
+    `    GET ${server.HOST}/empty.html`,
+    '    Fixture "request"',
     'Worker Cleanup',
-    '  fixture: browser',
+    '  Fixture "browser"',
   ]);
-  expect(trace1.errors).toEqual([`'oh no!'`]);
+  expect(trace1.model.errors.map(e => e.message)).toEqual([`'oh no!'`]);
 
   const error = await parseTrace(testInfo.outputPath('test-results', 'a-test-2', 'trace.zip')).catch(e => e);
   expect(error).toBeTruthy();
@@ -345,7 +442,7 @@ test('should not override trace file in afterAll', async ({ runInlineTest, serve
 test('should retain traces for interrupted tests', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'retain-on-failure' }, maxFailures: 1 };
+      export default { use: { trace: 'retain-on-failure' }, maxFailures: 1 };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -385,25 +482,7 @@ test('should respect --trace', async ({ runInlineTest }, testInfo) => {
   expect(fs.existsSync(testInfo.outputPath('test-results', 'a-test-1', 'trace.zip'))).toBeTruthy();
 });
 
-test('should respect PW_TEST_DISABLE_TRACING', async ({ runInlineTest }, testInfo) => {
-  const result = await runInlineTest({
-    'playwright.config.ts': `
-      export default { use: { trace: 'on' } };
-    `,
-    'a.spec.ts': `
-      import { test, expect } from '@playwright/test';
-      test('test 1', async ({ page }) => {
-        await page.goto('about:blank');
-      });
-    `,
-  }, {}, { PW_TEST_DISABLE_TRACING: '1' });
-
-  expect(result.exitCode).toBe(0);
-  expect(result.passed).toBe(1);
-  expect(fs.existsSync(testInfo.outputPath('test-results', 'a-test-1', 'trace.zip'))).toBe(false);
-});
-
-for (const mode of ['off', 'retain-on-failure', 'on-first-retry', 'on-all-retries', 'retain-on-first-failure']) {
+for (const mode of ['off', 'retain-on-failure', 'on-first-retry', 'on-all-retries', 'retain-on-first-failure', 'retain-on-failure-and-retries']) {
   test(`trace:${mode} should not create trace zip artifact if page test passed`, async ({ runInlineTest }) => {
     const result = await runInlineTest({
       'a.spec.ts': `
@@ -454,7 +533,7 @@ for (const mode of ['off', 'retain-on-failure', 'on-first-retry', 'on-all-retrie
 test(`trace:retain-on-failure should create trace if context is closed before failure in the test`, async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'retain-on-failure' } };
+      export default { use: { trace: 'retain-on-failure' } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -467,14 +546,14 @@ test(`trace:retain-on-failure should create trace if context is closed before fa
   }, { trace: 'retain-on-failure' });
   const tracePath = test.info().outputPath('test-results', 'a-passing-test', 'trace.zip');
   const trace = await parseTrace(tracePath);
-  expect(trace.apiNames).toContain('page.goto');
+  expect(trace.model.renderActionTree()).toContain('Navigate about:blank');
   expect(result.failed).toBe(1);
 });
 
 test(`trace:retain-on-failure should create trace if context is closed before failure in afterEach`, async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'retain-on-failure' } };
+      export default { use: { trace: 'retain-on-failure' } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -489,14 +568,14 @@ test(`trace:retain-on-failure should create trace if context is closed before fa
   }, { trace: 'retain-on-failure' });
   const tracePath = test.info().outputPath('test-results', 'a-passing-test', 'trace.zip');
   const trace = await parseTrace(tracePath);
-  expect(trace.apiNames).toContain('page.goto');
+  expect(trace.model.renderActionTree()).toContain('    Navigate about:blank');
   expect(result.failed).toBe(1);
 });
 
 test(`trace:retain-on-failure should create trace if request context is disposed before failure`, async ({ runInlineTest, server }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'retain-on-failure' } };
+      export default { use: { trace: 'retain-on-failure' } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -509,14 +588,14 @@ test(`trace:retain-on-failure should create trace if request context is disposed
   }, { trace: 'retain-on-failure' });
   const tracePath = test.info().outputPath('test-results', 'a-passing-test', 'trace.zip');
   const trace = await parseTrace(tracePath);
-  expect(trace.apiNames).toContain('apiRequestContext.get');
+  expect(trace.model.renderActionTree()).toContain(`GET ${server.HOST}/empty.html`);
   expect(result.failed).toBe(1);
 });
 
 test('should include attachments by default', async ({ runInlineTest, server }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'on' } };
+      export default { use: { trace: 'on' } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -529,24 +608,26 @@ test('should include attachments by default', async ({ runInlineTest, server }, 
 
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
-  const trace = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
-  expect(trace.apiNames).toEqual([
+  const tracePath = testInfo.outputPath('test-results', 'a-pass', 'trace.zip');
+  const trace = await parseTrace(tracePath);
+  expect(trace.model.renderActionTree()).toEqual([
     'Before Hooks',
-    `attach "foo"`,
+    'Attach "foo"',
     'After Hooks',
   ]);
-  expect(trace.actions[1].attachments).toEqual([{
+  expect(trace.model.actions[1].attachments).toEqual([{
     name: 'foo',
     contentType: 'text/plain',
-    sha1: expect.any(String),
+    file: expect.any(String),
   }]);
-  expect([...trace.resources.keys()].filter(f => f.startsWith('resources/'))).toHaveLength(1);
+  const { resources } = await parseTraceRaw(tracePath);
+  expect([...resources.keys()]).toContain(trace.model.actions[1].attachments[0].file);
 });
 
 test('should opt out of attachments', async ({ runInlineTest, server }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: { mode: 'on', attachments: false } } };
+      export default { use: { trace: { mode: 'on', attachments: false } } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -559,14 +640,16 @@ test('should opt out of attachments', async ({ runInlineTest, server }, testInfo
 
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
-  const trace = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
-  expect(trace.apiNames).toEqual([
+  const tracePath = testInfo.outputPath('test-results', 'a-pass', 'trace.zip');
+  const trace = await parseTrace(tracePath);
+  expect(trace.model.renderActionTree()).toEqual([
     'Before Hooks',
-    `attach "foo"`,
+    `Attach "foo"`,
     'After Hooks',
   ]);
-  expect(trace.actions[1].attachments).toEqual(undefined);
-  expect([...trace.resources.keys()].filter(f => f.startsWith('resources/'))).toHaveLength(0);
+  expect(trace.model.actions[1].attachments).toEqual(undefined);
+  const { resources } = await parseTraceRaw(tracePath);
+  expect([...resources.keys()].filter(f => f.startsWith('attachments/') || f.startsWith('resources/'))).toHaveLength(0);
 });
 
 test('should record with custom page fixture', async ({ runInlineTest }, testInfo) => {
@@ -601,7 +684,7 @@ test('should record with custom page fixture', async ({ runInlineTest }, testInf
 test('should expand expect.toPass', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: { mode: 'on' } } };
+      export default { use: { trace: { mode: 'on' } } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -618,31 +701,32 @@ test('should expand expect.toPass', async ({ runInlineTest }, testInfo) => {
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
   const trace = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
-  expect(trace.actionTree).toEqual([
+  expect(trace.model.renderActionTree()).toEqual([
     'Before Hooks',
-    '  fixture: browser',
-    '    browserType.launch',
-    '  fixture: context',
-    '    browser.newContext',
-    '  fixture: page',
-    '    browserContext.newPage',
-    'expect.toPass',
-    '  page.goto',
-    '  expect.toBe',
-    '  page.goto',
-    '  expect.toBe',
-    '  page.goto',
-    '  expect.toBe',
+    '  Fixture "browser"',
+    '    Launch browser',
+    '  Fixture "context"',
+    '    Create context',
+    '  Fixture "page"',
+    '    Create page',
+    'Expect "toPass"',
+    '  Navigate data:',
+    '  Expect "toBe"',
+    '  Navigate data:',
+    '  Expect "toBe"',
+    '  Navigate data:',
+    '  Expect "toBe"',
     'After Hooks',
-    '  fixture: page',
-    '  fixture: context',
+    '  Fixture "page"',
+    '  Fixture "context"',
+    '    Close context',
   ]);
 });
 
 test('should show non-expect error in trace', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: { mode: 'on' } } };
+      export default { use: { trace: { mode: 'on' } } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -657,28 +741,30 @@ test('should show non-expect error in trace', async ({ runInlineTest }, testInfo
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
   const trace = await parseTrace(testInfo.outputPath('test-results', 'a-fail', 'trace.zip'));
-  expect(trace.actionTree).toEqual([
+  expect(trace.model.renderActionTree()).toEqual([
     'Before Hooks',
-    '  fixture: browser',
-    '    browserType.launch',
-    '  fixture: context',
-    '    browser.newContext',
-    '  fixture: page',
-    '    browserContext.newPage',
-    'expect.toBe',
+    '  Fixture "browser"',
+    '    Launch browser',
+    '  Fixture "context"',
+    '    Create context',
+    '  Fixture "page"',
+    '    Create page',
+    'Expect "toBe"',
     'After Hooks',
-    '  fixture: page',
-    '  fixture: context',
+    '  Fixture "page"',
+    '  Fixture "context"',
+    '    Close context',
+    'Attach "error-context"',
     'Worker Cleanup',
-    '  fixture: browser',
+    '  Fixture "browser"',
   ]);
-  expect(trace.errors).toEqual(['ReferenceError: undefinedVariable1 is not defined']);
+  expect(trace.model.errors.map(e => e.message)).toEqual(['ReferenceError: undefinedVariable1 is not defined']);
 });
 
 test('should show error from beforeAll in trace', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: { mode: 'on' } } };
+      export default { use: { trace: { mode: 'on' } } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -693,7 +779,7 @@ test('should show error from beforeAll in trace', async ({ runInlineTest }, test
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
   const trace = await parseTrace(testInfo.outputPath('test-results', 'a-fail', 'trace.zip'));
-  expect(trace.errors).toEqual(['Error: Oh my!']);
+  expect(trace.model.errors.map(e => e.message)).toEqual(['Error: Oh my!']);
 });
 
 test('should throw when trace fixture is a function', async ({ runInlineTest }, testInfo) => {
@@ -718,7 +804,7 @@ test('should throw when trace fixture is a function', async ({ runInlineTest }, 
 test('should not throw when attachment is missing', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'on' } };
+      export default { use: { trace: 'on' } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -731,39 +817,45 @@ test('should not throw when attachment is missing', async ({ runInlineTest }, te
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
   const trace = await parseTrace(testInfo.outputPath('test-results', 'a-passes', 'trace.zip'));
-  expect(trace.actionTree).toContain('attach "screenshot"');
+  expect(trace.model.renderActionTree()).toContain('Attach "screenshot"');
 });
 
 test('should not throw when screenshot on failure fails', async ({ runInlineTest, server }, testInfo) => {
+  server.setRoute('/download', (req, res) => {
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename=file.txt');
+    res.end(`Hello world`);
+  });
+
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'on', screenshot: 'on' } };
+      export default { use: { trace: 'on', screenshot: 'on' } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
-      test('has pdf page', async ({ page }) => {
+      test('has download page', async ({ page }) => {
         await page.goto("${server.EMPTY_PAGE}");
-        await page.setContent('<a href="/empty.pdf" target="blank">open me!</a>');
+        await page.setContent('<a href="/download" target="blank">open me!</a>');
         const downloadPromise = page.waitForEvent('download');
         await page.click('a');
         const download = await downloadPromise;
-        expect(download.suggestedFilename()).toBe('empty.pdf');
+        expect(download.suggestedFilename()).toBe('file.txt');
       });
     `,
   }, { workers: 1 });
 
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
-  const trace = await parseTrace(testInfo.outputPath('test-results', 'a-has-pdf-page', 'trace.zip'));
-  const attachedScreenshots = trace.actionTree.filter(s => s.trim() === `attach "screenshot"`);
-  // One screenshot for the page, no screenshot for pdf page since it should have failed.
+  const trace = await parseTrace(testInfo.outputPath('test-results', 'a-has-download-page', 'trace.zip'));
+  const attachedScreenshots = trace.model.actions.filter(a => a.attachments).flatMap(a => a.attachments);
+  // One screenshot for the page, no screenshot for the download page since it should have failed.
   expect(attachedScreenshots.length).toBe(1);
 });
 
 test('should use custom expect message in trace', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: { mode: 'on' } } };
+      export default { use: { trace: { mode: 'on' } } };
     `,
     'a.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -779,27 +871,28 @@ test('should use custom expect message in trace', async ({ runInlineTest }, test
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
   const trace = await parseTrace(testInfo.outputPath('test-results', 'a-fail', 'trace.zip'));
-  expect(trace.actionTree).toEqual([
+  expect(trace.model.renderActionTree()).toEqual([
     'Before Hooks',
-    '  fixture: browser',
-    '    browserType.launch',
-    '  fixture: context',
-    '    browser.newContext',
-    '  fixture: page',
-    '    browserContext.newPage',
-    'expect to have text: find a hotel',
+    '  Fixture "browser"',
+    '    Launch browser',
+    '  Fixture "context"',
+    '    Create context',
+    '  Fixture "page"',
+    '    Create page',
+    `expect to have text: find a hotel getByRole('button', { name: 'Find a hotel' })`,
     'After Hooks',
-    '  fixture: page',
-    '  fixture: context',
+    '  Fixture "page"',
+    '  Fixture "context"',
+    '    Close context',
   ]);
 });
 
-test('should not throw when merging traces multiple times', async ({ runInlineTest }, testInfo) => {
+test('should not throw when merging traces multiple times', async ({ runInlineTest, server }, testInfo) => {
   test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27286' });
 
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { use: { trace: 'on' } };
+      export default { use: { trace: 'on' } };
     `,
     'a.spec.ts': `
       import { BrowserContext, expect, Page, test as baseTest } from '@playwright/test';
@@ -822,7 +915,7 @@ test('should not throw when merging traces multiple times', async ({ runInlineTe
       });
 
       test.beforeAll(async ({ page }) => {
-        await page.goto('https://playwright.dev');
+        await page.goto(${JSON.stringify(server.PREFIX + '/frames/nested-frames.html')});
       });
 
       test.afterAll(async ({ context }) => {
@@ -830,7 +923,7 @@ test('should not throw when merging traces multiple times', async ({ runInlineTe
       });
 
       test('foo', async ({ page }) => {
-        await expect(page.locator('h1')).toContainText('Playwright');
+        await expect(page.frameLocator('iframe').nth(1).locator('div')).toHaveText("Hi, I'm frame");
       });
     `,
   }, { workers: 1 });
@@ -843,7 +936,7 @@ test('should not throw when merging traces multiple times', async ({ runInlineTe
 test('should record nested steps, even after timeout', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         use: { trace: { mode: 'on' } },
         timeout: 5000,
       };
@@ -929,74 +1022,119 @@ test('should record nested steps, even after timeout', async ({ runInlineTest },
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
   const trace = await parseTrace(testInfo.outputPath('test-results', 'a-example', 'trace.zip'));
-  expect(trace.actionTree).toEqual([
+  expect(trace.model.renderActionTree()).toEqual([
     'Before Hooks',
     '  beforeAll hook',
-    '    fixture: browser',
-    '      browserType.launch',
-    '    fixture: barPage',
+    '    Fixture "browser"',
+    '      Launch browser',
+    '    Fixture "barPage"',
     '      barPage setup',
-    '      browser.newPage',
+    '      Create page',
     '      step in barPage setup',
-    '        page.setContent',
+    '        Set content',
     '    beforeAll start',
-    '    page.setContent',
+    '    Set content',
     '    step in beforeAll',
-    '      page.setContent',
-    '    fixture: barPage',
+    '      Set content',
+    '    Fixture "barPage"',
     '      barPage teardown',
     '      step in barPage teardown',
-    '        page.close',
+    '        Close context',
     '  beforeEach hook',
-    '    fixture: context',
-    '      browser.newContext',
-    '    fixture: page',
-    '      browserContext.newPage',
-    '    fixture: fooPage',
+    '    Fixture "context"',
+    '      Create context',
+    '    Fixture "page"',
+    '      Create page',
+    '    Fixture "fooPage"',
     '      fooPage setup',
-    '      page.setContent',
+    '      Set content',
     '      step in fooPage setup',
-    '        page.setContent',
+    '        Set content',
     '    beforeEach start',
-    '    page.setContent',
+    '    Set content',
     '    step in beforeEach',
-    '      page.setContent',
+    '      Set content',
     'After Hooks',
     '  afterEach hook',
     '    afterEach start',
-    '    page.setContent',
+    '    Set content',
     '    step in afterEach',
-    '      page.setContent',
-    '  fixture: fooPage',
+    '      Set content',
+    '  Fixture "fooPage"',
     '    fooPage teardown',
-    '    page.setContent',
+    '    Set content',
     '    step in fooPage teardown',
-    '      page.setContent',
-    '  fixture: page',
-    '  fixture: context',
+    '      Set content',
+    '  Fixture "page"',
+    '  Fixture "context"',
+    '    Close context',
     '  afterAll hook',
-    '    fixture: barPage',
+    '    Fixture "barPage"',
     '      barPage setup',
-    '      browser.newPage',
+    '      Create page',
     '      step in barPage setup',
-    '        page.setContent',
+    '        Set content',
     '    afterAll start',
-    '    page.setContent',
+    '    Set content',
     '    step in afterAll',
-    '      page.setContent',
-    '    fixture: barPage',
+    '      Set content',
+    '    Fixture "barPage"',
     '      barPage teardown',
     '      step in barPage teardown',
-    '        page.close',
+    '        Close context',
+    'Attach "error-context"',
+    'Attach "error-context"',
     'Worker Cleanup',
-    '  fixture: browser',
+    '  Fixture "browser"',
+  ]);
+});
+
+test('should not produce an action entry for calling a binding', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      export default { use: { trace: 'on' } };
+    `,
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('passes', async ({ page }) => {
+          let wasCalled = false;
+          await page.exposeBinding('customBinding', () => {
+            wasCalled = true;
+            return 'foo';
+          });
+
+          const output = await page.evaluate(() => window['customBinding']());
+          expect(wasCalled).toBe(true);
+          expect(output).toBe('foo');
+      });
+    `,
+  }, { workers: 1 });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  const trace = await parseTrace(testInfo.outputPath('test-results', 'a-passes', 'trace.zip'));
+  expect(trace.model.renderActionTree()).toEqual([
+    'Before Hooks',
+    '  Fixture "browser"',
+    '    Launch browser',
+    '  Fixture "context"',
+    '    Create context',
+    '  Fixture "page"',
+    '    Create page',
+    'Evaluate',
+    'Expect "toBe"',
+    'Expect "toBe"',
+    'After Hooks',
+    '  Fixture "page"',
+    '  Fixture "context"',
+    '    Close context',
   ]);
 });
 
 test('should attribute worker fixture teardown to the right test', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         use: { trace: { mode: 'on' } },
       };
     `,
@@ -1023,18 +1161,19 @@ test('should attribute worker fixture teardown to the right test', async ({ runI
   expect(result.passed).toBe(1);
   expect(result.failed).toBe(1);
   const trace1 = await parseTrace(testInfo.outputPath('test-results', 'a-one', 'trace.zip'));
-  expect(trace1.actionTree).toEqual([
+  expect(trace1.model.renderActionTree()).toEqual([
     'Before Hooks',
-    '  fixture: foo',
+    '  Fixture "foo"',
     '    step in foo setup',
     'After Hooks',
   ]);
   const trace2 = await parseTrace(testInfo.outputPath('test-results', 'a-two', 'trace.zip'));
-  expect(trace2.actionTree).toEqual([
+  expect(trace2.model.renderActionTree()).toEqual([
     'Before Hooks',
     'After Hooks',
+    'Attach "error-context"',
     'Worker Cleanup',
-    '  fixture: foo',
+    '  Fixture "foo"',
     '    step in foo teardown',
   ]);
 });
@@ -1056,7 +1195,7 @@ test('trace:retain-on-first-failure should create trace but only on first failur
 
   const tracePath = test.info().outputPath('test-results', 'a-fail', 'trace.zip');
   const trace = await parseTrace(tracePath);
-  expect(trace.apiNames).toContain('page.goto');
+  expect(trace.model.renderActionTree()).toContain('Navigate about:blank');
   expect(result.failed).toBe(1);
 });
 
@@ -1073,7 +1212,7 @@ test('trace:retain-on-first-failure should create trace if context is closed bef
   }, { trace: 'retain-on-first-failure' });
   const tracePath = test.info().outputPath('test-results', 'a-fail', 'trace.zip');
   const trace = await parseTrace(tracePath);
-  expect(trace.apiNames).toContain('page.goto');
+  expect(trace.model.renderActionTree()).toContain('Navigate about:blank');
   expect(result.failed).toBe(1);
 });
 
@@ -1092,7 +1231,7 @@ test('trace:retain-on-first-failure should create trace if context is closed bef
   }, { trace: 'retain-on-first-failure' });
   const tracePath = test.info().outputPath('test-results', 'a-fail', 'trace.zip');
   const trace = await parseTrace(tracePath);
-  expect(trace.apiNames).toContain('page.goto');
+  expect(trace.model.renderActionTree()).toContain('    Navigate about:blank');
   expect(result.failed).toBe(1);
 });
 
@@ -1109,6 +1248,362 @@ test('trace:retain-on-first-failure should create trace if request context is di
   }, { trace: 'retain-on-first-failure' });
   const tracePath = test.info().outputPath('test-results', 'a-fail', 'trace.zip');
   const trace = await parseTrace(tracePath);
-  expect(trace.apiNames).toContain('apiRequestContext.get');
+  expect(trace.model.renderActionTree()).toContain(`GET ${server.HOST}/empty.html`);
   expect(result.failed).toBe(1);
+});
+
+test('trace:retain-on-failure-and-retries should keep all traces when test is flaky', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('flaky', async ({ page }) => {
+        await page.goto('about:blank');
+        expect(test.info().retry).toBe(1);
+      });
+    `,
+  }, { trace: 'retain-on-failure-and-retries', retries: 1 });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.flaky).toBe(1);
+
+  const firstRunTracePath = testInfo.outputPath('test-results', 'a-flaky', 'trace.zip');
+  expect(fs.existsSync(firstRunTracePath)).toBeTruthy();
+  const retryTracePath = testInfo.outputPath('test-results', 'a-flaky-retry1', 'trace.zip');
+  expect(fs.existsSync(retryTracePath)).toBeTruthy();
+});
+
+test('trace:retain-on-failure-and-retries should keep all traces when test fails on retries', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('fail', async ({ page }) => {
+        await page.goto('about:blank');
+        expect(true).toBe(false);
+      });
+    `,
+  }, { trace: 'retain-on-failure-and-retries', retries: 1 });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(1);
+
+  const firstRunTracePath = testInfo.outputPath('test-results', 'a-fail', 'trace.zip');
+  expect(fs.existsSync(firstRunTracePath)).toBeTruthy();
+  const retryTracePath = testInfo.outputPath('test-results', 'a-fail-retry1', 'trace.zip');
+  expect(fs.existsSync(retryTracePath)).toBeTruthy();
+});
+
+test('should not corrupt actions when no library trace is present', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
+        foo: async ({}, use) => {
+          expect(1).toBe(1);
+          await use();
+          expect(2).toBe(2);
+        },
+      });
+      test('fail', async ({ foo }) => {
+        expect(1).toBe(2);
+      });
+    `,
+  }, { trace: 'on' });
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(1);
+
+  const tracePath = test.info().outputPath('test-results', 'a-fail', 'trace.zip');
+  const trace = await parseTrace(tracePath);
+  expect(trace.model.renderActionTree()).toEqual([
+    'Before Hooks',
+    '  Fixture "foo"',
+    '    Expect "toBe"',
+    'Expect "toBe"',
+    'After Hooks',
+    '  Fixture "foo"',
+    '    Expect "toBe"',
+    'Attach "error-context"',
+    'Worker Cleanup',
+  ]);
+});
+
+test('should record trace for manually created context in a failed test', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/31541' });
+
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('fail', async ({ browser }) => {
+        const page = await browser.newPage();
+        await page.setContent('<script>console.log("from the page");</script>');
+        expect(1).toBe(2);
+      });
+    `,
+  }, { trace: 'on' });
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(1);
+
+  const tracePath = test.info().outputPath('test-results', 'a-fail', 'trace.zip');
+  const trace = await parseTrace(tracePath);
+  expect(trace.model.renderActionTree()).toEqual([
+    'Before Hooks',
+    '  Fixture "browser"',
+    '    Launch browser',
+    'Create page',
+    'Set content',
+    'Expect "toBe"',
+    'After Hooks',
+    'Attach "error-context"',
+    'Worker Cleanup',
+    '  Fixture "browser"',
+  ]);
+  // Check console events to make sure that library trace is recorded.
+  expect(trace.model.events).toContainEqual(expect.objectContaining({ type: 'console', text: 'from the page' }));
+});
+
+test('should not nest top level expect into unfinished api calls ', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/31959' }
+}, async ({ runInlineTest, server }) => {
+  server.setRoute('/index', (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`<script>fetch('/api')</script><div>Hello!</div>`);
+  });
+  server.setRoute('/hang', () => {});
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({ page }) => {
+        await page.route('**/api', async route => {
+          const response = await route.fetch({ url: '${server.PREFIX}/hang' });
+          await route.fulfill({ response });
+        });
+        await page.goto('${server.PREFIX}/index');
+        await expect(page.getByText('Hello!')).toBeVisible();
+        await page.unrouteAll({ behavior: 'ignoreErrors' });
+      });
+    `,
+  }, { trace: 'on' });
+  expect(result.exitCode).toBe(0);
+  expect(result.failed).toBe(0);
+
+  const tracePath = test.info().outputPath('test-results', 'a-pass', 'trace.zip');
+  const trace = await parseTrace(tracePath);
+  expect(trace.model.renderActionTree()).toEqual([
+    'Before Hooks',
+    '  Fixture "browser"',
+    '    Launch browser',
+    '  Fixture "context"',
+    '    Create context',
+    '  Fixture "page"',
+    '    Create page',
+    `Navigate ${server.HOST}/index`,
+    `GET ${server.HOST}/hang`,
+    `Expect "toBeVisible" getByText('Hello!')`,
+    'After Hooks',
+    '  Fixture "page"',
+    '  Fixture "context"',
+    '    Close context',
+  ]);
+});
+
+test('should record trace after fixture teardown timeout', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30718' },
+}, async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
+        fixture: async ({}, use) => {
+          await use('foo');
+          await new Promise(() => {});
+        },
+      });
+      // Note: it is important that "fixture" is last, so that it runs the teardown first.
+      test('fails', async ({ page, fixture }) => {
+        await page.evaluate(() => console.log('from the page'));
+      });
+    `,
+  }, { trace: 'on', timeout: '3000' }, { DEBUG: 'pw:test' });
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(1);
+
+  const tracePath = test.info().outputPath('test-results', 'a-fails', 'trace.zip');
+  const trace = await parseTrace(tracePath);
+  expect(trace.model.renderActionTree()).toEqual([
+    'Before Hooks',
+    '  Fixture "browser"',
+    '    Launch browser',
+    '  Fixture "context"',
+    '    Create context',
+    '  Fixture "page"',
+    '    Create page',
+    '  Fixture "fixture"',
+    'Evaluate',
+    'After Hooks',
+    '  Fixture "fixture"',
+    'Attach "error-context"',
+    'Worker Cleanup',
+    '  Fixture "browser"',
+  ]);
+  // Check console events to make sure that library trace is recorded.
+  expect(trace.model.events).toContainEqual(expect.objectContaining({ type: 'console', text: 'from the page' }));
+});
+
+test('should record trace snapshot for more obscure commands', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('test 1', async ({ browser }) => {
+        const page = await browser.newPage();
+        await page.setContent('<div>Content</div>');
+        expect(await page.locator('div').count()).toBe(1);
+        await page.locator('div').boundingBox();
+      });
+    `,
+  }, { trace: 'on' });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+
+  const tracePath = test.info().outputPath('test-results', 'a-test-1', 'trace.zip');
+  const trace = await parseTrace(tracePath);
+  expect(trace.model.renderActionTree()).toEqual([
+    'Before Hooks',
+    '  Fixture "browser"',
+    '    Launch browser',
+    'Create page',
+    'Set content',
+    `Query count locator('div')`,
+    'Expect "toBe"',
+    `Bounding box locator('div')`,
+    'After Hooks',
+  ]);
+
+  const countAction = trace.model.actions.find(a => a.method === 'queryCount');
+  expect(trace.snapshots.snapshotForCall(countAction.callId, 'before')).toBeTruthy();
+  expect(trace.snapshots.snapshotForCall(countAction.callId, 'after')).toBeTruthy();
+
+  const boundingBoxAction = trace.model.actions.find(a => a.title === 'Bounding box');
+  expect(trace.snapshots.snapshotForCall(boundingBoxAction.callId, 'before')).toBeTruthy();
+  expect(trace.snapshots.snapshotForCall(boundingBoxAction.callId, 'after')).toBeTruthy();
+});
+
+test('should record default test timeout in trace', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({}) => {
+      });
+    `,
+  }, { trace: 'on' });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  const trace = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
+  expect(trace.model.testTimeout).toBe(30_000);
+});
+
+test('should record custom test timeout in trace', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({}) => {
+        test.setTimeout(120_000);
+      });
+    `,
+  }, { trace: 'on' });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  const trace = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
+  expect(trace.model.testTimeout).toBe(120_000);
+});
+
+test('should record test annotations in trace', async ({ runInlineTest }, testInfo) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/42035' });
+
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', {
+        annotation: { type: 'note1', description: 'static annotation' },
+      }, async ({}) => {
+        test.info().annotations.push({ type: 'note2', description: 'dynamic annotation' });
+        test.info().annotations.push({ type: 'note3' });
+      });
+    `,
+  }, { trace: 'on' });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  const trace = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
+  expect(trace.model.annotations).toEqual([
+    { type: 'note1', description: 'static annotation' },
+    { type: 'note2', description: 'dynamic annotation' },
+    { type: 'note3' },
+  ]);
+});
+
+test('should record step params in trace', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({}) => {
+        expect(1).toBe(1);
+        await test.step('my step', async () => {}, { params: { foo: 'bar' } });
+      });
+    `,
+  }, { trace: 'on' });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  const trace = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
+  const actionByTitle = (title: string) => trace.model.actions.find(a => a.title === title)!;
+  expect(actionByTitle('my step').params).toEqual({ foo: 'bar' });
+  expect(actionByTitle('Expect "toBe"').params).toEqual({ expected: '1' });
+});
+
+test('should record step stack in trace', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      async function helper(page) {
+        await test.step('my step', async () => {
+          await page.setContent('<title>hello</title>');
+          await expect(page).toHaveTitle('hello');
+        });
+      }
+      test('pass', async ({ page }) => {
+        await helper(page);
+      });
+    `,
+  }, { trace: 'on' });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  const trace = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
+  const stacks = trace.model.actions.filter(a => a.stack?.length).map(a => a.stack!.map(f => `${path.basename(f.file)}:${f.line}:${f.column}`));
+  expect(stacks).toEqual([
+    // test.step
+    ['a.spec.ts:4:9', 'a.spec.ts:10:9'],
+    // page.setContent
+    ['a.spec.ts:5:22', 'a.spec.ts:4:9', 'a.spec.ts:10:9'],
+    // expect
+    ['a.spec.ts:6:30', 'a.spec.ts:4:9', 'a.spec.ts:10:9'],
+  ]);
+});
+
+test('should record step subtitle in trace', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({}) => {
+        await test.step('my step', async () => {}, { subtitle: 'my subtitle' });
+      });
+    `,
+  }, { trace: 'on' });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  const trace = await parseTrace(testInfo.outputPath('test-results', 'a-pass', 'trace.zip'));
+  expect(trace.model.actions.find(a => a.title === 'my step')!.subtitle).toBe('my subtitle');
 });

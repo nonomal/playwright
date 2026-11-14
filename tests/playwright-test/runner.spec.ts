@@ -62,7 +62,7 @@ test('it should not allow multiple tests with the same name in multiple files', 
 test('it should not allow a focused test when forbid-only is used', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         forbidOnly: true,
       };
     `,
@@ -115,45 +115,6 @@ test('should report subprocess creation error', async ({ runInlineTest }, testIn
   expect(result.output).toContain('Error: worker process exited unexpectedly (code=42, signal=null)');
 });
 
-test('should ignore subprocess creation error because of SIGINT', async ({ interactWithTestRunner }, testInfo) => {
-  test.skip(process.platform === 'win32', 'No sending SIGINT on Windows');
-
-  const readyFile = testInfo.outputPath('ready.txt');
-  const testProcess = await interactWithTestRunner({
-    'hang.js': `
-      require('fs').writeFileSync(${JSON.stringify(readyFile)}, 'ready');
-      setInterval(() => {}, 1000);
-    `,
-    'preload.js': `
-      require('child_process').spawnSync(
-        process.argv[0],
-        [require('path').resolve('./hang.js')],
-        { env: { ...process.env, NODE_OPTIONS: '' } },
-      );
-    `,
-    'a.spec.js': `
-      import { test, expect } from '@playwright/test';
-      test('fails', () => {});
-      test('skipped', () => {});
-      // Infect subprocesses to immediately hang when spawning a worker.
-      process.env.NODE_OPTIONS = '--require ${JSON.stringify(testInfo.outputPath('preload.js'))}';
-    `
-  });
-
-  while (!fs.existsSync(readyFile))
-    await new Promise(f => setTimeout(f, 100));
-  process.kill(-testProcess.process.pid!, 'SIGINT');
-
-  const { exitCode } = await testProcess.exited;
-  expect(exitCode).toBe(130);
-
-  const result = parseTestRunnerOutput(testProcess.output);
-  expect(result.passed).toBe(0);
-  expect(result.failed).toBe(0);
-  expect(result.didNotRun).toBe(2);
-  expect(result.output).not.toContain('worker process exited unexpectedly');
-});
-
 test('sigint should stop workers', async ({ interactWithTestRunner }) => {
   test.skip(process.platform === 'win32', 'No sending SIGINT on Windows');
 
@@ -179,7 +140,7 @@ test('sigint should stop workers', async ({ interactWithTestRunner }) => {
       });
     `,
   }, { 'workers': 2, 'reporter': 'line,json' }, {
-    PW_TEST_REPORTER: path.join(__dirname, '../../packages/playwright/lib/reporters/json.js'),
+    PW_TEST_REPORTER: 'json',
     PLAYWRIGHT_JSON_OUTPUT_NAME: 'report.json',
   });
   await testProcess.waitForOutput('%%SEND-SIGINT%%', 2);
@@ -379,7 +340,7 @@ test('should teardown workers that are redundant', async ({ runInlineTest }) => 
 test('should not hang if test suites in worker are inconsistent with runner', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { name: 'project-name' };
+      export default { name: 'project-name' };
     `,
     'names.js': `
     exports.getNames = () => {
@@ -407,25 +368,54 @@ test('should not hang if test suites in worker are inconsistent with runner', as
   expect(countTimes(result.output, expectedError)).toBe(2);  // Once per each test that was missing.
 });
 
+test('should throw in serial mode if test suites in worker are inconsistent with runner', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      export default { name: 'project-name' };
+    `,
+    'a.spec.js': `
+      import { test, expect } from "@playwright/test";
+
+      test.describe.configure({ mode: "serial" });
+
+      const inWorker = process.env.TEST_WORKER_INDEX !== undefined;
+
+      test("first test", async () => {});
+
+      test("second test", async () => {
+        expect(false).toBeTruthy();
+      });
+
+      test("test - " + inWorker, async () => {});
+    `,
+  }, { 'workers': 1 }, { TEST_WORKER_INDEX: undefined });
+  expect.soft(result.exitCode).toBe(1);
+  expect.soft(result.passed).toBe(0);
+  expect.soft(result.failed).toBe(1);
+  expect.soft(result.skipped).toBe(0);
+  const expectedError = 'Test not found in the worker process. Make sure test title does not change.';
+  expect.soft(result.output).toContain(expectedError);
+});
+
 test('sigint should stop global setup', async ({ interactWithTestRunner }) => {
   test.skip(process.platform === 'win32', 'No sending SIGINT on Windows');
 
   const testProcess = await interactWithTestRunner({
     'playwright.config.ts': `
-      module.exports = {
+      export default {
         globalSetup: './globalSetup',
         globalTeardown: './globalTeardown.ts',
       };
     `,
     'globalSetup.ts': `
-      module.exports = () => {
+      export default () => {
         console.log('Global setup');
         console.log('%%SEND-SIGINT%%');
         return new Promise(f => setTimeout(f, 30000));
       };
     `,
     'globalTeardown.ts': `
-      module.exports = () => {
+      export default () => {
         console.log('Global teardown');
       };
     `,
@@ -442,7 +432,7 @@ test('sigint should stop global setup', async ({ interactWithTestRunner }) => {
   const result = parseTestRunnerOutput(testProcess.output);
   expect(result.passed).toBe(0);
   expect(result.output).toContain('Global setup');
-  expect(result.output).not.toContain('Global teardown');
+  expect(result.output).toContain('Global teardown');
 });
 
 test('sigint should stop plugins', async ({ interactWithTestRunner }) => {
@@ -470,7 +460,7 @@ test('sigint should stop plugins', async ({ interactWithTestRunner }) => {
           console.log('Plugin2 teardown');
         }
       }));
-      module.exports = {
+      export default {
         '@playwright/test': { plugins }
       };
     `,
@@ -520,7 +510,7 @@ test('sigint should stop plugins 2', async ({ interactWithTestRunner }) => {
           console.log('Plugin2 teardown');
         }
       }));
-      module.exports = { '@playwright/test': { plugins } };
+      export default { '@playwright/test': { plugins } };
     `,
     'a.spec.js': `
       import { test, expect } from '@playwright/test';
@@ -751,9 +741,16 @@ test('slow double SIGINT should be respected in reporter.onExit', async ({ inter
 });
 
 test('unhandled exception in test.fail should restart worker and continue', async ({ runInlineTest }) => {
-  const result = await runInlineTest({
+  const files = {
     'a.spec.ts': `
-      import { test, expect } from '@playwright/test';
+      import { test as baseTest, expect } from '@playwright/test';
+
+      const test = baseTest.extend({
+        worker: [async ({}, use, info) => {
+          await use();
+          console.log('\\n%%worker teardown=' + info.workerIndex);
+        }, { scope: 'worker', auto: true }],
+      });
 
       test('bad', async () => {
         test.fail();
@@ -767,12 +764,20 @@ test('unhandled exception in test.fail should restart worker and continue', asyn
       test('good', () => {
         console.log('\\n%%good running worker=' + test.info().workerIndex);
       });
-    `
-  }, { retries: 1, reporter: 'list' });
-  expect(result.exitCode).toBe(0);
-  expect(result.passed).toBe(2);
-  expect(result.failed).toBe(0);
-  expect(result.outputLines).toEqual(['bad running worker=0', 'good running worker=1']);
+    `,
+  };
+  for (const parallel of [true, false]) {
+    await test.step(`parallel=${parallel}`, async () => {
+      const options = { retries: 1, reporter: 'list', workers: 1 };
+      if (parallel)
+        options['fully-parallel'] = true;
+      const result = await runInlineTest(files, options);
+      expect(result.exitCode).toBe(0);
+      expect(result.passed).toBe(2);
+      expect(result.failed).toBe(0);
+      expect(result.outputLines).toEqual(['bad running worker=0', 'worker teardown=0', 'good running worker=1', 'worker teardown=1']);
+    });
+  }
 });
 
 test('wait for workers to finish before reporter.onEnd', async ({ runInlineTest }) => {
@@ -840,4 +845,180 @@ test('should run last failed tests', async ({ runInlineTest }) => {
   expect(result2.exitCode).toBe(1);
   expect(result2.passed).toBe(0);
   expect(result2.failed).toBe(1);
+});
+
+test('should run nothing with --last-failed when previous run had no failures', async ({ runInlineTest }) => {
+  const workspace = {
+    'a.spec.js': `
+      import { test, expect } from '@playwright/test';
+      test('a', async () => {});
+      test('b', async () => {});
+    `
+  };
+  const result1 = await runInlineTest(workspace);
+  expect(result1.exitCode).toBe(0);
+  expect(result1.passed).toBe(2);
+
+  const result2 = await runInlineTest(workspace, {}, {}, { additionalArgs: ['--last-failed', '--pass-with-no-tests'] });
+  expect(result2.exitCode).toBe(0);
+  expect(result2.passed).toBe(0);
+  expect(result2.failed).toBe(0);
+  expect(result2.didNotRun).toBe(0);
+});
+
+test('should run last failed tests that did not run because a beforeAll hook failed', async ({ runInlineTest }) => {
+  const workspace = {
+    'a.spec.js': `
+      import fs from 'fs';
+      import { test, expect } from '@playwright/test';
+      test.beforeAll(() => {
+        if (!fs.existsSync('marker.txt')) {
+          fs.writeFileSync('marker.txt', '');
+          throw new Error('from beforeAll');
+        }
+      });
+      test('one', () => {});
+      test('two', () => {});
+    `
+  };
+  const result1 = await runInlineTest(workspace);
+  expect(result1.exitCode).toBe(1);
+  expect(result1.failed).toBe(1);
+  expect(result1.didNotRun).toBe(1);
+
+  const result2 = await runInlineTest(workspace, {}, {}, { additionalArgs: ['--last-failed'] });
+  expect(result2.exitCode).toBe(0);
+  expect(result2.passed).toBe(2);
+  expect(result2.didNotRun).toBe(0);
+});
+
+test('should not run intentionally skipped tests with --last-failed', async ({ runInlineTest }) => {
+  const workspace = {
+    'a.spec.js': `
+      import { test, expect } from '@playwright/test';
+      test('fail', () => {
+        expect(1).toBe(2);
+      });
+      test('skipped', () => {
+        test.skip();
+      });
+    `
+  };
+  const result1 = await runInlineTest(workspace);
+  expect(result1.exitCode).toBe(1);
+  expect(result1.failed).toBe(1);
+  expect(result1.skipped).toBe(1);
+
+  const result2 = await runInlineTest(workspace, {}, {}, { additionalArgs: ['--last-failed'] });
+  expect(result2.exitCode).toBe(1);
+  expect(result2.failed).toBe(1);
+  expect(result2.skipped).toBe(0);
+});
+
+test('should run last failed tests in a shard', async ({ runInlineTest }) => {
+  const workspace = {
+    'a.spec.js': `
+      import { test, expect } from '@playwright/test';
+      test('pass-a', async () => {});
+      test('fail-a', async () => {
+        expect(1).toBe(2);
+      });
+    `,
+    'b.spec.js': `
+      import { test, expect } from '@playwright/test';
+      test('pass-b', async () => {});
+      test('fail-b', async () => {
+        expect(1).toBe(2);
+      });
+    `,
+  };
+  const result1 = await runInlineTest(workspace, { shard: '2/2' });
+  expect(result1.exitCode).toBe(1);
+  expect(result1.passed).toBe(1);
+  expect(result1.failed).toBe(1);
+  expect(result1.output).toContain('b.spec.js:3:7 › pass-b');
+  expect(result1.output).toContain('b.spec.js:4:7 › fail-b');
+
+  const result2 = await runInlineTest(workspace, { shard: '2/2' }, {}, { additionalArgs: ['--last-failed'] });
+  expect(result2.exitCode).toBe(1);
+  expect(result2.passed).toBe(0);
+  expect(result2.failed).toBe(1);
+  expect(result2.output).not.toContain('b.spec.js:3:7 › pass-b');
+  expect(result2.output).toContain('b.spec.js:4:7 › fail-b');
+});
+
+test('should run last failed tests in a shard with PLAYWRIGHT_LAST_RUN_OUTPUT_FILE', async ({ runInlineTest }, testInfo) => {
+  const customRel = '.cache/shard-2-last-run.json';
+  const customAbs = path.join(testInfo.outputPath(), customRel);
+  const defaultLastRun = path.join(testInfo.outputPath(), 'test-results', '.last-run.json');
+  const env = { PLAYWRIGHT_LAST_RUN_OUTPUT_FILE: customRel };
+  const workspace = {
+    'a.spec.js': `
+      import { test, expect } from '@playwright/test';
+      test('pass-a', async () => {});
+      test('fail-a', async () => {
+        expect(1).toBe(2);
+      });
+    `,
+    'b.spec.js': `
+      import { test, expect } from '@playwright/test';
+      test('pass-b', async () => {});
+      test('fail-b', async () => {
+        expect(1).toBe(2);
+      });
+    `,
+  };
+  const result1 = await runInlineTest(workspace, { shard: '2/2' }, env);
+  expect(result1.exitCode).toBe(1);
+  expect(result1.passed).toBe(1);
+  expect(result1.failed).toBe(1);
+  expect(fs.existsSync(customAbs)).toBe(true);
+  expect(fs.existsSync(defaultLastRun)).toBe(false);
+  expect(result1.output).toContain('b.spec.js:3:7 › pass-b');
+  expect(result1.output).toContain('b.spec.js:4:7 › fail-b');
+
+  const result2 = await runInlineTest(workspace, { shard: '2/2' }, env, { additionalArgs: ['--last-failed'] });
+  expect(result2.exitCode).toBe(1);
+  expect(result2.passed).toBe(0);
+  expect(result2.failed).toBe(1);
+  expect(result2.output).not.toContain('b.spec.js:3:7 › pass-b');
+  expect(result2.output).toContain('b.spec.js:4:7 › fail-b');
+});
+
+test('should run last failed tests in a shard with --last-failed-file', async ({ runInlineTest }, testInfo) => {
+  const customRel = '.cache/shard-2-cli-last-run.json';
+  const customAbs = path.join(testInfo.outputPath(), customRel);
+  const defaultLastRun = path.join(testInfo.outputPath(), 'test-results', '.last-run.json');
+  const lastRunArgs = ['--last-failed', `--last-failed-file=${customRel}`];
+  const workspace = {
+    'a.spec.js': `
+      import { test, expect } from '@playwright/test';
+      test('pass-a', async () => {});
+      test('fail-a', async () => {
+        expect(1).toBe(2);
+      });
+    `,
+    'b.spec.js': `
+      import { test, expect } from '@playwright/test';
+      test('pass-b', async () => {});
+      test('fail-b', async () => {
+        expect(1).toBe(2);
+      });
+    `,
+  };
+  const result1 = await runInlineTest(workspace, { shard: '2/2' }, {}, { additionalArgs: lastRunArgs });
+  expect(result1.exitCode).toBe(1);
+  expect(result1.passed).toBe(1);
+  expect(result1.failed).toBe(1);
+  expect(fs.existsSync(customAbs)).toBe(true);
+  expect(fs.existsSync(defaultLastRun)).toBe(false);
+  expect(result1.output).toContain('b.spec.js:3:7 › pass-b');
+  expect(result1.output).toContain('b.spec.js:4:7 › fail-b');
+
+  const result2 = await runInlineTest(workspace, { shard: '2/2' }, {}, { additionalArgs: lastRunArgs });
+  expect(result2.exitCode).toBe(1);
+  expect(result2.passed).toBe(0);
+  expect(result2.failed).toBe(1);
+  expect(result2.output).not.toContain('b.spec.js:3:7 › pass-b');
+  expect(result2.output).toContain('b.spec.js:4:7 › fail-b');
 });

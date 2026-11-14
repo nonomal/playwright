@@ -3,50 +3,49 @@
   "browsers": [
     {
       "name": "chromium",
-      "revision": "1120",
+      "revision": "1255",
       "installByDefault": true,
-      "browserVersion": "126.0.6478.17"
+      "browserVersion": "159.0.8154.6",
+      "title": "Chrome for Testing"
     },
     {
-      "name": "chromium-tip-of-tree",
-      "revision": "1226",
-      "installByDefault": false,
-      "browserVersion": "127.0.6505.0"
+      "name": "chromium-headless-shell",
+      "revision": "1255",
+      "installByDefault": true,
+      "browserVersion": "159.0.8154.6",
+      "title": "Chrome Headless Shell"
     },
     {
       "name": "firefox",
-      "revision": "1451",
+      "revision": "1578",
       "installByDefault": true,
-      "browserVersion": "126.0"
-    },
-    {
-      "name": "firefox-beta",
-      "revision": "1451",
-      "installByDefault": false,
-      "browserVersion": "127.0b3"
+      "browserVersion": "159.0",
+      "title": "Firefox"
     },
     {
       "name": "webkit",
-      "revision": "2012",
+      "revision": "2393",
       "installByDefault": true,
       "revisionOverrides": {
-        "mac10.14": "1446",
-        "mac10.15": "1616",
-        "mac11": "1816",
-        "mac11-arm64": "1816",
-        "mac12": "2009",
-        "mac12-arm64": "2009"
+        "mac14": "2251",
+        "mac14-arm64": "2251"
       },
-      "browserVersion": "17.4"
+      "browserVersion": "27.2",
+      "title": "WebKit"
     },
     {
       "name": "ffmpeg",
-      "revision": "1009",
+      "revision": "1013",
       "installByDefault": true
     },
     {
+      "name": "winldd",
+      "revision": "1007",
+      "installByDefault": false
+    },
+    {
       "name": "android",
-      "revision": "1000",
+      "revision": "1001",
       "installByDefault": false
     }
   ]

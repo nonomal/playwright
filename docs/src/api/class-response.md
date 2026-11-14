@@ -26,6 +26,11 @@ Waits for this response to finish, returns always `null`.
 * langs: js
 - returns: <[null]|[Error]>
 
+## async method: Response.finished
+* since: v1.8
+* langs: python
+- returns: <[void]>
+
 ## method: Response.frame
 * since: v1.8
 - returns: <[Frame]>
@@ -48,18 +53,20 @@ You can use [`method: Response.allHeaders`] for complete list of headers that in
 
 ## async method: Response.headersArray
 * since: v1.15
-- returns: <[Array]<[Object]>>
+- returns: "HttpHeader" <[Array]<[Object]>>
+  * alias-csharp: Header
   - `name` <[string]> Name of the header.
   - `value` <[string]> Value of the header.
 
-An array with all the request HTTP headers associated with this response. Unlike [`method: Response.allHeaders`], header names are NOT lower-cased.
+An array with all the response HTTP headers associated with this response. Unlike [`method: Response.allHeaders`], header names are NOT lower-cased.
 Headers with multiple entries, such as `Set-Cookie`, appear in the array multiple times.
+Some browser network stacks combine multiple field values before reporting them, so separate entries are not always available.
 
 ## async method: Response.headerValue
 * since: v1.15
 - returns: <[null]|[string]>
 
-Returns the value of the header matching the name. The name is case insensitive. If multiple headers have
+Returns the value of the header matching the name. The name is case-insensitive. If multiple headers have
 the same name (except `set-cookie`), they are returned as a list separated by `, `. For `set-cookie`, the `\n` separator is used. If no headers are found, `null` is returned.
 
 ### param: Response.headerValue.name
@@ -72,13 +79,19 @@ Name of the header.
 * since: v1.15
 - returns: <[Array]<[string]>>
 
-Returns all values of the headers matching the name, for example `set-cookie`. The name is case insensitive.
+Returns all values of the headers matching the name, for example `set-cookie`. The name is case-insensitive.
 
 ### param: Response.headerValues.name
 * since: v1.15
 - `name` <[string]>
 
 Name of the header.
+
+## async method: Response.httpVersion
+* since: v1.59
+- returns: <[string]>
+
+Returns the http version used by the response.
 
 ## async method: Response.json
 * since: v1.8
@@ -110,26 +123,13 @@ Contains a boolean stating whether the response was successful (status in the ra
 
 Returns the matching [Request] object.
 
-## async method: Response.securityDetails
+## async method: Response.securityDetails = %%-response-security-details-%%
 * since: v1.13
-- returns: <[null]|[Object]>
-  - `issuer` ?<[string]> Common Name component of the Issuer field.
-    from the certificate. This should only be used for informational purposes. Optional.
-  - `protocol` ?<[string]> The specific TLS protocol used. (e.g. `TLS 1.3`). Optional.
-  - `subjectName` ?<[string]> Common Name component of the Subject
-    field from the certificate. This should only be used for informational purposes. Optional.
-  - `validFrom` ?<[float]> Unix timestamp (in seconds) specifying
-    when this cert becomes valid. Optional.
-  - `validTo` ?<[float]> Unix timestamp (in seconds) specifying
-    when this cert becomes invalid. Optional.
 
 Returns SSL and other security information.
 
-## async method: Response.serverAddr
+## async method: Response.serverAddr = %%-response-server-addr-%%
 * since: v1.13
-- returns: <[null]|[Object]>
-  - `ipAddress` <[string]> IPv4 or IPV6 address of the server.
-  - `port` <[int]>
 
 Returns the IP address and port of the server.
 

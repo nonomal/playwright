@@ -22,7 +22,9 @@ import type { ConsoleMessage } from 'playwright-core';
 import fs from 'fs';
 import { kTargetClosedErrorMessage } from '../config/errors';
 
-it('Page.workers @smoke', async function({ page, server }) {
+it('WO-001 Page.workers @smoke', async function({ page, server, browserName, browserMajorVersion }) {
+  it.skip(browserName === 'chromium' && browserMajorVersion < 143, 'needs workerScriptLoaded event');
+
   await Promise.all([
     page.waitForEvent('worker'),
     page.goto(server.PREFIX + '/worker/worker.html')]);
@@ -35,11 +37,11 @@ it('Page.workers @smoke', async function({ page, server }) {
   expect(page.workers().length).toBe(0);
 });
 
-it('should emit created and destroyed events', async function({ page }) {
+it('WO-002 should emit created and destroyed events', async function({ page }) {
   const workerCreatedPromise = page.waitForEvent('worker');
   const workerObj = await page.evaluateHandle(() => new Worker(URL.createObjectURL(new Blob(['1'], { type: 'application/javascript' }))));
   const worker = await workerCreatedPromise;
-  const workerThisObj = await worker.evaluateHandle(() => this);
+  const workerThisObj = await worker.evaluateHandle('this');
   const workerDestroyedPromise = new Promise(x => worker.once('close', x));
   await page.evaluate(workerObj => workerObj.terminate(), workerObj);
   expect(await workerDestroyedPromise).toBe(worker);
@@ -48,7 +50,23 @@ it('should emit created and destroyed events', async function({ page }) {
   expect(error.message).toContain(kTargetClosedErrorMessage);
 });
 
-it('should report console logs', async function({ page }) {
+it('WO-003 should reject in-flight evaluate and emit close when page closes', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43204' },
+}, async function({ page, server }) {
+  await page.goto(server.EMPTY_PAGE);
+  const [worker] = await Promise.all([
+    page.waitForEvent('worker'),
+    page.evaluate(() => new Worker(URL.createObjectURL(new Blob(['1'], { type: 'application/javascript' })))),
+  ]);
+  const closePromise = new Promise(x => worker.once('close', x));
+  const evalPromise = worker.evaluate(() => new Promise(() => {})).catch((e: Error) => e);
+  await page.close();
+  const error = await evalPromise as Error;
+  expect(error.message).toContain('worker.evaluate');
+  expect(await closePromise).toBe(worker);
+});
+
+it('WO-004 should report console logs', async function({ page }) {
   const [message] = await Promise.all([
     page.waitForEvent('console'),
     page.evaluate(() => new Worker(URL.createObjectURL(new Blob(['console.log(1)'], { type: 'application/javascript' })))),
@@ -58,7 +76,22 @@ it('should report console logs', async function({ page }) {
   expect(page.url()).not.toContain('blob');
 });
 
-it('should not report console logs from workers twice', async function({ page }) {
+it('WO-005 should have timestamp on worker console messages', async function({ page, isAndroid, channel }) {
+  it.skip(isAndroid, 'there is a time difference between android emulator and host machine');
+  it.skip(channel === 'webkit-wsl', 'there is a time difference between WSL VM and host machine');
+
+  const before = Date.now() - 1;  // Account for the rounding of fractional timestamps.
+  const [message] = await Promise.all([
+    page.waitForEvent('console'),
+    page.evaluate(() => new Worker(URL.createObjectURL(new Blob(['console.log("ts")'], { type: 'application/javascript' })))),
+  ]);
+  const after = Date.now() + 1;  // Account for the rounding of fractional timestamps.
+  expect(message.text()).toBe('ts');
+  expect(message.timestamp()).toBeGreaterThanOrEqual(before);
+  expect(message.timestamp()).toBeLessThanOrEqual(after);
+});
+
+it('WO-006 should not report console logs from workers twice', async function({ page }) {
   const messages = [];
   page.on('console', msg => messages.push(msg.text()));
   await Promise.all([
@@ -71,7 +104,7 @@ it('should not report console logs from workers twice', async function({ page })
   expect(page.url()).not.toContain('blob');
 });
 
-it('should have JSHandles for console logs', async function({ page, browserName }) {
+it('WO-007 should have JSHandles for console logs', async function({ page, browserName }) {
   const logPromise = new Promise<ConsoleMessage>(x => page.on('console', x));
   await page.evaluate(() => new Worker(URL.createObjectURL(new Blob(['console.log(1,2,3,this)'], { type: 'application/javascript' }))));
   const log = await logPromise;
@@ -83,14 +116,56 @@ it('should have JSHandles for console logs', async function({ page, browserName 
   expect(await (await log.args()[3].getProperty('origin')).jsonValue()).toBe('null');
 });
 
-it('should evaluate', async function({ page }) {
+it('WO-008 should evaluate', async function({ page, browserName, browserMajorVersion }) {
+  it.skip(browserName === 'chromium' && browserMajorVersion < 143, 'needs workerScriptLoaded event');
+
   const workerCreatedPromise = page.waitForEvent('worker');
   await page.evaluate(() => new Worker(URL.createObjectURL(new Blob(['console.log(1)'], { type: 'application/javascript' }))));
   const worker = await workerCreatedPromise;
   expect(await worker.evaluate('1+1')).toBe(2);
 });
 
-it('should report errors', async function({ page }) {
+it('WO-009 should report console event on the worker', async function({ page, browserName, browserMajorVersion }) {
+  it.skip(browserName === 'chromium' && browserMajorVersion < 143, 'needs workerScriptLoaded event');
+
+  const [worker] = await Promise.all([
+    page.waitForEvent('worker'),
+    page.evaluate(() => {
+      (window as any).worker = new Worker(URL.createObjectURL(new Blob(['42'], { type: 'application/javascript' })));
+    }),
+  ]);
+  const [message1, message2, message3] = await Promise.all([
+    worker.waitForEvent('console'),
+    page.waitForEvent('console'),
+    page.context().waitForEvent('console'),
+    worker.evaluate(() => {
+      console.log('hello from worker');
+    }),
+  ]);
+  expect(message1.text()).toBe('hello from worker');
+  expect(message1).toBe(message2);
+  expect(message1).toBe(message3);
+});
+
+it('WO-010 should report console event on the worker when not listening on page or context', async function({ page, browserName, browserMajorVersion }) {
+  it.skip(browserName === 'chromium' && browserMajorVersion < 143, 'needs workerScriptLoaded event');
+
+  const [worker] = await Promise.all([
+    page.waitForEvent('worker'),
+    page.evaluate(() => {
+      (window as any).worker = new Worker(URL.createObjectURL(new Blob(['42'], { type: 'application/javascript' })));
+    }),
+  ]);
+  const [message] = await Promise.all([
+    worker.waitForEvent('console'),
+    worker.evaluate(() => {
+      console.log('hello from worker');
+    }),
+  ]);
+  expect(message.text()).toBe('hello from worker');
+});
+
+it('WO-011 should report errors', async function({ page }) {
   const errorPromise = new Promise<Error>(x => page.on('pageerror', x));
   await page.evaluate(() => new Worker(URL.createObjectURL(new Blob([`
     setTimeout(() => {
@@ -103,7 +178,7 @@ it('should report errors', async function({ page }) {
   expect(errorLog.message).toContain('this is my error');
 });
 
-it('should clear upon navigation', async function({ server, page }) {
+it('WO-012 should clear upon navigation', async function({ server, page }) {
   await page.goto(server.EMPTY_PAGE);
   const workerCreatedPromise = page.waitForEvent('worker');
   await page.evaluate(() => new Worker(URL.createObjectURL(new Blob(['console.log(1)'], { type: 'application/javascript' }))));
@@ -116,7 +191,7 @@ it('should clear upon navigation', async function({ server, page }) {
   expect(page.workers().length).toBe(0);
 });
 
-it('should clear upon cross-process navigation', async function({ server, page }) {
+it('WO-013 should clear upon cross-process navigation', async function({ server, page }) {
   await page.goto(server.EMPTY_PAGE);
   const workerCreatedPromise = page.waitForEvent('worker');
   await page.evaluate(() => new Worker(URL.createObjectURL(new Blob(['console.log(1)'], { type: 'application/javascript' }))));
@@ -129,9 +204,9 @@ it('should clear upon cross-process navigation', async function({ server, page }
   expect(page.workers().length).toBe(0);
 });
 
-it('should attribute network activity for worker inside iframe to the iframe', async function({ page, server, browserName, browserMajorVersion }) {
-  it.fixme(browserName === 'chromium');
+it('WO-014 should attribute network activity for worker inside iframe to the iframe', async function({ page, server, browserName, browserMajorVersion }) {
   it.skip(browserName === 'firefox' && browserMajorVersion < 114, 'https://github.com/microsoft/playwright/issues/21760');
+  it.skip(browserName === 'chromium' && browserMajorVersion < 149, 'needs TargetInfo.parentFrameId for workers');
 
   await page.goto(server.PREFIX + '/empty.html');
   const [worker, frame] = await Promise.all([
@@ -147,8 +222,10 @@ it('should attribute network activity for worker inside iframe to the iframe', a
   expect(request.frame()).toBe(frame);
 });
 
-it('should report network activity', async function({ page, server, browserName, browserMajorVersion, asset }) {
+it('WO-015 should report network activity', async function({ page, server, browserName, browserMajorVersion, asset }) {
   it.skip(browserName === 'firefox' && browserMajorVersion < 114, 'https://github.com/microsoft/playwright/issues/21760');
+  it.skip(browserName === 'chromium' && browserMajorVersion < 143, 'needs workerScriptLoaded event');
+
   const [worker] = await Promise.all([
     page.waitForEvent('worker'),
     page.goto(server.PREFIX + '/worker/worker.html'),
@@ -165,9 +242,8 @@ it('should report network activity', async function({ page, server, browserName,
   expect(await response.text()).toBe(fs.readFileSync(asset('one-style.css'), 'utf8'));
 });
 
-it('should report network activity on worker creation', async function({ page, server, browserName, browserMajorVersion }) {
+it('WO-016 should report network activity on worker creation', async function({ page, server, browserName, browserMajorVersion }) {
   it.skip(browserName === 'firefox' && browserMajorVersion < 114, 'https://github.com/microsoft/playwright/issues/21760');
-  // Chromium needs waitForDebugger enabled for this one.
   await page.goto(server.EMPTY_PAGE);
   const url = server.PREFIX + '/one-style.css';
   const requestPromise = page.waitForRequest(url);
@@ -182,7 +258,51 @@ it('should report network activity on worker creation', async function({ page, s
   expect(response.ok()).toBe(true);
 });
 
-it('should dispatch console messages when page has workers', async function({ page, server }) {
+it('WO-017 should report worker script as network request', {
+  annotation: [
+    { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/33107' },
+    { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/35678' },
+  ],
+}, async function({ page, server }) {
+  await page.goto(server.EMPTY_PAGE);
+  const [request1, request2] = await Promise.all([
+    page.waitForEvent('request', r => r.url().includes('worker.js')),
+    page.waitForEvent('requestfinished', r => r.url().includes('worker.js')),
+    page.evaluate(() => (window as any).w = new Worker('/worker/worker.js')),
+  ]);
+  expect.soft(request1.url()).toBe(server.PREFIX + '/worker/worker.js');
+  expect.soft(request1).toBe(request2);
+  const response = await request1.response();
+  const text = await response.text();
+  expect(text).toContain(`console.log('hello from the worker');`);
+});
+
+it('WO-018 should report worker script as network request after redirect', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/35678' },
+}, async ({ page, server, browserName }) => {
+  it.fixme(browserName === 'chromium', 'Chromium does not report the redirect because it is not plumbed to the worker target');
+
+  await page.goto(server.EMPTY_PAGE);
+  server.setRedirect('/worker.js', '/worker2.js');
+  server.setRoute('/worker2.js', (req, res) => {
+    res.setHeader('Content-Type', 'text/javascript');
+    res.end(`console.log('hello from the worker');`);
+  });
+  const [request] = await Promise.all([
+    page.waitForEvent('request', r => r.url().includes('worker.js')),
+    page.waitForEvent('console', msg => msg.text().includes('hello from the worker')),
+    page.evaluate(() => (window as any).w = new Worker('/worker.js')),
+  ]);
+  expect(request.url()).toBe(server.PREFIX + '/worker.js');
+  const redirect = request.redirectedTo();
+  expect(redirect).toBeTruthy();
+  expect(redirect.url()).toBe(server.PREFIX + '/worker2.js');
+  const response = await redirect.response();
+  const text = await response.text();
+  expect(text).toContain(`console.log('hello from the worker');`);
+});
+
+it('WO-019 should dispatch console messages when page has workers', async function({ page, server }) {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/15550' });
   await page.goto(server.EMPTY_PAGE);
   await Promise.all([
@@ -196,8 +316,10 @@ it('should dispatch console messages when page has workers', async function({ pa
   expect(message.text()).toBe('foo');
 });
 
-it('should report and intercept network from nested worker', async function({ page, server, browserName }) {
+it('WO-020 should report and intercept network from nested worker', async function({ page, server, browserName, browserMajorVersion }) {
   it.fixme(browserName === 'webkit', 'https://github.com/microsoft/playwright/issues/27376');
+  it.skip(browserName === 'chromium' && browserMajorVersion < 143, 'needs workerScriptLoaded event');
+
   await page.route('**/simple.json', async route => {
     const json = { foo: 'not bar' };
     await route.fulfill({ json });
@@ -225,7 +347,11 @@ it('should report and intercept network from nested worker', async function({ pa
   await expect.poll(() => messages).toEqual(['{"foo":"not bar"}', '{"foo":"not bar"}']);
 });
 
-it('should support extra http headers', async ({ page, server }) => {
+it('WO-021 should support extra http headers', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/31747' }
+}, async ({ page, server, browserName, browserMajorVersion }) => {
+  it.skip(browserName === 'chromium' && browserMajorVersion < 143, 'needs workerScriptLoaded event');
+
   await page.setExtraHTTPHeaders({ foo: 'bar' });
   const [worker, request1] = await Promise.all([
     page.waitForEvent('worker'),
@@ -240,16 +366,73 @@ it('should support extra http headers', async ({ page, server }) => {
   expect(request2.headers['foo']).toBe('bar');
 });
 
-it('should support offline', async ({ page, server, browserName }) => {
-  it.fixme(browserName === 'firefox');
+it('WO-022 should support offline', async ({ page, server, browserName }) => {
+  it.fixme(browserName === 'webkit', 'flaky on all platforms');
+  it.fixme(browserName === 'firefox', 'does not plumb setOffline into WorkerNavigator::OnLine');
 
   const [worker] = await Promise.all([
     page.waitForEvent('worker'),
+    page.waitForEvent('console', msg => msg.text().includes('hello from the worker')),
     page.goto(server.PREFIX + '/worker/worker.html'),
   ]);
   await page.context().setOffline(true);
-  expect(await worker.evaluate(() => navigator.onLine)).toBe(false);
+  await expect.poll(() =>  worker.evaluate(() => navigator.onLine)).toBe(false);
   expect(await worker.evaluate(() => fetch('/one-style.css').catch(e => 'error'))).toBe('error');
   await page.context().setOffline(false);
-  expect(await worker.evaluate(() => navigator.onLine)).toBe(true);
+  await expect.poll(() =>  worker.evaluate(() => navigator.onLine)).toBe(true);
+});
+
+it('WO-023 should resolve worker script allHeaders in main frame', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/39948' },
+}, async function({ page, server, browserName }) {
+  const [request] = await Promise.all([
+    page.waitForEvent('requestfinished', request => request.url() === server.PREFIX + '/worker/worker.js'),
+    page.goto(server.PREFIX + '/worker/worker.html'),
+  ]);
+  const response = await request.response();
+  const requestHeaders = await request.allHeaders();
+  expect(requestHeaders['host']).toBeTruthy();
+  const responseHeaders = await response.allHeaders();
+  expect(responseHeaders['content-type']).toBeTruthy();
+});
+
+it('WO-024 should resolve worker script allHeaders in iframe', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/39948' },
+}, async function({ page, server, browserName, browserMajorVersion }) {
+  it.skip(browserName === 'chromium' && browserMajorVersion < 151, 'needs proper Network.requestWillBeSentExtraInfo');
+
+  const [request] = await Promise.all([
+    page.waitForEvent('requestfinished', request => request.url() === server.PREFIX + '/worker/worker.js'),
+    attachFrame(page, 'frame1', server.PREFIX + '/worker/worker.html'),
+  ]);
+  const response = await request.response();
+  const requestHeaders = await request.allHeaders();
+  expect(requestHeaders['host']).toBeTruthy();
+  const responseHeaders = await response.allHeaders();
+  expect(responseHeaders['content-type']).toBeTruthy();
+});
+
+it('WO-025 should resolve worker script allHeaders in nested worker inside iframe', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/39948' },
+}, async function({ page, server, browserName }) {
+  it.fixme(browserName === 'webkit', 'cannot evaluate in nested worker');
+  it.fixme(browserName === 'firefox', 'nested worker script request is not reported at all');
+
+  const url = server.PREFIX + '/worker/worker.js';
+  const [worker] = await Promise.all([
+    page.waitForEvent('worker'),
+    page.waitForEvent('requestfinished', request => request.url() === url),
+    attachFrame(page, 'frame1', server.PREFIX + '/worker/worker.html'),
+  ]);
+
+  const [request] = await Promise.all([
+    page.waitForEvent('requestfinished', request => request.url() === url),
+    worker.evaluate(url => {
+      (self as any).w = new Worker(url);
+    }, url),
+  ]);
+
+  const response = await request.response();
+  const headers = await response.allHeaders();
+  expect(headers['content-type']).toBeTruthy();
 });

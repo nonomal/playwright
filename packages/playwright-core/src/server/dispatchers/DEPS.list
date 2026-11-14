@@ -1,6 +1,7 @@
 [*]
-../../common/
-../../protocol/
-../../utils/
-../../zipBundle.ts
+../../generated/
+@utils/**
+@isomorphic/**
+@protocol/**
 ../**
+node_modules/yaml

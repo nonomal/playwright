@@ -1,6 +1,5 @@
 # class: CDPSession
 * since: v1.8
-* extends: [EventEmitter]
 
 The `CDPSession` instances are used to talk raw Chrome Devtools Protocol:
 * protocol methods can be called with `session.send` method.
@@ -68,6 +67,30 @@ params.addProperty("playbackRate", playbackRate / 2);
 client.send("Animation.setPlaybackRate", params);
 ```
 
+## event: CDPSession.close
+* since: v1.59
+- argument: <[CDPSession]>
+
+Emitted when the session is closed, either because the target was closed or `session.detach()` was called.
+
+## event: CDPSession.event
+* since: v1.59
+* langs: js
+- argument: <[Object]>
+  - `method` <[string]> CDP event name.
+  - `params` ?<[Object]> CDP event parameters.
+
+Emitted for every CDP event received from the session. Allows subscribing to all CDP events at once without knowing
+their names ahead of time.
+
+**Usage**
+
+```js
+session.on('event', ({ method, params }) => {
+  console.log(`CDP event: ${method}`, params);
+});
+```
+
 ## async method: CDPSession.detach
 * since: v1.8
 
@@ -117,8 +140,21 @@ Optional method parameters.
 
 Optional method parameters.
 
+### option: CDPSession.send.timeout
+* since: v1.65
+- `timeout` <[float]>
+
+Maximum time in milliseconds to wait for the response. Defaults to `0` - no timeout.
+
+### option: CDPSession.send.signal
+* since: v1.65
+* langs: js
+- `signal` <[AbortSignal]>
+
+Allows to cancel the operation using an [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal). If the signal is aborted, the operation will be aborted and throw an error.
+
 ## method: CDPSession.event
-* since: v.1.30
+* since: v1.30
 * langs: csharp
 - returns: <[CDPSessionEvent]>
 

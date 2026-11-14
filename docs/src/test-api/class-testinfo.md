@@ -9,7 +9,7 @@ import { test, expect } from '@playwright/test';
 
 test('basic test', async ({ page }, testInfo) => {
   expect(testInfo.title).toBe('basic test');
-  await page.screenshot(testInfo.outputPath('screenshot.png'));
+  await page.screenshot({ path: testInfo.outputPath('screenshot.png') });
 });
 ```
 
@@ -19,6 +19,7 @@ test('basic test', async ({ page }, testInfo) => {
 - type: <[Array]<[Object]>>
   - `type` <[string]> Annotation type, for example `'skip'` or `'fail'`.
   - `description` ?<[string]> Optional description.
+  - `location` ?<[Location]> Optional location in the source where the annotation is added.
 
 The list of annotations applicable to the current test. Includes annotations from the test, annotations from all [`method: Test.describe`] groups the test belongs to and file-level annotations for the test file.
 
@@ -134,7 +135,7 @@ Errors thrown during test execution, if any.
 
 ## property: TestInfo.expectedStatus
 * since: v1.10
-- type: <[TestStatus]<"passed"|"failed"|"timedOut"|"skipped"|"interrupted">>
+- type: "TestStatus" <"passed"|"failed"|"timedOut"|"skipped"|"interrupted">
 
 Expected status for the currently running test. This is usually `'passed'`, except for a few cases:
 * `'skipped'` for skipped tests, e.g. with [`method: Test.skip`];
@@ -216,7 +217,9 @@ Test function as passed to `test(title, testFunction)`.
 
 Tags that apply to the test. Learn more about [tags](../test-annotations.md#tag-tests).
 
-Note that any changes made to this list while the test is running will not be visible to test reporters.
+:::note
+Any changes made to this list while the test is running will not be visible to test reporters.
+:::
 
 ## property: TestInfo.testId
 * since: v1.32
@@ -385,16 +388,44 @@ Optional description that will be reflected in a test report.
 * since: v1.10
 - returns: <[string]>
 
-Returns a path to a snapshot file with the given `pathSegments`. Learn more about [snapshots](../test-snapshots.md).
+Returns a path to a snapshot file with the given `name`. Pass [`option: kind`] to obtain a specific path:
+* `kind: 'screenshot'` for [`method: PageAssertions.toHaveScreenshot#1`];
+* `kind: 'aria'` for [`method: LocatorAssertions.toMatchAriaSnapshot`];
+* `kind: 'snapshot'` for [`method: SnapshotAssertions.toMatchSnapshot#1`].
 
-> Note that `pathSegments` accepts path segments to the snapshot file such as `testInfo.snapshotPath('relative', 'path', 'to', 'snapshot.png')`.
-> However, this path must stay within the snapshots directory for each test file (i.e. `a.spec.js-snapshots`), otherwise it will throw.
+**Usage**
 
-### param: TestInfo.snapshotPath.pathSegments
+```js
+await expect(page).toHaveScreenshot('header.png');
+// Screenshot assertion above expects screenshot at this path:
+const screenshotPath = test.info().snapshotPath('header.png', { kind: 'screenshot' });
+
+await expect(page.getByRole('main')).toMatchAriaSnapshot({ name: 'main.aria.yml' });
+// Aria snapshot assertion above expects snapshot at this path:
+const ariaSnapshotPath = test.info().snapshotPath('main.aria.yml', { kind: 'aria' });
+
+expect('some text').toMatchSnapshot('snapshot.txt');
+// Snapshot assertion above expects snapshot at this path:
+const snapshotPath = test.info().snapshotPath('snapshot.txt');
+
+expect('some text').toMatchSnapshot(['dir', 'subdir', 'snapshot.txt']);
+// Snapshot assertion above expects snapshot at this path:
+const nestedPath = test.info().snapshotPath('dir', 'subdir', 'snapshot.txt');
+```
+
+### param: TestInfo.snapshotPath.name
 * since: v1.10
-- `...pathSegments` <[Array]<[string]>>
+- `...name` <[Array]<[string]>>
 
 The name of the snapshot or the path segments to define the snapshot file path. Snapshots with the same name in the same test file are expected to be the same.
+
+When passing [`option: kind`], multiple name segments are not supported.
+
+### option: TestInfo.snapshotPath.kind
+* since: v1.53
+- `kind` "SnapshotKind" <"snapshot"|"screenshot"|"aria">
+
+The snapshot kind controls which snapshot path template is used. See [`property: TestConfig.snapshotPathTemplate`] for more details. Defaults to `'snapshot'`.
 
 ## property: TestInfo.snapshotSuffix
 * since: v1.10
@@ -409,7 +440,7 @@ Suffix used to differentiate snapshots between multiple test configurations. For
 
 ## property: TestInfo.status
 * since: v1.10
-- type: ?<[TestStatus]<"passed"|"failed"|"timedOut"|"skipped"|"interrupted">>
+- type: "TestStatus" ?<"passed"|"failed"|"timedOut"|"skipped"|"interrupted">
 
 Actual status for the currently running test. Available after the test has finished in [`method: Test.afterEach`] hook and fixtures.
 
@@ -451,7 +482,7 @@ The title of the currently running test as passed to `test(title, testFunction)`
 * since: v1.10
 - type: <[Array]<[string]>>
 
-The full title path starting with the project.
+The full title path starting with the test file name.
 
 ## property: TestInfo.workerIndex
 * since: v1.10

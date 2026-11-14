@@ -17,42 +17,57 @@
 
 import { browserTest as base, expect } from '../config/browserTest';
 
-const it = base.extend<{ isChromiumHeadedLike: boolean }>({
-  isChromiumHeadedLike: async ({ browserName, headless }, use) => {
-    const isChromiumHeadedLike = browserName === 'chromium' && (!headless || !!process.env.PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW);
-    await use(isChromiumHeadedLike);
+const it = base.extend<{ failsOn401: boolean }>({
+  failsOn401: async ({ browserName, isHeadlessShell }, use) => {
+    await use(browserName === 'chromium' && !isHeadlessShell);
   },
 });
 
-it('should fail without credentials', async ({ browser, server, isChromiumHeadedLike }) => {
-  it.fail(isChromiumHeadedLike);
-
+it('AU-001 should fail without credentials', async ({ browser, server, failsOn401 }) => {
   server.setAuth('/empty.html', 'user', 'pass');
   const context = await browser.newContext();
   const page = await context.newPage();
-  try {
-    const response = await page.goto(server.EMPTY_PAGE);
-    expect(response!.status()).toBe(401);
-  } finally {
-    await context.close();
-  }
+  const responseOrError = await page.goto(server.EMPTY_PAGE).catch(e => e);
+  if (failsOn401)
+    expect(responseOrError.message).toContain('net::ERR_INVALID_AUTH_CREDENTIALS');
+  else
+    expect(responseOrError.status()).toBe(401);
 });
 
-it('should work with setHTTPCredentials', async ({ browser, server, isChromiumHeadedLike }) => {
-  it.fail(isChromiumHeadedLike);
-
+it('AU-002 should work with setHTTPCredentials', async ({ browser, server, failsOn401 }) => {
   server.setAuth('/empty.html', 'user', 'pass');
   const context = await browser.newContext();
   const page = await context.newPage();
-  let response = await page.goto(server.EMPTY_PAGE);
-  expect(response!.status()).toBe(401);
+
+  let responseOrError = await page.goto(server.EMPTY_PAGE).catch(e => e);
+  if (failsOn401)
+    expect(responseOrError.message).toContain('net::ERR_INVALID_AUTH_CREDENTIALS');
+  else
+    expect(responseOrError.status()).toBe(401);
+
   await context.setHTTPCredentials({ username: 'user', password: 'pass' });
-  response = await page.reload();
-  expect(response!.status()).toBe(200);
+  responseOrError = await page.reload();
+  expect(responseOrError.status()).toBe(200);
   await context.close();
 });
 
-it('should work with correct credentials @smoke', async ({ browser, server }) => {
+it('AU-003 should work with setHTTPCredentials and multiple credentials', async ({ browser, server, browserName }) => {
+  server.setAuth('/empty.html', 'user1', 'pass1');
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await context.setHTTPCredentials([
+    { username: 'user1', password: 'pass1', origin: server.PREFIX },
+    { username: 'user2', password: 'pass2', origin: server.CROSS_PROCESS_PREFIX },
+  ]);
+  const response1 = await page.goto(server.EMPTY_PAGE);
+  expect(response1!.status()).toBe(200);
+  // Wrong credentials are picked for the other origin.
+  const response2 = await page.goto(server.CROSS_PROCESS_PREFIX + '/empty.html');
+  expect(response2!.status()).toBe(401);
+  await context.close();
+});
+
+it('AU-004 should work with correct credentials @smoke', async ({ browser, server }) => {
   server.setAuth('/empty.html', 'user', 'pass');
   const context = await browser.newContext({
     httpCredentials: { username: 'user', password: 'pass' }
@@ -63,7 +78,7 @@ it('should work with correct credentials @smoke', async ({ browser, server }) =>
   await context.close();
 });
 
-it('should fail with wrong credentials', async ({ browser, server }) => {
+it('AU-005 should fail with wrong credentials', async ({ browser, server }) => {
   server.setAuth('/empty.html', 'user', 'pass');
   const context = await browser.newContext({
     httpCredentials: { username: 'foo', password: 'bar' }
@@ -74,7 +89,7 @@ it('should fail with wrong credentials', async ({ browser, server }) => {
   await context.close();
 });
 
-it('should return resource body', async ({ browser, server }) => {
+it('AU-006 should return resource body', async ({ browser, server }) => {
   server.setAuth('/playground.html', 'user', 'pass');
   const context = await browser.newContext({
     httpCredentials: { username: 'user', password: 'pass' }
@@ -87,7 +102,66 @@ it('should return resource body', async ({ browser, server }) => {
   await context.close();
 });
 
-it('should work with correct credentials and matching origin', async ({ browser, server }) => {
+it('AU-007 should work with a single credential in an array', async ({ browser, server }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  const context = await browser.newContext({
+    httpCredentials: [{ username: 'user', password: 'pass' }]
+  });
+  const page = await context.newPage();
+  const response = await page.goto(server.EMPTY_PAGE);
+  expect(response!.status()).toBe(200);
+  await context.close();
+});
+
+it('AU-008 should work with multiple credentials for different origins', async ({ browser, server, browserName }) => {
+  server.setAuth('/empty.html', 'user1', 'pass1');
+  const context = await browser.newContext({
+    httpCredentials: [
+      { username: 'user1', password: 'pass1', origin: server.PREFIX },
+      { username: 'user2', password: 'pass2', origin: server.CROSS_PROCESS_PREFIX },
+    ]
+  });
+  const page = await context.newPage();
+  const response1 = await page.goto(server.EMPTY_PAGE);
+  expect(response1!.status()).toBe(200);
+  // Wrong credentials are picked for the other origin.
+  const response2 = await page.goto(server.CROSS_PROCESS_PREFIX + '/empty.html');
+  expect(response2!.status()).toBe(401);
+  await context.close();
+});
+
+it('AU-009 should fall back to credentials without origin', async ({ browser, server, browserName }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  const context = await browser.newContext({
+    httpCredentials: [
+      { username: 'user2', password: 'pass2', origin: server.CROSS_PROCESS_PREFIX },
+      { username: 'user', password: 'pass' },
+    ]
+  });
+  const page = await context.newPage();
+  const response1 = await page.goto(server.EMPTY_PAGE);
+  expect(response1!.status()).toBe(200);
+  // First matching entry has wrong credentials for this origin.
+  const response2 = await page.goto(server.CROSS_PROCESS_PREFIX + '/empty.html');
+  expect(response2!.status()).toBe(401);
+  await context.close();
+});
+
+it('AU-010 should use the first matching credential', async ({ browser, server, browserName }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  const context = await browser.newContext({
+    httpCredentials: [
+      { username: 'wrong', password: 'wrong' },
+      { username: 'user', password: 'pass', origin: server.PREFIX },
+    ]
+  });
+  const page = await context.newPage();
+  const response = await page.goto(server.EMPTY_PAGE);
+  expect(response!.status()).toBe(401);
+  await context.close();
+});
+
+it('AU-011 should work with correct credentials and matching origin', async ({ browser, server }) => {
   server.setAuth('/empty.html', 'user', 'pass');
   const context = await browser.newContext({
     httpCredentials: { username: 'user', password: 'pass', origin: server.PREFIX }
@@ -98,7 +172,7 @@ it('should work with correct credentials and matching origin', async ({ browser,
   await context.close();
 });
 
-it('should work with correct credentials and matching origin case insensitive', async ({ browser, server }) => {
+it('AU-012 should work with correct credentials and matching origin case insensitive', async ({ browser, server }) => {
   server.setAuth('/empty.html', 'user', 'pass');
   const context = await browser.newContext({
     httpCredentials: { username: 'user', password: 'pass', origin: server.PREFIX.toUpperCase() }
@@ -109,20 +183,21 @@ it('should work with correct credentials and matching origin case insensitive', 
   await context.close();
 });
 
-it('should fail with correct credentials and mismatching scheme', async ({ browser, server, isChromiumHeadedLike }) => {
-  it.fail(isChromiumHeadedLike);
+it('AU-013 should fail with correct credentials and mismatching scheme', async ({ browser, server, failsOn401 }) => {
   server.setAuth('/empty.html', 'user', 'pass');
   const context = await browser.newContext({
     httpCredentials: { username: 'user', password: 'pass', origin: server.PREFIX.replace('http://', 'https://') }
   });
   const page = await context.newPage();
-  const response = await page.goto(server.EMPTY_PAGE);
-  expect(response!.status()).toBe(401);
+  const responseOrError = await page.goto(server.EMPTY_PAGE).catch(e => e);
+  if (failsOn401)
+    expect(responseOrError.message).toContain('net::ERR_INVALID_AUTH_CREDENTIALS');
+  else
+    expect(responseOrError.status()).toBe(401);
   await context.close();
 });
 
-it('should fail with correct credentials and mismatching hostname', async ({ browser, server, isChromiumHeadedLike }) => {
-  it.fail(isChromiumHeadedLike);
+it('AU-014 should fail with correct credentials and mismatching hostname', async ({ browser, server, failsOn401 }) => {
   server.setAuth('/empty.html', 'user', 'pass');
   const hostname = new URL(server.PREFIX).hostname;
   const origin = server.PREFIX.replace(hostname, 'mismatching-hostname');
@@ -130,20 +205,44 @@ it('should fail with correct credentials and mismatching hostname', async ({ bro
     httpCredentials: { username: 'user', password: 'pass', origin: origin }
   });
   const page = await context.newPage();
-  const response = await page.goto(server.EMPTY_PAGE);
-  expect(response!.status()).toBe(401);
+  const responseOrError = await page.goto(server.EMPTY_PAGE).catch(e => e);
+  if (failsOn401)
+    expect(responseOrError.message).toContain('net::ERR_INVALID_AUTH_CREDENTIALS');
+  else
+    expect(responseOrError.status()).toBe(401);
   await context.close();
 });
 
-it('should fail with correct credentials and mismatching port', async ({ browser, server, isChromiumHeadedLike }) => {
-  it.fail(isChromiumHeadedLike);
+it('AU-015 should fail with correct credentials and mismatching port', async ({ browser, server, failsOn401 }) => {
   server.setAuth('/empty.html', 'user', 'pass');
   const origin = server.PREFIX.replace(server.PORT.toString(), (server.PORT + 1).toString());
   const context = await browser.newContext({
     httpCredentials: { username: 'user', password: 'pass', origin: origin }
   });
   const page = await context.newPage();
+  const responseOrError = await page.goto(server.EMPTY_PAGE).catch(e => e);
+  if (failsOn401)
+    expect(responseOrError.message).toContain('net::ERR_INVALID_AUTH_CREDENTIALS');
+  else
+    expect(responseOrError.status()).toBe(401);
+  await context.close();
+});
+
+it('AU-016 should not override Authorization header set by the page', async ({ browser, server }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  server.setRoute('/echo-auth', (req, res) => {
+    res.end(req.headers['authorization'] || '<none>');
+  });
+  const context = await browser.newContext({
+    httpCredentials: { username: 'user', password: 'pass' }
+  });
+  const page = await context.newPage();
   const response = await page.goto(server.EMPTY_PAGE);
-  expect(response!.status()).toBe(401);
+  expect(response!.status()).toBe(200);
+  const received = await page.evaluate(async () => {
+    const response = await fetch('/echo-auth', { headers: { 'Authorization': 'Bearer my-own-app-token' } });
+    return await response.text();
+  });
+  expect(received).toBe('Bearer my-own-app-token');
   await context.close();
 });

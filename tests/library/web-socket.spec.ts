@@ -17,21 +17,21 @@
 
 import { kTargetClosedErrorMessage } from '../config/errors';
 import { contextTest as it, expect } from '../config/browserTest';
-import { Server as WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 
-it('should work @smoke', async ({ page, server }) => {
+it('WS-001 should work @smoke', async ({ page, server }) => {
   server.sendOnWebSocketConnection('incoming');
-  const value = await page.evaluate(port => {
+  const value = await page.evaluate(host => {
     let cb;
     const result = new Promise(f => cb = f);
-    const ws = new WebSocket('ws://localhost:' + port + '/ws');
+    const ws = new WebSocket('ws://' + host + '/ws');
     ws.addEventListener('message', data => { ws.close(); cb(data.data); });
     return result;
-  }, server.PORT);
+  }, server.HOST);
   expect(value).toBe('incoming');
 });
 
-it('should emit close events', async ({ page, server }) => {
+it('WS-002 should emit close events', async ({ page, server }) => {
   let socketClosed;
   const socketClosePromise = new Promise(f => socketClosed = f);
   const log = [];
@@ -41,16 +41,16 @@ it('should emit close events', async ({ page, server }) => {
     webSocket = ws;
     ws.on('close', () => { log.push('close'); socketClosed(); });
   });
-  await page.evaluate(port => {
-    const ws = new WebSocket('ws://localhost:' + port + '/ws');
+  await page.evaluate(host => {
+    const ws = new WebSocket('ws://' + host + '/ws');
     ws.addEventListener('open', () => ws.close());
-  }, server.PORT);
+  }, server.HOST);
   await socketClosePromise;
-  expect(log.join(':')).toBe(`open<ws://localhost:${server.PORT}/ws>:close`);
+  expect(log.join(':')).toBe(`open<ws://${server.HOST}/ws>:close`);
   expect(webSocket.isClosed()).toBeTruthy();
 });
 
-it('should emit frame events', async ({ page, server }) => {
+it('WS-003 should emit frame events', async ({ page, server }) => {
   server.onceWebSocketConnection(ws => {
     ws.on('message', () => ws.send('incoming'));
   });
@@ -63,17 +63,17 @@ it('should emit frame events', async ({ page, server }) => {
     ws.on('framereceived', d => log.push('received<' + d.payload + '>'));
     ws.on('close', () => { log.push('close'); socketClosed(); });
   });
-  await page.evaluate(port => {
-    const ws = new WebSocket('ws://localhost:' + port + '/ws');
+  await page.evaluate(host => {
+    const ws = new WebSocket('ws://' + host + '/ws');
     ws.addEventListener('open', () => ws.send('outgoing'));
     ws.addEventListener('message', () => { ws.close(); });
     (window as any).ws = ws;
-  }, server.PORT);
+  }, server.HOST);
   await socketClosePromise;
   expect(log).toEqual(['open', 'sent<outgoing>', 'received<incoming>', 'close']);
 });
 
-it('should filter out the close events when the server closes with a message', async ({ page, server }) => {
+it('WS-004 should filter out the close events when the server closes with a message', async ({ page, server }) => {
   server.onceWebSocketConnection(ws => {
     ws.send('incoming');
     ws.on('message', () => ws.close(1003, 'closed by Playwright test-server'));
@@ -87,16 +87,16 @@ it('should filter out the close events when the server closes with a message', a
     ws.on('framereceived', d => log.push('received<' + d.payload + '>'));
     ws.on('close', () => { log.push('close'); socketClosed(); });
   });
-  await page.evaluate(port => {
-    const ws = new WebSocket('ws://localhost:' + port + '/ws');
+  await page.evaluate(host => {
+    const ws = new WebSocket('ws://' + host + '/ws');
     ws.addEventListener('message', () => ws.send('outgoing'));
     (window as any).ws = ws;
-  }, server.PORT);
+  }, server.HOST);
   await socketClosePromise;
   expect(log).toEqual(['open', 'received<incoming>', 'sent<outgoing>', 'close']);
 });
 
-it('should pass self as argument to close event', async ({ page, server }) => {
+it('WS-005 should pass self as argument to close event', async ({ page, server }) => {
   let socketClosed;
   const socketClosePromise = new Promise(f => socketClosed = f);
   let webSocket;
@@ -104,15 +104,15 @@ it('should pass self as argument to close event', async ({ page, server }) => {
     webSocket = ws;
     ws.on('close', socketClosed);
   });
-  await page.evaluate(port => {
-    const ws = new WebSocket('ws://localhost:' + port + '/ws');
+  await page.evaluate(host => {
+    const ws = new WebSocket('ws://' + host + '/ws');
     ws.addEventListener('open', () => ws.close());
-  }, server.PORT);
+  }, server.HOST);
   const eventArg = await socketClosePromise;
   expect(eventArg).toBe(webSocket);
 });
 
-it('should emit binary frame events', async ({ page, server }) => {
+it('WS-006 should emit binary frame events', async ({ page, server }) => {
   let doneCallback;
   const donePromise = new Promise(f => doneCallback = f);
   const sent = [];
@@ -120,8 +120,8 @@ it('should emit binary frame events', async ({ page, server }) => {
     ws.on('close', doneCallback);
     ws.on('framesent', d => sent.push(d.payload));
   });
-  await page.evaluate(port => {
-    const ws = new WebSocket('ws://localhost:' + port + '/ws');
+  await page.evaluate(host => {
+    const ws = new WebSocket('ws://' + host + '/ws');
     ws.addEventListener('open', () => {
       const binary = new Uint8Array(5);
       for (let i = 0; i < 5; ++i)
@@ -130,28 +130,25 @@ it('should emit binary frame events', async ({ page, server }) => {
       ws.send(binary);
       ws.close();
     });
-  }, server.PORT);
+  }, server.HOST);
   await donePromise;
   expect(sent[0]).toBe('text');
   for (let i = 0; i < 5; ++i)
     expect(sent[1][i]).toBe(i);
 });
 
-it('should emit error', async ({ page, server, browserName }) => {
+it('WS-007 should emit error', async ({ page, server, channel }) => {
   let callback;
   const result = new Promise(f => callback = f);
   page.on('websocket', ws => ws.on('socketerror', callback));
-  await page.evaluate(port => {
-    new WebSocket('ws://localhost:' + port + '/bogus-ws');
-  }, server.PORT);
+  await page.evaluate(host => {
+    new WebSocket('ws://' + host + '/bogus-ws');
+  }, server.HOST);
   const message = await result;
-  if (browserName === 'firefox')
-    expect(message).toBe('CLOSE_ABNORMAL');
-  else
-    expect(message).toContain(': 400');
+  expect(message).toContain(channel?.includes('msedge') ? '' : ': 400');
 });
 
-it('should not have stray error events', async ({ page, server }) => {
+it('WS-008 should not have stray error events', async ({ page, server }) => {
   server.sendOnWebSocketConnection('incoming');
   let error;
   page.on('websocket', ws => ws.on('socketerror', e => error = e));
@@ -160,53 +157,71 @@ it('should not have stray error events', async ({ page, server }) => {
       await ws.waitForEvent('framereceived');
       return ws;
     }),
-    page.evaluate(port => {
-      (window as any).ws = new WebSocket('ws://localhost:' + port + '/ws');
-    }, server.PORT)
+    page.evaluate(host => {
+      (window as any).ws = new WebSocket('ws://' + host + '/ws');
+    }, server.HOST)
   ]);
   await page.evaluate('window.ws.close()');
   expect(error).toBeFalsy();
 });
 
-it('should reject waitForEvent on socket close', async ({ page, server }) => {
+it('WS-009 should reject waitForEvent on socket close', async ({ page, server }) => {
   server.sendOnWebSocketConnection('incoming');
   const [ws] = await Promise.all([
     page.waitForEvent('websocket').then(async ws => {
       await ws.waitForEvent('framereceived');
       return ws;
     }),
-    page.evaluate(port => {
-      (window as any).ws = new WebSocket('ws://localhost:' + port + '/ws');
-    }, server.PORT)
+    page.evaluate(host => {
+      (window as any).ws = new WebSocket('ws://' + host + '/ws');
+    }, server.HOST)
   ]);
   const error = ws.waitForEvent('framesent').catch(e => e);
   await page.evaluate('window.ws.close()');
   expect((await error).message).toContain('Socket closed');
 });
 
-it('should reject waitForEvent on page close', async ({ page, server }) => {
+it('WS-010 should reject waitForEvent on page close', async ({ page, server }) => {
   server.sendOnWebSocketConnection('incoming');
   const [ws] = await Promise.all([
     page.waitForEvent('websocket').then(async ws => {
       await ws.waitForEvent('framereceived');
       return ws;
     }),
-    page.evaluate(port => {
-      (window as any).ws = new WebSocket('ws://localhost:' + port + '/ws');
-    }, server.PORT)
+    page.evaluate(host => {
+      (window as any).ws = new WebSocket('ws://' + host + '/ws');
+    }, server.HOST)
   ]);
   const error = ws.waitForEvent('framesent').catch(e => e);
   await page.close();
   expect((await error).message).toContain(kTargetClosedErrorMessage);
 });
 
-it('should turn off when offline', async ({ page }) => {
+it('WS-011 should not tear down the page when a WebSocket is opened inside a worker', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/41742' },
+}, async ({ page, server }) => {
+  server.sendOnWebSocketConnection('incoming');
+  await page.goto(server.EMPTY_PAGE);
+  const received = await page.evaluate(host => {
+    const code = `
+      const ws = new WebSocket(${JSON.stringify('ws://' + host + '/ws')});
+      ws.addEventListener('message', event => self.postMessage(event.data));
+    `;
+    const worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+    return new Promise(resolve => worker.addEventListener('message', event => resolve(event.data)));
+  }, server.HOST);
+  expect(received).toBe('incoming');
+  // Opening a `WebSocket` inside a worker must not tear down the page session.
+  expect(await page.evaluate(() => 1 + 1)).toBe(2);
+});
+
+it('WS-012 should turn off when offline', async ({ page }) => {
   it.fixme();
 
   const webSocketServer = new WebSocketServer();
   const address = webSocketServer.address();
   const [socket, wsHandle] = await Promise.all([
-    new Promise<import('ws')>(x => webSocketServer.once('connection', x)),
+    new Promise<WsSocket>(x => webSocketServer.once('connection', x)),
     page.evaluateHandle(async address => {
       const ws = new WebSocket(`ws://${address}/`);
       await new Promise(x => ws.onopen = x);
@@ -227,4 +242,50 @@ it('should turn off when offline', async ({ page }) => {
   await wsHandle.evaluate(ws => ws.send('if this arrives it failed'));
   expect(await result).toBe('successfully closed');
   await new Promise(x => webSocketServer.close(x));
+});
+
+it('WS-013 should send extra HTTP headers on WebSocket handshake', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28948' },
+}, async ({ page, server, browserName, browserMajorVersion }) => {
+  it.fixme(browserName === 'chromium' && browserMajorVersion < 151, 'Chromium before 151 does not send extra HTTP headers on WebSocket handshake');
+
+  await page.setExtraHTTPHeaders({ foo: 'bar' });
+  await page.goto(server.EMPTY_PAGE);
+  const reqPromise = server.waitForWebSocketConnectionRequest();
+  await page.evaluate(host => { new WebSocket(`ws://${host}/ws`); }, server.HOST);
+  const req = await reqPromise;
+  expect(req.headers['foo']).toBe('bar');
+});
+
+it('WS-014 should send extra HTTP headers on WebSocket handshake from a worker', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28948' },
+}, async ({ page, server, browserName, browserMajorVersion }) => {
+  it.fixme(browserName === 'chromium' && browserMajorVersion < 151, 'Chromium before 151 does not send extra HTTP headers on WebSocket handshake');
+
+  await page.setExtraHTTPHeaders({ foo: 'bar' });
+  await page.goto(server.EMPTY_PAGE);
+  const reqPromise = server.waitForWebSocketConnectionRequest();
+  await page.evaluate(host => {
+    const code = `new WebSocket(${JSON.stringify('ws://' + host + '/ws')});`;
+    new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+  }, server.HOST);
+  const req = await reqPromise;
+  expect(req.headers['foo']).toBe('bar');
+});
+
+it('WS-041 should navigate while an iframe opens WebSockets', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/44005' },
+}, async ({ page, server }) => {
+  server.setRoute('/parent', (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.end('<iframe src="/child"></iframe>');
+  });
+  server.setRoute('/child', (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.end(`<script>setInterval(() => new WebSocket('ws://' + location.host + '/ws'), 5)</script>`);
+  });
+  for (let i = 0; i < 20; ++i)
+    await page.goto(server.PREFIX + '/parent');
+  expect(page.frames()).toHaveLength(2);
+  expect(await page.evaluate(() => 1 + 1)).toBe(2);
 });

@@ -14,64 +14,69 @@
  * limitations under the License.
  */
 
-import { colors, BaseReporter, formatError } from './base';
-import type { FullResult, TestCase, TestResult, Suite, TestError } from '../../types/testReporter';
+import { getAsBooleanFromENV } from '@utils/env';
 
-class DotReporter extends BaseReporter {
+import { TerminalReporter } from './base';
+
+import type { DotReporterOptions } from '../../types/test';
+import type { FullResult, Suite, TestCase, TestError, TestResult } from '../../types/testReporter';
+import type { CommonReporterOptions, TerminalReporterOptions } from './base';
+
+class DotReporter extends TerminalReporter {
   private _counter = 0;
 
-  override printsToStdio() {
-    return true;
+  constructor(options?: DotReporterOptions & CommonReporterOptions & TerminalReporterOptions) {
+    super({ ...options, omitTags: getAsBooleanFromENV('PLAYWRIGHT_DOT_OMIT_TAGS', options?.omitTags) });
   }
 
   override onBegin(suite: Suite) {
     super.onBegin(suite);
-    console.log(this.generateStartingMessage());
+    this.writeLine(this.generateStartingMessage());
   }
 
   override onStdOut(chunk: string | Buffer, test?: TestCase, result?: TestResult) {
     super.onStdOut(chunk, test, result);
     if (!this.config.quiet)
-      process.stdout.write(chunk);
+      this.screen.stdout.write(chunk);
   }
 
   override onStdErr(chunk: string | Buffer, test?: TestCase, result?: TestResult) {
     super.onStdErr(chunk, test, result);
     if (!this.config.quiet)
-      process.stderr.write(chunk);
+      this.screen.stderr.write(chunk);
   }
 
   override onTestEnd(test: TestCase, result: TestResult) {
     super.onTestEnd(test, result);
     if (this._counter === 80) {
-      process.stdout.write('\n');
+      this.screen.stdout.write('\n');
       this._counter = 0;
     }
     ++this._counter;
     if (result.status === 'skipped') {
-      process.stdout.write(colors.yellow('°'));
+      this.screen.stdout.write(this.screen.colors.yellow('°'));
       return;
     }
     if (this.willRetry(test)) {
-      process.stdout.write(colors.gray('×'));
+      this.screen.stdout.write(this.screen.colors.gray('×'));
       return;
     }
     switch (test.outcome()) {
-      case 'expected': process.stdout.write(colors.green('·')); break;
-      case 'unexpected': process.stdout.write(colors.red(result.status === 'timedOut' ? 'T' : 'F')); break;
-      case 'flaky': process.stdout.write(colors.yellow('±')); break;
+      case 'expected': this.screen.stdout.write(this.screen.colors.green('·')); break;
+      case 'unexpected': this.screen.stdout.write(this.screen.colors.red(result.status === 'timedOut' ? 'T' : 'F')); break;
+      case 'flaky': this.screen.stdout.write(this.screen.colors.yellow('±')); break;
     }
   }
 
   override onError(error: TestError): void {
     super.onError(error);
-    console.log('\n' + formatError(error, colors.enabled).message);
+    this.writeLine('\n' + this.formatError(error).message);
     this._counter = 0;
   }
 
   override async onEnd(result: FullResult) {
     await super.onEnd(result);
-    process.stdout.write('\n');
+    this.screen.stdout.write('\n');
     this.epilogue(true);
   }
 }

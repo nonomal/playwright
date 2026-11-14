@@ -34,12 +34,14 @@
 #include "PlaywrightLibResource.h"
 #include "PlaywrightReplace.h"
 #include <WebKit/WKContext.h>
+#include <WebCore/PlatformPasteboard.h>
 #include <WebKit/WKWebsiteDataStoreConfigurationRef.h>
 #include <WebKit/WKWebsiteDataStoreRef.h>
 #include <WebKit/WKWebsiteDataStoreRefCurl.h>
 #include <wtf/win/SoftLinking.h>
 #include "WebKitBrowserWindow.h"
 #include <wtf/MainThread.h>
+#include <wtf/RunLoop.h>
 #include <WebKit/WKInspector.h>
 
 SOFT_LINK_LIBRARY(user32);
@@ -76,7 +78,6 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
     _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
 #endif
 
-    MSG msg { };
     HACCEL hAccelTable, hPreAccelTable;
 
     INITCOMMONCONTROLSEX InitCtrlEx;
@@ -86,6 +87,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
     InitCommonControlsEx(&InitCtrlEx);
 
     g_options = parseCommandLine();
+    WebCore::PlatformPasteboard::setIsolated(g_options.headless);
     if (g_options.inspectorPipe) {
         WKInspectorInitializeRemoteInspectorPipe(
             configureDataStore,
@@ -102,13 +104,13 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
     if (SetProcessDpiAwarenessContextPtr())
         SetProcessDpiAwarenessContextPtr()(DPI_AWARENESS_CONTEXT_UNAWARE);
 
-    MainWindow::configure(g_options.headless, g_options.inspectorPipe, g_options.disableAcceleratedCompositing);
+    s_headless = g_options.headless;
+    MainWindow::configure(g_options.inspectorPipe, g_options.disableAcceleratedCompositing);
 
     if (!g_options.noStartupWindow) {
         auto configuration = adoptWK(WKWebsiteDataStoreConfigurationCreate());
         if (g_options.userDataDir.length()) {
             std::string profileFolder = toUTF8String(g_options.userDataDir, g_options.userDataDir.length());
-            WKWebsiteDataStoreConfigurationSetApplicationCacheDirectory(configuration.get(), toWK(profileFolder + "\\ApplicationCache").get());
             WKWebsiteDataStoreConfigurationSetNetworkCacheDirectory(configuration.get(), toWK(profileFolder + "\\Cache").get());
             WKWebsiteDataStoreConfigurationSetCacheStorageDirectory(configuration.get(), toWK(profileFolder + "\\CacheStorage").get());
             WKWebsiteDataStoreConfigurationSetIndexedDBDatabaseDirectory(configuration.get(), toWK(profileFolder + "\\Databases" + "\\IndexedDB").get());
@@ -143,17 +145,15 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
     // Main message loop:
     __try {
-        while (GetMessage(&msg, nullptr, 0, 0)) {
+        RunLoop::setWindowsMessageHandler([hAccelTable, hPreAccelTable] (MSG& msg) {
             if (TranslateAccelerator(msg.hwnd, hPreAccelTable, &msg))
-                continue;
+                return true;
             bool processed = false;
             if (MainWindow::isInstance(msg.hwnd))
                 processed = TranslateAccelerator(msg.hwnd, hAccelTable, &msg);
-            if (!processed) {
-                TranslateMessage(&msg);
-                DispatchMessage(&msg);
-            }
-        }
+            return processed;
+        });
+        RunLoop::run();
     } __except(createCrashReport(GetExceptionInformation()), EXCEPTION_EXECUTE_HANDLER) { }
 
 exit:
@@ -164,5 +164,5 @@ exit:
     // Shut down COM.
     OleUninitialize();
 
-    return static_cast<int>(msg.wParam);
+    return 0;
 }

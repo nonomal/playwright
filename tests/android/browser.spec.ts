@@ -17,10 +17,6 @@
 import fs from 'fs';
 import { androidTest as test, expect } from './androidTest';
 
-test.afterAll(async ({ androidDevice }) => {
-  await androidDevice.shell('am force-stop com.android.chrome');
-});
-
 test('androidDevice.model', async function({ androidDevice }) {
   expect(androidDevice.model()).toContain('sdk_gphone');
   expect(androidDevice.model()).toContain('x86_64');
@@ -63,7 +59,7 @@ test('androidDevice.launchBrowser should pass proxy config', async ({ androidDev
   });
   const context = await androidDevice.launchBrowser({ proxy: { server: `${loopback}:${server.PORT}` } });
   const page = await context.newPage();
-  await page.goto('http://non-existent.com/target.html');
+  await page.goto('http://non-existent.test/target.html');
   expect(await page.title()).toBe('Served by the proxy');
   await context.close();
 });

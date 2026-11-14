@@ -1,6 +1,7 @@
 # class: Logger
 * since: v1.8
 * langs: js
+* deprecated: This class is deprecated. The logs pumped through this class are incomplete. Please use tracing instead.
 
 Playwright generates a lot of logs and they are accessible via the pluggable logger sink.
 
@@ -32,7 +33,7 @@ logger name
 
 ### param: Logger.isEnabled.severity
 * since: v1.8
-- `severity` <[LogSeverity]<"verbose"|"info"|"warning"|"error">>
+- `severity` "LogSeverity" <"verbose"|"info"|"warning"|"error">
 
 ## method: Logger.log
 * since: v1.8
@@ -45,7 +46,7 @@ logger name
 
 ### param: Logger.log.severity
 * since: v1.8
-- `severity` <[LogSeverity]<"verbose"|"info"|"warning"|"error">>
+- `severity` "LogSeverity" <"verbose"|"info"|"warning"|"error">
 
 ### param: Logger.log.message
 * since: v1.8

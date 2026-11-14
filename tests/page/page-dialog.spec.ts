@@ -17,7 +17,9 @@
 
 import { test as it, expect } from './pageTest';
 
-it('should fire', async ({ page, server }) => {
+import type { Dialog } from 'playwright-core';
+
+it('DI-001 should fire', async ({ page, server }) => {
   page.on('dialog', dialog => {
     expect(dialog.type()).toBe('alert');
     expect(dialog.defaultValue()).toBe('');
@@ -27,7 +29,40 @@ it('should fire', async ({ page, server }) => {
   await page.evaluate(() => alert('yo'));
 });
 
-it('should allow accepting prompts @smoke', async ({ page, isElectron }) => {
+it('DI-002 should fire dialogclosed when dialog is accepted', async ({ page }) => {
+  const closed: Dialog[] = [];
+  page.on('dialogclosed', dialog => closed.push(dialog));
+  let opened: Dialog | undefined;
+  page.on('dialog', dialog => {
+    opened = dialog;
+    void dialog.accept();
+  });
+  await page.evaluate(() => alert('yo'));
+  await expect.poll(() => closed.length).toBe(1);
+  expect(closed[0]).toBe(opened);
+  // Perform some roundtrips to ensure the event does not fire twice.
+  await page.evaluate(() => 1);
+  await page.evaluate(() => 1);
+  expect(closed.length).toBe(1);
+});
+
+it('DI-003 should fire dialogclosed when dialog is dismissed', async ({ page }) => {
+  const closedPromise = page.waitForEvent('dialogclosed');
+  page.on('dialog', dialog => void dialog.dismiss());
+  await page.evaluate(() => confirm('boolean?'));
+  const dialog = await closedPromise;
+  expect(dialog.type()).toBe('confirm');
+  expect(dialog.message()).toBe('boolean?');
+});
+
+it('DI-004 should fire dialogclosed for auto-dismissed dialogs', async ({ page }) => {
+  const closedPromise = page.waitForEvent('dialogclosed');
+  await page.evaluate(() => alert('yo'));
+  const dialog = await closedPromise;
+  expect(dialog.message()).toBe('yo');
+});
+
+it('DI-005 should allow accepting prompts @smoke', async ({ page, isElectron }) => {
   it.skip(isElectron, 'prompt() is not a thing in electron');
 
   page.on('dialog', dialog => {
@@ -40,7 +75,7 @@ it('should allow accepting prompts @smoke', async ({ page, isElectron }) => {
   expect(result).toBe('answer!');
 });
 
-it('should dismiss the prompt', async ({ page, isElectron }) => {
+it('DI-006 should dismiss the prompt', async ({ page, isElectron }) => {
   it.skip(isElectron, 'prompt() is not a thing in electron');
 
   page.on('dialog', dialog => dialog.dismiss());
@@ -48,7 +83,7 @@ it('should dismiss the prompt', async ({ page, isElectron }) => {
   expect(result).toBe(null);
 });
 
-it('should accept the confirm prompt', async ({ page }) => {
+it('DI-007 should accept the confirm prompt', async ({ page }) => {
   page.on('dialog', dialog => {
     void dialog.accept();
   });
@@ -56,7 +91,7 @@ it('should accept the confirm prompt', async ({ page }) => {
   expect(result).toBe(true);
 });
 
-it('should dismiss the confirm prompt', async ({ page }) => {
+it('DI-008 should dismiss the confirm prompt', async ({ page }) => {
   page.on('dialog', dialog => {
     void dialog.dismiss();
   });
@@ -64,15 +99,15 @@ it('should dismiss the confirm prompt', async ({ page }) => {
   expect(result).toBe(false);
 });
 
-it('should be able to close context with open alert', async ({ page }) => {
+it('DI-009 should be able to close context with open alert', async ({ page }) => {
   const alertPromise = page.waitForEvent('dialog');
   await page.evaluate(() => {
-    setTimeout(() => alert('hello'), 0);
+    window.builtins.setTimeout(() => alert('hello'), 0);
   });
   await alertPromise;
 });
 
-it('should handle multiple alerts', async ({ page }) => {
+it('DI-010 should handle multiple alerts', async ({ page }) => {
   page.on('dialog', dialog => {
     void dialog.accept().catch(e => {});
   });
@@ -87,7 +122,7 @@ it('should handle multiple alerts', async ({ page }) => {
   expect(await page.textContent('p')).toBe('Hello World');
 });
 
-it('should handle multiple confirms', async ({ page }) => {
+it('DI-011 should handle multiple confirms', async ({ page }) => {
   page.on('dialog', dialog => {
     void dialog.accept().catch(e => {});
   });
@@ -102,14 +137,14 @@ it('should handle multiple confirms', async ({ page }) => {
   expect(await page.textContent('p')).toBe('Hello World');
 });
 
-it('should auto-dismiss the prompt without listeners', async ({ page, isElectron }) => {
+it('DI-012 should auto-dismiss the prompt without listeners', async ({ page, isElectron }) => {
   it.skip(isElectron, 'prompt() is not a thing in electron');
 
   const result = await page.evaluate(() => prompt('question?'));
   expect(result).toBe(null);
 });
 
-it('should auto-dismiss the alert without listeners', async ({ page }) => {
+it('DI-013 should auto-dismiss the alert without listeners', async ({ page }) => {
   await page.setContent(`<div onclick="window.alert(123); window._clicked=true">Click me</div>`);
   await page.click('div');
   expect(await page.evaluate('window._clicked')).toBe(true);

@@ -20,7 +20,7 @@ import { attachFrame, detachFrame } from '../config/utils';
 import type { Frame } from 'playwright-core';
 
 function dumpFrames(frame: Frame, indentation: string = ''): string[] {
-  let description = frame.url().replace(/:\d+\//, ':<PORT>/');
+  let description = frame.url();
   if (frame.name())
     description += ' (' + frame.name() + ')';
   const result = [indentation + description];
@@ -35,20 +35,21 @@ function dumpFrames(frame: Frame, indentation: string = ''): string[] {
   return result;
 }
 
-it('should handle nested frames @smoke', async ({ page, server, isAndroid }) => {
+it('FR-024 should handle nested frames @smoke', async ({ page, server, isAndroid, isBidi }) => {
   it.skip(isAndroid, 'No cross-process on Android');
+  it.skip(isBidi, 'frame.name() is racy with BiDi');
 
   await page.goto(server.PREFIX + '/frames/nested-frames.html');
   expect(dumpFrames(page.mainFrame())).toEqual([
-    'http://localhost:<PORT>/frames/nested-frames.html',
-    '    http://localhost:<PORT>/frames/frame.html (aframe)',
-    '    http://localhost:<PORT>/frames/two-frames.html (2frames)',
-    '        http://localhost:<PORT>/frames/frame.html (dos)',
-    '        http://localhost:<PORT>/frames/frame.html (uno)',
+    `${server.PREFIX}/frames/nested-frames.html`,
+    `    ${server.PREFIX}/frames/frame.html (aframe)`,
+    `    ${server.PREFIX}/frames/two-frames.html (2frames)`,
+    `        ${server.PREFIX}/frames/frame.html (dos)`,
+    `        ${server.PREFIX}/frames/frame.html (uno)`,
   ]);
 });
 
-it('should send events when frames are manipulated dynamically', async ({ page, server }) => {
+it('FR-025 should send events when frames are manipulated dynamically', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   // validate frameattached events
   const attachedFrames = [];
@@ -76,7 +77,7 @@ it('should send events when frames are manipulated dynamically', async ({ page, 
   expect(detachedFrames[0].isDetached()).toBe(true);
 });
 
-it('should send "framenavigated" when navigating on anchor URLs', async ({ page, server }) => {
+it('FR-026 should send "framenavigated" when navigating on anchor URLs', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await Promise.all([
     page.goto(server.EMPTY_PAGE + '#foo'),
@@ -85,14 +86,14 @@ it('should send "framenavigated" when navigating on anchor URLs', async ({ page,
   expect(page.url()).toBe(server.EMPTY_PAGE + '#foo');
 });
 
-it('should persist mainFrame on cross-process navigation', async ({ page, server }) => {
+it('FR-027 should persist mainFrame on cross-process navigation', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   const mainFrame = page.mainFrame();
   await page.goto(server.CROSS_PROCESS_PREFIX + '/empty.html');
   expect(page.mainFrame() === mainFrame).toBeTruthy();
 });
 
-it('should not send attach/detach events for main frame', async ({ page, server }) => {
+it('FR-028 should not send attach/detach events for main frame', async ({ page, server }) => {
   let hasEvents = false;
   page.on('frameattached', frame => hasEvents = true);
   page.on('framedetached', frame => hasEvents = true);
@@ -100,7 +101,7 @@ it('should not send attach/detach events for main frame', async ({ page, server 
   expect(hasEvents).toBe(false);
 });
 
-it('should detach child frames on navigation', async ({ page, server }) => {
+it('FR-029 should detach child frames on navigation', async ({ page, server }) => {
   let attachedFrames = [];
   let detachedFrames = [];
   let navigatedFrames = [];
@@ -121,7 +122,7 @@ it('should detach child frames on navigation', async ({ page, server }) => {
   expect(navigatedFrames.length).toBe(1);
 });
 
-it('should support framesets', async ({ page, server }) => {
+it('FR-030 should support framesets', async ({ page, server }) => {
   let attachedFrames = [];
   let detachedFrames = [];
   let navigatedFrames = [];
@@ -142,7 +143,7 @@ it('should support framesets', async ({ page, server }) => {
   expect(navigatedFrames.length).toBe(1);
 });
 
-it('should report frame from-inside shadow DOM', async ({ page, server }) => {
+it('FR-031 should report frame from-inside shadow DOM', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/shadow.html');
   await page.evaluate(async url => {
     const frame = document.createElement('iframe');
@@ -154,7 +155,9 @@ it('should report frame from-inside shadow DOM', async ({ page, server }) => {
   expect(page.frames()[1].url()).toBe(server.EMPTY_PAGE);
 });
 
-it('should report frame.name()', async ({ page, server }) => {
+it('FR-032 should report frame.name()', async ({ page, server, isBidi }) => {
+  it.skip(isBidi, 'frame.name() is racy with BiDi');
+
   await attachFrame(page, 'theFrameId', server.EMPTY_PAGE);
   await page.evaluate(url => {
     const frame = document.createElement('iframe');
@@ -168,7 +171,7 @@ it('should report frame.name()', async ({ page, server }) => {
   expect(page.frames()[2].name()).toBe('theFrameName');
 });
 
-it('should report frame.parent()', async ({ page, server }) => {
+it('FR-033 should report frame.parent()', async ({ page, server }) => {
   await attachFrame(page, 'frame1', server.EMPTY_PAGE);
   await attachFrame(page, 'frame2', server.EMPTY_PAGE);
   expect(page.frames()[0].parentFrame()).toBe(null);
@@ -176,7 +179,7 @@ it('should report frame.parent()', async ({ page, server }) => {
   expect(page.frames()[2].parentFrame()).toBe(page.mainFrame());
 });
 
-it('should report different frame instance when frame re-attaches', async ({ page, server }) => {
+it('FR-034 should report different frame instance when frame re-attaches', async ({ page, server }) => {
 
   const frame1 = await attachFrame(page, 'frame1', server.EMPTY_PAGE);
   await page.evaluate(() => {
@@ -192,7 +195,7 @@ it('should report different frame instance when frame re-attaches', async ({ pag
   expect(frame1).not.toBe(frame2);
 });
 
-it('should refuse to display x-frame-options:deny iframe', async ({ page, server, browserName }) => {
+it('FR-035 should refuse to display x-frame-options:deny iframe', async ({ page, server, browserName }) => {
   it.skip(browserName === 'firefox');
 
   server.setRoute('/x-frame-options-deny.html', async (req, res) => {
@@ -211,7 +214,7 @@ it('should refuse to display x-frame-options:deny iframe', async ({ page, server
   expect(await refusalText).toMatch(/Refused to display .* in a frame because it set 'X-Frame-Options' to 'deny'./i);
 });
 
-it('should return frame.page()', async ({ page, server }) => {
+it('FR-036 should return frame.page()', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/frames/one-frame.html');
   expect(page.mainFrame().page()).toBe(page);
   expect(page.mainFrame().childFrames()[0].page()).toBe(page);

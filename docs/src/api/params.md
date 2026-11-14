@@ -1,11 +1,17 @@
 ## navigation-wait-until
-- `waitUntil` <[WaitUntilState]<"load"|"domcontentloaded"|"networkidle"|"commit">>
+- `waitUntil` "WaitUntilState" <"load"|"domcontentloaded"|"networkidle"|"commit">
 
 When to consider operation succeeded, defaults to `load`. Events can be either:
 * `'domcontentloaded'` - consider operation to be finished when the `DOMContentLoaded` event is fired.
 * `'load'` - consider operation to be finished when the `load` event is fired.
 * `'networkidle'` - **DISCOURAGED** consider operation to be finished when there are no network connections for at least `500` ms. Don't use this method for testing, rely on web assertions to assess readiness instead.
 * `'commit'` - consider operation to be finished when network response is received and the document started loading.
+
+## content-option-include-shadow
+- `includeShadow` <[boolean]>
+
+When true, contents of open shadow roots are included as [declarative shadow DOM](https://developer.mozilla.org/en-US/docs/Web/API/Web_components/Using_shadow_DOM#declaratively_with_html),
+i.e. `<template shadowrootmode="open">` elements nested inside their host elements. Closed shadow roots are never included. Defaults to `false`.
 
 ## navigation-timeout
 * langs: python, java, csharp
@@ -62,16 +68,31 @@ Maximum time in milliseconds. Defaults to `0` - no timeout. The default value ca
 [`method: Page.setDefaultTimeout`] methods.
 
 ## input-no-wait-after
+* deprecated: This option will default to `true` in the future.
 - `noWaitAfter` <[boolean]>
 
 Actions that initiate navigations are waiting for these navigations to happen and for pages to start loading. You can
 opt out of waiting via setting this flag. You would only need this option in the exceptional cases such as navigating
 to inaccessible pages. Defaults to `false`.
 
+## input-no-wait-after-removed
+* deprecated: This option has no effect.
+- `noWaitAfter` <[boolean]>
+
+This option has no effect.
+
 ## input-force
 - `force` <[boolean]>
 
 Whether to bypass the [actionability](../actionability.md) checks. Defaults to `false`.
+
+## input-scroll
+- `scroll` "ScrollMode" <"auto"|"none">
+
+Controls whether Playwright scrolls the element into view before performing the action. Defaults to `"auto"`,
+which scrolls the element into view when necessary, including scrolling nested scrollable containers. When set to
+`"none"`, Playwright does not scroll the element and the action fails if the element is not already in the viewport.
+This is useful to assert that an element is reachable by the user without additional scrolling.
 
 ## input-selector
 - `selector` <[string]>
@@ -89,30 +110,52 @@ A selector to search for an element to drag. If there are multiple elements sati
 A selector to search for an element to drop onto. If there are multiple elements satisfying the selector, the first will be used.
 
 ## input-position
-- `position` <[Object]>
+- `position` "Position" <[Object]>
   - `x` <[float]>
   - `y` <[float]>
 
 A point to use relative to the top-left corner of element padding box. If not specified, uses some visible point of the
 element.
 
+## input-mousemove-steps
+- `steps` <[int]>
+
+Defaults to 1. Sends `n` interpolated `mousemove` events to represent travel between Playwright's current cursor position and the provided destination. When set to 1, emits a single `mousemove` event at the destination location.
+
+## input-drag-steps
+- `steps` <[int]>
+
+Defaults to 1. Sends `n` interpolated `mousemove` events to represent travel between the `mousedown` and `mouseup` of the drag. When set to 1, emits a single `mousemove` event at the destination location.
+
 ## input-modifiers
-- `modifiers` <[Array]<[KeyboardModifier]<"Alt"|"Control"|"ControlOrMeta"|"Meta"|"Shift">>>
+- `modifiers` "KeyboardModifier" <[Array]<"Alt"|"Control"|"ControlOrMeta"|"Meta"|"Shift">>
 
 Modifier keys to press. Ensures that only these modifiers are pressed during the operation, and then restores current
 modifiers back. If not specified, currently pressed modifiers are used. "ControlOrMeta" resolves to "Control" on Windows
 and Linux and to "Meta" on macOS.
 
 ## input-button
-- `button` <[MouseButton]<"left"|"right"|"middle">>
+- `button` "MouseButton" <"left"|"right"|"middle">
 
 Defaults to `left`.
 
 ## input-files
-- `files` <[path]|[Array]<[path]>|[Object]|[Array]<[Object]>>
+- `files` "FilePayload" <[path]|[Array]<[path]>|[Object]|[Array]<[Object]>>
   - `name` <[string]> File name
   - `mimeType` <[string]> File type
   - `buffer` <[Buffer]> File content
+
+## drop-payload
+- `payload` "DropPayload" <[Object]>
+  - `files` "FilePayload" ?<[path]|[Array]<[path]>|[Object]|[Array]<[Object]>>
+    - `name` <[string]> File name
+    - `mimeType` <[string]> File type
+    - `buffer` <[Buffer]> File content
+  - `data` ?<[Object]<[string], [string]>>
+
+Data to drop onto the target. Provide `files` (file paths or in-memory buffers), `data`
+(a mime-type → string map for clipboard-like content such as `text/plain`, `text/html`,
+`text/uri-list`), or both.
 
 ## input-down-up-delay
 - `delay` <[float]>
@@ -129,15 +172,22 @@ defaults to 1. See [UIEvent.detail].
 
 When set, this method only performs the [actionability](../actionability.md) checks and skips the action. Defaults to `false`. Useful to wait until the element is ready for the action without performing it.
 
+## input-trial-with-modifiers
+- `trial` <[boolean]>
+
+When set, this method only performs the [actionability](../actionability.md) checks and skips the action. Defaults to `false`. Useful to wait until the element is ready for the action without performing it. Note that keyboard `modifiers` will be pressed regardless of `trial` to allow testing elements which are only visible when those keys are pressed.
+
 ## input-source-position
-- `sourcePosition` <[Object]>
+- `sourcePosition` "Position" <[Object]>
+  * alias-csharp: SourcePosition
   - `x` <[float]>
   - `y` <[float]>
 
 Clicks on the source element at this point relative to the top-left corner of the element's padding box. If not specified, some visible point of the element is used.
 
 ## input-target-position
-- `targetPosition` <[Object]>
+- `targetPosition` "Position" <[Object]>
+  * alias-csharp: TargetPosition
   - `x` <[float]>
   - `y` <[float]>
 
@@ -166,7 +216,7 @@ A selector to use when resolving DOM element.
 A selector or locator to use when resolving DOM element.
 
 ## wait-for-selector-state
-- `state` <[WaitForSelectorState]<"attached"|"detached"|"visible"|"hidden">>
+- `state` "WaitForSelectorState" <"attached"|"detached"|"visible"|"hidden">
 
 Defaults to `'visible'`. Can be either:
 * `'attached'` - wait for element to be present in DOM.
@@ -212,7 +262,8 @@ If `true`, Playwright does not pass its own configurations args and only uses th
 Dangerous option; use with care. Defaults to `false`.
 
 ## browser-option-proxy
-- `proxy` <[Object]>
+- `proxy` "Proxy" <[Object]>
+  * alias-python: ProxySettings
   - `server` <[string]> Proxy to be used for all requests. HTTP and SOCKS proxies are supported, for example
     `http://myproxy.com:3128` or `socks5://myproxy.com:3128`. Short form `myproxy.com:3128` is considered an HTTP
     proxy.
@@ -223,22 +274,26 @@ Dangerous option; use with care. Defaults to `false`.
 
 Network proxy settings.
 
+## js-browser-option-env
+* langs: js
+- `env` <[Object]<[string], [string]|[undefined]>>
+
 ## csharp-java-browser-option-env
 * langs: csharp, java
 - `env` <[Object]<[string], [string]>>
 
 Specify environment variables that will be visible to the browser. Defaults to `process.env`.
 
-## js-python-browser-option-env
-* langs: js, python
+## python-browser-option-env
+* langs: python
 - `env` <[Object]<[string], [string]|[float]|[boolean]>>
 
 Specify environment variables that will be visible to the browser. Defaults to `process.env`.
 
 ## js-python-context-option-storage-state
 * langs: js, python
-- `storageState` <[path]|[Object]>
-  - `cookies` <[Array]<[Object]>> Cookies to set for context
+- `storageState` "StorageState" <[path]|[Object]>
+  - `cookies` "StorageStateCookie" <[Array]<[Object]>> Cookies to set for context
     - `name` <[string]>
     - `value` <[string]>
     - `domain` <[string]> Domain and path are required. For the cookie to apply to all subdomains as well, prefix domain with a dot, like this: ".example.com"
@@ -246,10 +301,10 @@ Specify environment variables that will be visible to the browser. Defaults to `
     - `expires` <[float]> Unix time in seconds.
     - `httpOnly` <[boolean]>
     - `secure` <[boolean]>
-    - `sameSite` <[SameSiteAttribute]<"Strict"|"Lax"|"None">> sameSite flag
-  - `origins` <[Array]<[Object]>> localStorage to set for context
+    - `sameSite` "SameSiteAttribute" <"Strict"|"Lax"|"None"> sameSite flag
+  - `origins` "OriginState" <[Array]<[Object]>>
     - `origin` <[string]>
-    - `localStorage` <[Array]<[Object]>>
+    - `localStorage` "LocalStorageEntry" <[Array]<[Object]>> localStorage to set for context
       - `name` <[string]>
       - `value` <[string]>
 
@@ -270,6 +325,40 @@ obtained via [`method: BrowserContext.storageState`].
 
 Populates context with given storage state. This option can be used to initialize context with logged-in information
 obtained via [`method: BrowserContext.storageState`]. Path to the file with saved storage state.
+
+## add-cookies-param
+- `cookies` "Cookie" <[Array]<[Object]>>
+  * alias-python: SetCookieParam
+  - `name` <[string]>
+  - `value` <[string]>
+  - `url` ?<[string]> Either `url` or both `domain` and `path` are required. Optional.
+  - `domain` ?<[string]> For the cookie to apply to all subdomains as well, prefix domain with a dot, like this: ".example.com". Either `url` or both `domain` and `path` are required. Optional.
+  - `path` ?<[string]> Either `url` or both `domain` and `path` are required. Optional.
+  - `expires` ?<[float]> Unix time in seconds. Optional.
+  - `httpOnly` ?<[boolean]> Optional.
+  - `secure` ?<[boolean]> Optional.
+  - `sameSite` "SameSiteAttribute" ?<"Strict"|"Lax"|"None"> Optional.
+  - `partitionKey` ?<[string]> For partitioned third-party cookies (aka [CHIPS](https://developer.mozilla.org/en-US/docs/Web/Privacy/Guides/Privacy_sandbox/Partitioned_cookies)), the partition key. Optional.
+
+## clear-cookies-option-name
+- `name` <[string]|[RegExp]>
+
+Only removes cookies with the given name.
+
+## clear-cookies-option-domain
+- `domain` <[string]|[RegExp]>
+
+Only removes cookies with the given domain.
+
+## clear-cookies-option-path
+- `path` <[string]|[RegExp]>
+
+Only removes cookies with the given path.
+
+## cookies-param-urls
+- `urls` ?<[string]|[Array]<[string]>>
+
+Optional list of URLs.
 
 ## storagestate-option-path
 - `path` <[path]>
@@ -304,7 +393,7 @@ When using [`method: Page.goto`], [`method: Page.route`], [`method: Page.waitFor
 ## context-option-viewport
 * langs: js, java
   - alias-java: viewportSize
-- `viewport` <[null]|[Object]>
+- `viewport` "ViewportSize" <[null]|[Object]>
   - `width` <[int]> page width in pixels.
   - `height` <[int]> page height in pixels.
 
@@ -337,21 +426,59 @@ It makes the execution of the tests non-deterministic.
 * langs:
   - alias-java: screenSize
   - alias-csharp: screenSize
-- `screen` <[Object]>
+- `screen` "ScreenSize" <[Object]>
   - `width` <[int]> page width in pixels.
   - `height` <[int]> page height in pixels.
 
 Emulates consistent window screen size available inside web page via `window.screen`. Is only used when the
 [`option: viewport`] is set.
 
+## page-agent-cache-key
+* since: v1.58
+- `cacheKey` <[string]>
+
+All the agentic actions are converted to the Playwright calls and are cached.
+By default, they are cached globally with the `task` as a key. This option allows controlling the cache key explicitly.
+
+## page-agent-max-tokens
+* since: v1.58
+- `maxTokens` <[int]>
+
+Maximum number of tokens to consume. The agentic loop will stop after input + output tokens exceed this value.
+Defaults to context-wide value specified in `agent` property.
+
+## page-agent-max-actions
+* since: v1.58
+- `maxActions` <[int]>
+
+Maximum number of agentic actions to generate, defaults to context-wide value specified in `agent` property.
+
+## page-agent-max-action-retries
+* since: v1.58
+- `maxActionRetries` <[int]>
+
+Maximum number of retries when generating each action, defaults to context-wide value specified in `agent` property.
+
+## page-agent-call-options-v1.58
+- %%-page-agent-cache-key-%%
+- %%-page-agent-max-tokens-%%
+- %%-page-agent-max-actions-%%
+- %%-page-agent-max-action-retries-%%
+
 ## fetch-param-url
 - `url` <[string]>
 
 Target URL.
 
-## js-python-fetch-option-params
-* langs: js, python
-- `params` <[Object]<[string], [string]|[float]|[boolean]>>
+## js-fetch-option-params
+* langs: js
+- `params` <[Object]<[string], [string]|[float]|[boolean]>|[URLSearchParams]|[string]>
+
+Query parameters to be sent with the URL.
+
+## python-fetch-option-params
+* langs: python
+- `params` <[Object]<[string], [string]|[float]|[boolean]>|[string]>
 
 Query parameters to be sent with the URL.
 
@@ -361,7 +488,13 @@ Query parameters to be sent with the URL.
 
 Query parameters to be sent with the URL.
 
-## java-csharp-fetch-params
+## csharp-fetch-option-paramsString
+* langs: csharp
+- `paramsString` <[string]>
+
+Query parameters to be sent with the URL.
+
+## java-fetch-params
 * langs: java
 - `options` ?<[RequestOptions]>
 
@@ -386,13 +519,21 @@ Request timeout in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to d
 Whether to throw on response codes other than 2xx and 3xx. By default response object is returned
 for all status codes.
 
-## js-python-fetch-option-form
-* langs: js, python
-- `form` <[Object]<[string], [string]|[float]|[boolean]>>
+## js-fetch-option-form
+* langs: js
+- `form` <[Object]<[string], [string]|[float]|[boolean]>|[FormData]>
 
 Provides an object that will be serialized as html form using `application/x-www-form-urlencoded` encoding and sent as
 this request body. If this parameter is specified `content-type` header will be set to `application/x-www-form-urlencoded`
 unless explicitly provided.
+
+## python-fetch-option-form
+* langs: python
+- `form` <[Object]<[string], [string]|[float]|[boolean]>|[FormData]>
+
+Provides an object that will be serialized as html form using `application/x-www-form-urlencoded` encoding and sent as
+this request body. If this parameter is specified `content-type` header will be set to `application/x-www-form-urlencoded`
+unless explicitly provided. Use [FormData] to send multiple values for the same field.
 
 ## csharp-fetch-option-form
 * langs: csharp
@@ -418,7 +559,7 @@ or as file-like object containing file name, mime-type and its content.
 
 ## python-fetch-option-multipart
 * langs: python
-- `multipart` <[Object]<[string], [string]|[float]|[boolean]|[ReadStream]|[Object]>>
+- `multipart` "FilePayload" <[Object]<[string], [string]|[float]|[boolean]|[ReadStream]|[Object]>|[FormData]>
   - `name` <[string]> File name
   - `mimeType` <[string]> File type
   - `buffer` <[Buffer]> File content
@@ -426,6 +567,7 @@ or as file-like object containing file name, mime-type and its content.
 Provides an object that will be serialized as html form using `multipart/form-data` encoding and sent as
 this request body. If this parameter is specified `content-type` header will be set to `multipart/form-data`
 unless explicitly provided. File values can be passed as file-like object containing file name, mime-type and its content.
+Use [FormData] to send multiple files in the same field.
 
 ## csharp-fetch-option-multipart
 * langs: csharp
@@ -437,8 +579,24 @@ unless explicitly provided. File values can be passed as file-like object contai
 
 An instance of [FormData] can be created via [`method: APIRequestContext.createFormData`].
 
-## js-python-csharp-fetch-option-data
-* langs: js, python, csharp
+## js-fetch-option-data
+* langs: js
+- `data` <[string]|[Buffer]|[Serializable]>
+
+Allows to set post data of the request. If the data parameter is an object other than a [Buffer], it will be serialized to JSON
+and the `content-type` header will be set to `application/json` if not explicitly set.
+
+If the data parameter is a string and the explicitly set `content-type` is `application/json` (case-insensitive,
+with optional parameters such as `charset=utf-8`), the string is sent as is if it parses as JSON.
+Otherwise, it is JSON-encoded as a string, including quotes and escaping. Strings with other content types
+are sent as is.
+
+Pass a [Buffer], such as `Buffer.from(body, 'utf8')`, to send exact bytes without JSON encoding,
+for example to send deliberately malformed JSON or a body used to compute a signature.
+For strings and buffers, the `content-type` header defaults to `application/octet-stream` if not explicitly set.
+
+## python-csharp-fetch-option-data
+* langs: python, csharp
 - `data` <[string]|[Buffer]|[Serializable]>
 
 Allows to set post data of the request. If the data parameter is an object, it will be serialized to json string
@@ -458,6 +616,12 @@ Whether to ignore HTTPS errors when sending network requests. Defaults to `false
 Maximum number of request redirects that will be followed automatically. An error will be thrown if the number is exceeded.
 Defaults to `20`. Pass `0` to not follow redirects.
 
+## js-python-csharp-fetch-option-maxretries
+* langs: js, python, csharp
+- `maxRetries` <[int]>
+
+Maximum number of times network errors should be retried. Currently only `ECONNRESET` error is retried. Does not retry based on HTTP response codes. An error will be thrown if the limit is exceeded. Defaults to `0` - no retries.
+
 ## evaluate-expression
 - `expression` <[string]>
 
@@ -469,6 +633,18 @@ to a function, the function is automatically invoked.
 - `pageFunction` <[function]|[string]>
 
 Function to be evaluated in the page context.
+
+## js-evaluate-expose-functions
+* langs: js
+- `exposeFunctions` <[boolean]>
+
+When set to `true`, functions passed inside [`param: arg`] are exposed in the page and can be called from the page function. Calling one returns a [Promise] of its result. Under the hood, each function is exposed via [`method: Page.exposeFunction`], so it is technically accessible from all frames of the page. Exposed functions are cleared upon the top-level navigation. Defaults to `false`, in which case functions are not serializable and passing one throws an error.
+
+## js-init-script-expose-functions
+* langs: js
+- `exposeFunctions` <[boolean]>
+
+When set to `true`, functions passed inside [`param: arg`] are exposed in the page and can be called from the init script. Calling one returns a [Promise] of its result. Under the hood, each function is exposed via [`method: Page.exposeFunction`], so it is technically accessible from all frames of the page. Unlike functions passed to [`method: Page.evaluate`], functions passed to an init script are exposed in every new document, so they survive navigations. Defaults to `false`, in which case functions are not serializable and are silently dropped.
 
 ## js-evalonselector-pagefunction
 * langs: js
@@ -496,7 +672,7 @@ Function to be evaluated in the main Electron process.
 
 ## python-context-option-viewport
 * langs: python
-- `viewport` <[null]|[Object]>
+- `viewport` "ViewportSize" <[null]|[Object]>
   - `width` <[int]> page width in pixels.
   - `height` <[int]> page height in pixels.
 
@@ -507,6 +683,29 @@ Sets a consistent viewport for each page. Defaults to an 1280x720 viewport. `no_
 - `noViewport` <[boolean]>
 
 Does not enforce fixed viewport, allows resizing window in the headed mode.
+
+## context-option-clientCertificates
+- `clientCertificates` "ClientCertificate" <[Array]<[Object]>>
+  - `origin` <[string]> Exact origin that the certificate is valid for. Origin includes `https` protocol, a hostname and optionally a port.
+  - `certPath` ?<[path]> Path to the file with the certificate in PEM format.
+  - `cert` ?<[Buffer]> Direct value of the certificate in PEM format.
+  - `keyPath` ?<[path]> Path to the file with the private key in PEM format.
+  - `key` ?<[Buffer]> Direct value of the private key in PEM format.
+  - `pfxPath` ?<[path]> Path to the PFX or PKCS12 encoded private key and certificate chain.
+  - `pfx` ?<[Buffer]> Direct value of the PFX or PKCS12 encoded private key and certificate chain.
+  - `passphrase` ?<[string]> Passphrase for the private key (PEM or PFX).
+
+TLS Client Authentication allows the server to request a client certificate and verify it.
+
+**Details**
+
+An array of client certificates to be used. Each certificate object must have either both `certPath` and `keyPath`, a single `pfxPath`, or their corresponding direct value equivalents (`cert` and `key`, or `pfx`). Optionally, `passphrase` property should be provided if the certificate is encrypted. The `origin` property should be provided with an exact match to the request origin that the certificate is valid for.
+
+Client certificate authentication is only active when at least one client certificate is provided. If you want to reject all client certificates sent by the server, you need to provide a client certificate with an `origin` that does not match any of the domains you plan to visit.
+
+:::note
+When using WebKit on macOS, accessing `localhost` will not pick up client certificates. You can make it work by replacing `localhost` with `local.playwright`.
+:::
 
 ## context-option-useragent
 - `userAgent` <[string]>
@@ -521,7 +720,7 @@ Specify device scale factor (can be thought of as dpr). Defaults to `1`. Learn m
 ## context-option-ismobile
 - `isMobile` <[boolean]>
 
-Whether the `meta viewport` tag is taken into account and touch events are enabled. isMobile is a part of device, so you don't actually need to set it manually. Defaults to `false` and is not supported in Firefox. Learn more about [mobile emulation](../emulation.md#ismobile).
+Whether the `meta viewport` tag is taken into account and touch events are enabled. isMobile is a part of device, so you don't actually need to set it manually. Defaults to `false`. Learn more about [mobile emulation](../emulation.md#ismobile).
 
 ## context-option-hastouch
 - `hasTouch` <[boolean]>
@@ -540,7 +739,7 @@ Changes the timezone of the context. See [ICU's metaZones.txt](https://cs.chromi
 for a list of supported timezone IDs. Defaults to the system timezone.
 
 ## context-option-geolocation
-- `geolocation` <[Object]>
+- `geolocation` "Geolocation" <[Object]>
   - `latitude` <[float]> Latitude between -90 and 90.
   - `longitude` <[float]> Longitude between -180 and 180.
   - `accuracy` ?<[float]> Non-negative accuracy value. Defaults to `0`.
@@ -567,80 +766,83 @@ An object containing additional HTTP headers to be sent with every request. Defa
 Whether to emulate network being offline. Defaults to `false`. Learn more about [network emulation](../emulation.md#offline).
 
 ## context-option-httpcredentials
-- `httpCredentials` <[Object]>
+- `httpCredentials` "HttpCredentials" <[Object]|[Array]<[Object]>>
   - `username` <[string]>
   - `password` <[string]>
   - `origin` ?<[string]> Restrain sending http credentials on specific origin (scheme://host:port).
-  - `sendImmediately` ?<[boolean]> Whether to send `Authorization` header with the first API request. By default, the credentials are sent only when 401 (Unauthorized) response with `WWW-Authenticate` header is received. This option does not affect requests sent from the browser.
+  - `send` "HttpCredentialsSend" ?<"unauthorized"|"always"> This option only applies to the requests sent from corresponding [APIRequestContext] and does not affect requests sent from the browser. `'always'` - `Authorization` header with basic authentication credentials will be sent with the each API request. `'unauthorized` - the credentials are only sent when 401 (Unauthorized) response with `WWW-Authenticate` header is received. Defaults to `'unauthorized'`.
 
 Credentials for [HTTP authentication](https://developer.mozilla.org/en-US/docs/Web/HTTP/Authentication).
 If no origin is specified, the username and password are sent to any servers upon unauthorized responses.
 
+Pass an array to use different credentials for different origins. The first entry that matches the request origin is used, and entries with no origin match any request.
+
 ## context-option-colorscheme
 * langs: js, java
-- `colorScheme` <null|[ColorScheme]<"light"|"dark"|"no-preference">>
+- `colorScheme` "ColorScheme" <null|"light"|"dark"|"no-preference">
 
-Emulates `'prefers-colors-scheme'` media feature, supported values are `'light'`, `'dark'`, `'no-preference'`. See
+Emulates [prefers-colors-scheme](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-color-scheme) media feature, supported values are `'light'` and `'dark'`. See
 [`method: Page.emulateMedia`] for more details. Passing `null` resets emulation to system defaults. Defaults to `'light'`.
 
 ## context-option-colorscheme-csharp-python
 * langs: csharp, python
-- `colorScheme` <[ColorScheme]<"light"|"dark"|"no-preference"|"null">>
+- `colorScheme` "ColorScheme" <"light"|"dark"|"no-preference"|"null">
 
-Emulates `'prefers-colors-scheme'` media feature, supported values are `'light'`, `'dark'`, `'no-preference'`. See
+Emulates [prefers-colors-scheme](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-color-scheme) media feature, supported values are `'light'` and `'dark'`. See
 [`method: Page.emulateMedia`] for more details. Passing `'null'` resets emulation to system defaults. Defaults to `'light'`.
 
 ## context-option-reducedMotion
 * langs: js, java
-- `reducedMotion` <null|[ReducedMotion]<"reduce"|"no-preference">>
+- `reducedMotion` "ReducedMotion" <null|"reduce"|"no-preference">
 
 Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. See [`method: Page.emulateMedia`] for more details. Passing `null` resets emulation to system defaults. Defaults to `'no-preference'`.
 
 ## context-option-reducedMotion-csharp-python
 * langs: csharp, python
-- `reducedMotion` <[ReducedMotion]<"reduce"|"no-preference"|"null">>
+- `reducedMotion` "ReducedMotion" <"reduce"|"no-preference"|"null">
 
 Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. See [`method: Page.emulateMedia`] for more details. Passing `'null'` resets emulation to system defaults. Defaults to `'no-preference'`.
 
 ## context-option-forcedColors
 * langs: js, java
-- `forcedColors` <null|[ForcedColors]<"active"|"none">>
+- `forcedColors` "ForcedColors" <null|"active"|"none">
 
 Emulates `'forced-colors'` media feature, supported values are `'active'`, `'none'`. See [`method: Page.emulateMedia`] for more details. Passing `null` resets emulation to system defaults. Defaults to `'none'`.
 
 ## context-option-forcedColors-csharp-python
 * langs: csharp, python
-- `forcedColors` <[ForcedColors]<"active"|"none"|"null">>
+- `forcedColors` "ForcedColors" <"active"|"none"|"null">
 
 Emulates `'forced-colors'` media feature, supported values are `'active'`, `'none'`. See [`method: Page.emulateMedia`] for more details. Passing `'null'` resets emulation to system defaults. Defaults to `'none'`.
 
+## context-option-contrast
+* langs: js, java
+- `contrast` "Contrast" <null|"no-preference"|"more">
+
+Emulates `'prefers-contrast'` media feature, supported values are `'no-preference'`, `'more'`. See [`method: Page.emulateMedia`] for more details. Passing `null` resets emulation to system defaults. Defaults to `'no-preference'`.
+
+## context-option-contrast-csharp-python
+* langs: csharp, python
+- `contrast` "Contrast" <"no-preference"|"more"|"null">
+
+Emulates `'prefers-contrast'` media feature, supported values are `'no-preference'`, `'more'`. See [`method: Page.emulateMedia`] for more details. Passing `'null'` resets emulation to system defaults. Defaults to `'no-preference'`.
+
 ## context-option-logger
 * langs: js
+* deprecated: The logs received by the logger are incomplete. Please use tracing instead.
 - `logger` <[Logger]>
 
 Logger sink for Playwright logging.
-
-## context-option-videospath
-* langs: js
-* deprecated: Use [`option: recordVideo`] instead.
-- `videosPath` <[path]>
-
-## context-option-videosize
-* langs: js
-* deprecated: Use [`option: recordVideo`] instead.
-- `videoSize` <[Object]>
-  - `width` <[int]> Video frame width.
-  - `height` <[int]> Video frame height.
 
 ## context-option-recordhar
 * langs: js
 - `recordHar` <[Object]>
   - `omitContent` ?<[boolean]> Optional setting to control whether to omit request content from the HAR. Defaults to
     `false`. Deprecated, use `content` policy instead.
-  - `content` ?<[HarContentPolicy]<"omit"|"embed"|"attach">> Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach` is specified, resources are persisted as separate files or entries in the ZIP archive. If `embed` is specified, content is stored inline the HAR file as per HAR specification. Defaults to `attach` for `.zip` output files and to `embed` for all other file extensions.
+  - `content` "HarContentPolicy" ?<"omit"|"embed"|"attach"> Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach` is specified, resources are persisted as separate files or entries in the ZIP archive. If `embed` is specified, content is stored inline the HAR file as per HAR specification. Defaults to `attach` for `.zip` output files and to `embed` for all other file extensions.
   - `path` <[path]> Path on the filesystem to write the HAR file to. If the file name ends with `.zip`, `content: 'attach'` is used by default.
-  - `mode` ?<[HarMode]<"full"|"minimal">> When set to `minimal`, only record information necessary for routing from HAR. This omits sizes, timing, page, cookies, security and other types of HAR information that are not used when replaying from HAR. Defaults to `full`.
-  - `urlFilter` ?<[string]|[RegExp]> A glob or regex pattern to filter requests that are stored in the HAR. When a [`option: baseURL`] via the context options was provided and the passed URL is a path, it gets merged via the [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor. Defaults to none.
+  - `mode` "HarMode" ?<"full"|"minimal"> When set to `minimal`, only record information necessary for routing from HAR. This omits sizes, timing, page, cookies, security and other types of HAR information that are not used when replaying from HAR. Defaults to `full`.
+  - `urlFilter` ?<[string]|[RegExp]> A glob or regex pattern to filter requests that are stored in the HAR. When a [`option: Browser.newContext.baseURL`] via the context options was provided and the passed URL is a path, it gets merged via the [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor. Defaults to none.
 
 Enables [HAR](http://www.softwareishard.com/blog/har-12-spec) recording for all pages into `recordHar.path` file. If not
 specified, the HAR is not recorded. Make sure to await [`method: BrowserContext.close`] for the HAR to be
@@ -665,14 +867,14 @@ Optional setting to control whether to omit request content from the HAR. Defaul
 ## context-option-recordhar-content
 * langs: csharp, java, python
   - alias-python: record_har_content
-- `recordHarContent` ?<[HarContentPolicy]<"omit"|"embed"|"attach">>
+- `recordHarContent` "HarContentPolicy" ?<"omit"|"embed"|"attach">
 
 Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach` is specified, resources are persisted as separate files and all of these files are archived along with the HAR file. Defaults to `embed`, which stores content inline the HAR file as per HAR specification.
 
 ## context-option-recordhar-mode
 * langs: csharp, java, python
   - alias-python: record_har_mode
-- `recordHarMode` ?<[HarMode]<"full"|"minimal">>
+- `recordHarMode` "HarMode" ?<"full"|"minimal">
 
 When set to `minimal`, only record information necessary for routing from HAR. This omits sizes, timing, page, cookies, security and other types of HAR information that are not used when replaying from HAR. Defaults to `full`.
 
@@ -684,12 +886,22 @@ When set to `minimal`, only record information necessary for routing from HAR. T
 ## context-option-recordvideo
 * langs: js
 - `recordVideo` <[Object]>
-  - `dir` <[path]> Path to the directory to put videos into.
+  - `dir` ?<[path]> Path to the directory to put videos into. If not specified, the videos will be stored in `artifactsDir` (see [`method: BrowserType.launch`] options).
   - `size` ?<[Object]> Optional dimensions of the recorded videos. If not specified the size will be equal to `viewport`
     scaled down to fit into 800x800. If `viewport` is not configured explicitly the video size defaults to 800x450.
     Actual picture of each page will be scaled down if necessary to fit the specified size.
     - `width` <[int]> Video frame width.
     - `height` <[int]> Video frame height.
+  - `fps` ?<[int]> Frame rate of the recorded videos in frames per second. Defaults to `25`. Firefox and WebKit currently capture up to 25 frames per second.
+  - `showActions` ?<[Object]> If specified, enables visual annotations on interacted elements during video recording.
+    - `duration` ?<[float]> How long each annotation is displayed in milliseconds. Defaults to `500`.
+    - `position` "AnnotatePosition" ?<"top-left"|"top"|"top-right"|"bottom-left"|"bottom"|"bottom-right"> Position of the action title overlay. Defaults to `"top-right"`.
+    - `fontSize` ?<[int]> Font size of the action title in pixels. Defaults to `24`. Deprecated, use `style.title` instead.
+    - `cursor` "ScreencastCursor" ?<"none"|"pointer"> Cursor decoration shown for pointer actions. `"pointer"` (the default) renders a mouse pointer that animates from the previous action point to the next one. `"none"` disables the cursor decoration.
+    - `style` ?<[Object]> Styles of the action decorations.
+      - `point` ?<[string]> CSS declarations for the zero-sized marker centered on the action point. Not shown when omitted.
+      - `highlight` ?<[string]> CSS declarations for the box that covers the target element. Not shown when omitted.
+      - `title` ?<[string]> CSS declarations for the action title.
 
 Enables video recording for all pages into `recordVideo.dir` directory. If not specified videos are not recorded. Make
 sure to await [`method: BrowserContext.close`] for videos to be saved.
@@ -705,9 +917,7 @@ not recorded. Make sure to call [`method: BrowserContext.close`] for videos to b
 ## context-option-recordvideo-size
 * langs: csharp, java, python
   - alias-python: record_video_size
-- `recordVideoSize` <[Object]>
-  If `viewport` is not configured explicitly the video size defaults to 800x450. Actual picture of each page will be
-  scaled down if necessary to fit the specified size.
+- `recordVideoSize` "RecordVideoSize" <[Object]>
   - `width` <[int]> Video frame width.
   - `height` <[int]> Video frame height.
 
@@ -715,8 +925,16 @@ Dimensions of the recorded videos. If not specified the size will be equal to `v
 scaled down to fit into 800x800. If `viewport` is not configured explicitly the video size defaults to 800x450.
 Actual picture of each page will be scaled down if necessary to fit the specified size.
 
+## context-option-recordvideo-fps
+* langs: csharp, java, python
+  - alias-python: record_video_fps
+- `recordVideoFps` <[int]>
+
+Frame rate of the recorded videos in frames per second. Defaults to `25`. Firefox and WebKit currently capture up to 25 frames per second.
+
 ## context-option-proxy
-- `proxy` <[Object]>
+- `proxy` "Proxy" <[Object]>
+  * alias-python: ProxySettings
   - `server` <[string]> Proxy to be used for all requests. HTTP and SOCKS proxies are supported, for example
     `http://myproxy.com:3128` or `socks5://myproxy.com:3128`. Short form `myproxy.com:3128` is considered an HTTP proxy.
   - `bypass` ?<[string]> Optional comma-separated domains to bypass proxy, for example `".com, chromium.org, .domain.com"`.
@@ -724,12 +942,6 @@ Actual picture of each page will be scaled down if necessary to fit the specifie
   - `password` ?<[string]> Optional password to use if HTTP proxy requires authentication.
 
 Network proxy settings to use with this context. Defaults to none.
-
-:::note
-For Chromium on Windows the browser needs to be launched with the global proxy for this option to work. If all
-contexts override the proxy, global proxy will be never used and can be any string, for example
-`launch({ proxy: { server: 'http://per-context' } })`.
-:::
 
 ## context-option-strict
 - `strictSelectors` <[boolean]>
@@ -739,26 +951,71 @@ on selectors that imply single target DOM element will throw when more than one 
 This option does not affect any Locator APIs (Locators are always strict). Defaults to `false`.
 See [Locator] to learn more about the strict mode.
 
+## context-option-locate-only-visible
+* langs: js
+* since: v1.66
+- `locateOnlyVisible` <[boolean]>
+
+Whether locators in this context find only [visible](../actionability.md#visible) elements.
+Defaults to `false`.
+
+When enabled, Playwright applies two rules:
+1. The element that a locator finds must be visible. Actions, assertions and queries behave as if
+   [`method: Locator.visible`] was called at the end of the locator chain.
+1. [`method: Locator.first`], [`method: Locator.last`] and [`method: Locator.nth`] select among visible
+   elements. They behave as if [`method: Locator.visible`] was called immediately before them.
+
+```js
+// <div hidden>One</div> <div>Two</div> <div>Three</div>
+await expect(page.locator('div')).toHaveCount(2);
+await expect(page.locator('div').first()).toHaveText('Two');
+await expect(page.locator('div').last()).toHaveText('Three');
+```
+
+An explicit visibility filter always has priority. Playwright does not add its own filter in a position
+that already has one. For example, `page.locator('div').filter({ visible: false }).first()` finds the first
+hidden element.
+
+All other parts of the locator chain are not filtered. In `page.locator('section').getByRole('button')`,
+the button must be visible, but the section can be hidden by the [visibility](../actionability.md#visible) rules,
+for example because it has zero size. The same applies to the inner locators of [`method: Locator.filter`],
+[`method: Locator.and`] and [`method: Locator.or`]: only the second rule applies to them.
+
+This option does not change the accessibility rules of [`method: Page.getByRole`]
+or the behavior of selector-based methods such as [`method: Page.querySelector`].
+
 ## context-option-service-worker-policy
-- `serviceWorkers` <[ServiceWorkerPolicy]<"allow"|"block">>
+- `serviceWorkers` "ServiceWorkerPolicy" <"allow"|"block">
 
 Whether to allow sites to register Service workers. Defaults to `'allow'`.
 * `'allow'`: [Service Workers](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) can be registered.
 * `'block'`: Playwright will block all registration of Service Workers.
 
+## remove-all-listeners-options-behavior
+* langs: js
+* since: v1.47
+- `behavior` "RemoveAllListenersBehavior" <"wait"|"ignoreErrors"|"default">
+
+Specifies whether to wait for already running listeners and what to do if they throw errors:
+* `'default'` - do not wait for current listener calls (if any) to finish, if the listener throws, it may result in unhandled error
+* `'wait'` - wait for current listener calls (if any) to finish
+* `'ignoreErrors'` - do not wait for current listener calls (if any) to finish, all errors thrown by the listeners after removal are silently caught
+
 ## unroute-all-options-behavior
 * langs: js, csharp, python
 * since: v1.41
-- `behavior` <[UnrouteBehavior]<"wait"|"ignoreErrors"|"default">>
+- `behavior` "UnrouteBehavior" <"wait"|"ignoreErrors"|"default">
 
 Specifies whether to wait for already running handlers and what to do if they throw errors:
 * `'default'` - do not wait for current handler calls (if any) to finish, if unrouted handler throws, it may result in unhandled error
 * `'wait'` - wait for current handler calls (if any) to finish
 * `'ignoreErrors'` - do not wait for current handler calls (if any) to finish, all errors thrown by the handlers after unrouting are silently caught
 
+
 ## select-options-values
 * langs: java, js, csharp
 - `values` <[null]|[string]|[ElementHandle]|[Array]<[string]>|[Object]|[Array]<[ElementHandle]>|[Array]<[Object]>>
+  * alias-java: SelectOption
   - `value` ?<[string]> Matches by `option.value`. Optional.
   - `label` ?<[string]> Matches by `option.label`. Optional.
   - `index` ?<[int]> Matches by the index. Optional.
@@ -767,10 +1024,19 @@ Options to select. If the `<select>` has the `multiple` attribute, all matching 
 first option matching one of the passed options is selected. String values are matching both values and labels. Option
 is considered matching if all specified properties match.
 
-## wait-for-navigation-url
+## js-wait-for-navigation-url
+* langs: js
+- `url` <[string]|[RegExp]|[URLPattern]|[function]\([URL]\):[boolean]>
+
+A glob pattern, regex pattern, URL pattern, or predicate receiving [URL] to match while waiting for the navigation. Note that if
+the parameter is a string without wildcard characters, the method will wait for navigation to URL that is exactly
+equal to the string.
+
+## python-csharp-java-wait-for-navigation-url
+* langs: python, csharp, java
 - `url` <[string]|[RegExp]|[function]\([URL]\):[boolean]>
 
-A glob pattern, regex pattern or predicate receiving [URL] to match while waiting for the navigation. Note that if
+A glob pattern, regex pattern, or predicate receiving [URL] to match while waiting for the navigation. Note that if
 the parameter is a string without wildcard characters, the method will wait for navigation to URL that is exactly
 equal to the string.
 
@@ -781,7 +1047,7 @@ equal to the string.
 Event name, same one typically passed into `*.on(event)`.
 
 ## wait-for-load-state-state
-- `state` ?<[LoadState]<"load"|"domcontentloaded"|"networkidle">>
+- `state` "LoadState" ?<"load"|"domcontentloaded"|"networkidle">
 
 Optional load state to wait for, defaults to `load`. If the state has been already reached while loading current document, the
 method resolves immediately. Can be one of:
@@ -839,6 +1105,22 @@ Receives the event data and resolves to truthy value when the waiting should res
 Maximum time to wait for in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to disable timeout.
 The default value can be changed by using the [`method: BrowserContext.setDefaultTimeout`].
 
+## wait-for-event-signal
+* langs: js
+* since: v1.62
+- `signal` <[AbortSignal]>
+
+Allows to cancel the waiting using an [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal). If the signal is aborted, the waiting will be aborted and the operation will throw an error.
+Note that providing a signal does not disable the default timeout, which can be changed using [`method: BrowserContext.setDefaultTimeout`]; pass `timeout: 0` to disable the timeout entirely.
+
+## input-signal
+* langs: js
+* since: v1.62
+- `signal` <[AbortSignal]>
+
+Allows to cancel the operation using an [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal). If the signal is aborted, the operation will be aborted and throw an error.
+Note that providing a signal does not disable the default timeout, which can be changed using [`method: BrowserContext.setDefaultTimeout`] or [`method: Page.setDefaultTimeout`]; pass `timeout: 0` to disable the timeout entirely.
+
 ## android-timeout
 * langs: js
 - `timeout` <[float]>
@@ -851,6 +1133,16 @@ using the [`method: AndroidDevice.setDefaultTimeout`] method.
 - `timeout` <[float]>
 
 Time to retry the assertion for in milliseconds. Defaults to `timeout` in `TestConfig.expect`.
+
+## js-assertions-signal
+* langs: js
+* since: v1.62
+- `signal` <[AbortSignal]>
+
+An optional [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal) that
+can cancel the assertion. Aborting the signal fails the assertion like a timeout: if the signal
+is aborted while the assertion is retrying, or is already aborted before the assertion starts,
+the assertion fails without retrying further.
 
 ## csharp-java-python-assertions-timeout
 * langs: java, python, csharp
@@ -867,13 +1159,13 @@ Whether to perform case-insensitive match. [`option: ignoreCase`] option takes p
 * langs: js
 - `maxDiffPixels` <[int]>
 
-An acceptable amount of pixels that could be different. Default is configurable with `TestConfig.expect`. Unset by default.
+An acceptable amount of pixels that could be different. Default is configurable with `TestConfig.expect`. Note that [`option: threshold`] defines which pixels are considered different.
 
 ## assertions-max-diff-pixel-ratio
 * langs: js
 - `maxDiffPixelRatio` <[float]>
 
-An acceptable ratio of pixels that are different to the total amount of pixels, between `0` and `1`. Default is configurable with `TestConfig.expect`. Unset by default.
+An acceptable ratio of pixels that are different to the total amount of pixels, between `0` and `1`. Default is configurable with `TestConfig.expect`. Note that [`option: threshold`] defines which pixels are considered different.
 
 ## assertions-threshold
 * langs: js
@@ -911,9 +1203,9 @@ between the same pixel in compared images, between zero (strict) and one (lax), 
 - %%-context-option-reducedMotion-csharp-python-%%
 - %%-context-option-forcedColors-%%
 - %%-context-option-forcedColors-csharp-python-%%
+- %%-context-option-contrast-%%
+- %%-context-option-contrast-csharp-python-%%
 - %%-context-option-logger-%%
-- %%-context-option-videospath-%%
-- %%-context-option-videosize-%%
 - %%-context-option-recordhar-%%
 - %%-context-option-recordhar-path-%%
 - %%-context-option-recordhar-omit-content-%%
@@ -924,6 +1216,7 @@ between the same pixel in compared images, between zero (strict) and one (lax), 
 - %%-context-option-recordvideo-dir-%%
 - %%-context-option-recordvideo-size-%%
 - %%-context-option-strict-%%
+- %%-context-option-locate-only-visible-%%
 - %%-context-option-service-worker-policy-%%
 
 ## browser-option-args
@@ -939,7 +1232,11 @@ Additional arguments to pass to the browser instance. The list of Chromium flags
 ## browser-option-channel
 - `channel` <[string]>
 
-Browser distribution channel.  Supported values are "chrome", "chrome-beta", "chrome-dev", "chrome-canary", "msedge", "msedge-beta", "msedge-dev", "msedge-canary". Read more about using [Google Chrome and Microsoft Edge](../browsers.md#google-chrome--microsoft-edge).
+Browser distribution channel.
+
+Use "chromium" to [opt in to new headless mode](../browsers.md#chromium-new-headless-mode).
+
+Use "chrome", "chrome-beta", "chrome-dev", "chrome-canary", "msedge", "msedge-beta", "msedge-dev", or "msedge-canary" to use branded [Google Chrome and Microsoft Edge](../browsers.md#google-chrome--microsoft-edge).
 
 ## browser-option-chromiumsandbox
 - `chromiumSandbox` <[boolean]>
@@ -981,8 +1278,7 @@ Close the browser process on SIGHUP. Defaults to `true`.
 
 Whether to run browser in headless mode. More details for
 [Chromium](https://developers.google.com/web/updates/2017/04/headless-chrome) and
-[Firefox](https://developer.mozilla.org/en-US/docs/Mozilla/Firefox/Headless_mode). Defaults to `true` unless the
-[`option: devtools`] option is `true`.
+[Firefox](https://hacks.mozilla.org/2017/12/using-headless-mode-in-firefox/). Defaults to `true`.
 
 ## js-python-browser-option-firefoxuserprefs
 * langs: js, python
@@ -991,6 +1287,8 @@ Whether to run browser in headless mode. More details for
 Firefox user preferences. Learn more about the Firefox user preferences at
 [`about:config`](https://support.mozilla.org/en-US/kb/about-config-editor-firefox).
 
+You can also provide a path to a custom [`policies.json` file](https://mozilla.github.io/policy-templates/) via `PLAYWRIGHT_FIREFOX_POLICIES_JSON` environment variable.
+
 ## csharp-java-browser-option-firefoxuserprefs
 * langs: csharp, java
 - `firefoxUserPrefs` <[Object]<[string], [any]>>
@@ -998,8 +1296,11 @@ Firefox user preferences. Learn more about the Firefox user preferences at
 Firefox user preferences. Learn more about the Firefox user preferences at
 [`about:config`](https://support.mozilla.org/en-US/kb/about-config-editor-firefox).
 
+You can also provide a path to a custom [`policies.json` file](https://mozilla.github.io/policy-templates/) via `PLAYWRIGHT_FIREFOX_POLICIES_JSON` environment variable.
+
 ## browser-option-logger
 * langs: js
+* deprecated: The logs received by the logger are incomplete. Please use tracing instead.
 - `logger` <[Logger]>
 
 Logger sink for Playwright logging.
@@ -1007,20 +1308,18 @@ Logger sink for Playwright logging.
 ## browser-option-timeout
 - `timeout` <[float]>
 
-Maximum time in milliseconds to wait for the browser instance to start. Defaults to `30000` (30 seconds). Pass `0` to
+Maximum time in milliseconds to wait for the browser instance to start. Defaults to `180000` (3 minutes). Pass `0` to
 disable timeout.
+
+## browser-option-artifactsdir
+- `artifactsDir` <[path]>
+
+If specified, artifacts (traces, videos, downloads, HAR files, etc.) are saved into this directory. The directory is not cleaned up when the browser closes. If not specified, a temporary directory is used and cleaned up when the browser closes.
 
 ## browser-option-tracesdir
 - `tracesDir` <[path]>
 
 If specified, traces are saved into this directory.
-
-## browser-option-devtools
-* deprecated: Use [debugging tools](../debug.md) instead.
-- `devtools` <[boolean]>
-
-**Chromium-only** Whether to auto-open a Developer Tools panel for each tab. If this option is `true`, the
-[`option: headless`] option will be set `false`.
 
 ## browser-option-slowmo
 - `slowMo` <[float]>
@@ -1029,12 +1328,13 @@ Slows down Playwright operations by the specified amount of milliseconds. Useful
 
 ## shared-browser-options-list-v1.8
 - %%-browser-option-args-%%
+- %%-browser-option-artifactsdir-%%
 - %%-browser-option-channel-%%
 - %%-browser-option-chromiumsandbox-%%
-- %%-browser-option-devtools-%%
 - %%-browser-option-downloadspath-%%
 - %%-csharp-java-browser-option-env-%%
-- %%-js-python-browser-option-env-%%
+- %%-js-browser-option-env-%%
+- %%-python-browser-option-env-%%
 - %%-browser-option-executablepath-%%
 - %%-browser-option-handlesigint-%%
 - %%-browser-option-handlesigterm-%%
@@ -1074,12 +1374,17 @@ Note that outer and inner locators must belong to the same frame. Inner locator 
 
 Matches elements that do not contain specified text somewhere inside, possibly in a child or a descendant element. When passed a [string], matching is case-insensitive and searches for a substring.
 
+## locator-option-visible
+- `visible` <[boolean]>
+
+Only matches visible or invisible elements. Prefer the [`method: Locator.visible`] shortcut when matching only visible elements.
+
 ## locator-options-list-v1.14
 - %%-locator-option-has-text-%%
 - %%-locator-option-has-%%
 
 ## screenshot-option-animations
-- `animations` <[ScreenshotAnimations]<"disabled"|"allow">>
+- `animations` "ScreenshotAnimations" <"disabled"|"allow">
 
 When set to `"disabled"`, stops CSS animations, CSS transitions and Web Animations. Animations get different treatment depending on their duration:
 * finite animations are fast-forwarded to completion, so they'll fire `transitionend` event.
@@ -1088,7 +1393,7 @@ When set to `"disabled"`, stops CSS animations, CSS transitions and Web Animatio
 Defaults to `"allow"` that leaves animations untouched.
 
 ## screenshot-option-animations-default-disabled
-- `animations` <[ScreenshotAnimations]<"disabled"|"allow">>
+- `animations` "ScreenshotAnimations" <"disabled"|"allow">
 
 When set to `"disabled"`, stops CSS animations, CSS transitions and Web Animations. Animations get different treatment depending on their duration:
 * finite animations are fast-forwarded to completion, so they'll fire `transitionend` event.
@@ -1105,7 +1410,8 @@ Defaults to `false`.
 ## screenshot-option-quality
 - `quality` <[int]>
 
-The quality of the image, between 0-100. Not applicable to `png` images.
+The quality of the image, between 0-100. Not applicable to `png` images. For `jpeg` the default is `80`.
+For `webp`, a quality of `100` (the default) produces a lossless image, while lower values use lossy compression.
 
 ## screenshot-option-path
 - `path` <[path]>
@@ -1115,7 +1421,7 @@ relative path, then it is resolved relative to the current working directory. If
 saved to the disk.
 
 ## screenshot-option-type
-- `type` <[ScreenshotType]<"png"|"jpeg">>
+- `type` "ScreenshotType" <"png"|"jpeg"|"webp">
 
 Specify screenshot type, defaults to `png`.
 
@@ -1124,6 +1430,7 @@ Specify screenshot type, defaults to `png`.
 
 Specify locators that should be masked when the screenshot is taken. Masked elements will be overlaid with
 a pink box `#FF00FF` (customized by [`option: maskColor`]) that completely covers its bounding box.
+The mask is also applied to invisible elements, see [Matching only visible elements](../locators.md#matching-only-visible-elements) to disable that.
 
 ## screenshot-option-mask-color
 * since: v1.35
@@ -1138,7 +1445,7 @@ When true, takes a screenshot of the full scrollable page, instead of the curren
 `false`.
 
 ## screenshot-option-clip
-- `clip` <[Object]>
+- `clip` "Clip" <[Object]>
   - `x` <[float]> x-coordinate of top-left corner of clip area
   - `y` <[float]> y-coordinate of top-left corner of clip area
   - `width` <[float]> width of clipping area
@@ -1147,21 +1454,21 @@ When true, takes a screenshot of the full scrollable page, instead of the curren
 An object which specifies clipping of the resulting image.
 
 ## screenshot-option-scale
-- `scale` <[ScreenshotScale]<"css"|"device">>
+- `scale` "ScreenshotScale" <"css"|"device">
 
 When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenshots of high-dpi devices will be twice as large or even larger.
 
 Defaults to `"device"`.
 
 ## screenshot-option-scale-default-css
-- `scale` <[ScreenshotScale]<"css"|"device">>
+- `scale` "ScreenshotScale" <"css"|"device">
 
 When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenshots of high-dpi devices will be twice as large or even larger.
 
 Defaults to `"css"`.
 
 ## screenshot-option-caret
-- `caret` <[ScreenshotCaret]<"hide"|"initial">>
+- `caret` "ScreenshotCaret" <"hide"|"initial">
 
 When set to `"hide"`, screenshot will hide text caret. When set to `"initial"`, text caret behavior will not be changed.  Defaults to `"hide"`.
 
@@ -1206,7 +1513,7 @@ Text to locate the element for.
 Whether to find an exact match: case-sensitive and whole-string. Default to false. Ignored when locating by a regular expression. Note that exact match still trims whitespace.
 
 ## get-by-role-to-have-role-role
-- `role` <[AriaRole]<"alert"|"alertdialog"|"application"|"article"|"banner"|"blockquote"|"button"|"caption"|"cell"|"checkbox"|"code"|"columnheader"|"combobox"|"complementary"|"contentinfo"|"definition"|"deletion"|"dialog"|"directory"|"document"|"emphasis"|"feed"|"figure"|"form"|"generic"|"grid"|"gridcell"|"group"|"heading"|"img"|"insertion"|"link"|"list"|"listbox"|"listitem"|"log"|"main"|"marquee"|"math"|"meter"|"menu"|"menubar"|"menuitem"|"menuitemcheckbox"|"menuitemradio"|"navigation"|"none"|"note"|"option"|"paragraph"|"presentation"|"progressbar"|"radio"|"radiogroup"|"region"|"row"|"rowgroup"|"rowheader"|"scrollbar"|"search"|"searchbox"|"separator"|"slider"|"spinbutton"|"status"|"strong"|"subscript"|"superscript"|"switch"|"tab"|"table"|"tablist"|"tabpanel"|"term"|"textbox"|"time"|"timer"|"toolbar"|"tooltip"|"tree"|"treegrid"|"treeitem">>
+- `role` "AriaRole" <"alert"|"alertdialog"|"application"|"article"|"banner"|"blockquote"|"button"|"caption"|"cell"|"checkbox"|"code"|"columnheader"|"combobox"|"complementary"|"contentinfo"|"definition"|"deletion"|"dialog"|"directory"|"document"|"emphasis"|"feed"|"figure"|"form"|"generic"|"grid"|"gridcell"|"group"|"heading"|"img"|"insertion"|"link"|"list"|"listbox"|"listitem"|"log"|"main"|"marquee"|"math"|"meter"|"menu"|"menubar"|"menuitem"|"menuitemcheckbox"|"menuitemradio"|"navigation"|"none"|"note"|"option"|"paragraph"|"presentation"|"progressbar"|"radio"|"radiogroup"|"region"|"row"|"rowgroup"|"rowheader"|"scrollbar"|"search"|"searchbox"|"separator"|"slider"|"spinbutton"|"status"|"strong"|"subscript"|"superscript"|"switch"|"tab"|"table"|"tablist"|"tabpanel"|"term"|"textbox"|"time"|"timer"|"toolbar"|"tooltip"|"tree"|"treegrid"|"treeitem">
 
 Required aria role.
 
@@ -1217,6 +1524,14 @@ Required aria role.
 An attribute that is usually set by `aria-checked` or native `<input type=checkbox>` controls.
 
 Learn more about [`aria-checked`](https://www.w3.org/TR/wai-aria-1.2/#aria-checked).
+
+## locator-get-by-role-option-description
+* since: v1.60
+- `description` <[string]|[RegExp]>
+
+Option to match the [accessible description](https://w3c.github.io/accname/#dfn-accessible-description). By default, matching is case-insensitive and searches for a substring, use [`option: exact`] to control this behavior.
+
+Learn more about [accessible description](https://w3c.github.io/accname/#dfn-accessible-description).
 
 ## locator-get-by-role-option-disabled
 * since: v1.27
@@ -1265,7 +1580,7 @@ Learn more about [accessible name](https://w3c.github.io/accname/#dfn-accessible
 * since: v1.28
 - `exact` <[boolean]>
 
-Whether [`option: name`] is matched exactly: case-sensitive and whole-string. Defaults to false. Ignored when [`option: name`] is a regular expression. Note that exact match still trims whitespace.
+Whether [`option: name`] and [`option: description`] are matched exactly: case-sensitive and whole-string. Defaults to false. Ignored when the value is a regular expression. Note that exact match still trims whitespace.
 
 ## locator-get-by-role-option-pressed
 * since: v1.27
@@ -1318,7 +1633,7 @@ Consider the following DOM structure.
 <button data-testid="directions">Itinéraire</button>
 ```
 
-You can locate the element by it's test id:
+You can locate the element by its test id:
 
 ```js
 await page.getByTestId('directions').click();
@@ -1426,19 +1741,19 @@ page.get_by_text(re.compile("^hello$", re.IGNORECASE))
 
 ```java
 // Matches <span>
-page.getByText("world")
+page.getByText("world");
 
 // Matches first <div>
-page.getByText("Hello world")
+page.getByText("Hello world");
 
 // Matches second <div>
-page.getByText("Hello", new Page.GetByTextOptions().setExact(true))
+page.getByText("Hello", new Page.GetByTextOptions().setExact(true));
 
 // Matches both <div>s
-page.getByText(Pattern.compile("Hello"))
+page.getByText(Pattern.compile("Hello"));
 
 // Matches second <div>
-page.getByText(Pattern.compile("^hello$", Pattern.CASE_INSENSITIVE))
+page.getByText(Pattern.compile("^hello$", Pattern.CASE_INSENSITIVE));
 ```
 
 ```csharp
@@ -1499,6 +1814,8 @@ await page.GetByAltText("Playwright logo").ClickAsync();
 ## template-locator-get-by-label-text
 
 Allows locating input elements by the text of the associated `<label>` or `aria-labelledby` element, or by the `aria-label` attribute.
+
+Associated `<label>` elements are also supported for form-associated custom elements.
 
 **Usage**
 
@@ -1590,7 +1907,7 @@ Consider the following DOM structure.
 <button>Submit</button>
 ```
 
-You can locate each element by it's implicit role:
+You can locate each element by its implicit role:
 
 ```js
 await expect(page.getByRole('heading', { name: 'Sign up' })).toBeVisible();
@@ -1692,7 +2009,9 @@ await Expect(Page.GetByTitle("Issues count")).toHaveText("25 issues");
 - `type` ?<[string]>
 * langs: js
 
-This option configures a template controlling location of snapshots generated by [`method: PageAssertions.toHaveScreenshot#1`] and [`method: SnapshotAssertions.toMatchSnapshot#1`].
+This option configures a template controlling location of snapshots generated by [`method: PageAssertions.toHaveScreenshot#1`], [`method: LocatorAssertions.toMatchAriaSnapshot#2`] and [`method: SnapshotAssertions.toMatchSnapshot#1`].
+
+You can configure templates for each assertion separately in [`property: TestConfig.expect`].
 
 **Usage**
 
@@ -1701,7 +2020,19 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
+
+  // Single template for all assertions
   snapshotPathTemplate: '{testDir}/__screenshots__/{testFilePath}/{arg}{ext}',
+
+  // Assertion-specific templates
+  expect: {
+    toHaveScreenshot: {
+      pathTemplate: '{testDir}/__screenshots__{/projectName}/{testFilePath}/{arg}{ext}',
+    },
+    toMatchAriaSnapshot: {
+      pathTemplate: '{testDir}/__snapshots__/{testFilePath}/{arg}{ext}',
+    },
+  },
 });
 ```
 
@@ -1732,22 +2063,24 @@ test.describe('suite', () => {
 
 The list of supported tokens:
 
-* `{arg}` - Relative snapshot path **without extension**. These come from the arguments passed to the `toHaveScreenshot()` and `toMatchSnapshot()` calls; if called without arguments, this will be an auto-generated snapshot name.
+* `{arg}` - Relative snapshot path **without extension**. This comes from the arguments passed to `toHaveScreenshot()`, `toMatchAriaSnapshot()` or `toMatchSnapshot()`; if called without arguments, this will be an auto-generated snapshot name.
   * Value: `foo/bar/baz`
-* `{ext}` - snapshot extension (with dots)
+* `{ext}` - Snapshot extension (with the leading dot).
   * Value: `.png`
 * `{platform}` - The value of `process.platform`.
 * `{projectName}` - Project's file-system-sanitized name, if any.
   * Value: `''` (empty string).
-* `{snapshotDir}` - Project's [`property: TestConfig.snapshotDir`].
+* `{snapshotDir}` - Project's [`property: TestProject.snapshotDir`].
   * Value: `/home/playwright/tests` (since `snapshotDir` is not provided in config, it defaults to `testDir`)
-* `{testDir}` - Project's [`property: TestConfig.testDir`].
-  * Value: `/home/playwright/tests` (absolute path is since `testDir` is resolved relative to directory with config)
+* `{testDir}` - Project's [`property: TestProject.testDir`].
+  * Value: `/home/playwright/tests` (absolute path since `testDir` is resolved relative to directory with config)
 * `{testFileDir}` - Directories in relative path from `testDir` to **test file**.
   * Value: `page`
+* `{testFileBaseName}` - Test file name without the last extension.
+  * Value: `page-click.spec`
 * `{testFileName}` - Test file name with extension.
   * Value: `page-click.spec.ts`
-* `{testFilePath}` - Relative path from `testDir` to **test file**
+* `{testFilePath}` - Relative path from `testDir` to **test file**.
   * Value: `page/page-click.spec.ts`
 * `{testName}` - File-system-sanitized test title, including parent describes but excluding file name.
   * Value: `suite-test-should-work`
@@ -1775,3 +2108,45 @@ In this config:
 1. Since `snapshotPathTemplate` resolves to relative path, it will be resolved relative to `configDir`.
 1. Forward slashes `"/"` can be used as path separators on any platform.
 
+## response-security-details
+- returns: "SecurityDetails" <[null]|[Object]>
+  * alias-csharp: ResponseSecurityDetailsResult
+  - `issuer` ?<[string]> Common Name component of the Issuer field.
+    from the certificate. This should only be used for informational purposes. Optional.
+  - `protocol` ?<[string]> The specific TLS protocol used. (e.g. `TLS 1.3`). Optional.
+  - `subjectName` ?<[string]> Common Name component of the Subject
+    field from the certificate. This should only be used for informational purposes. Optional.
+  - `validFrom` ?<[float]> Unix timestamp (in seconds) specifying
+    when this cert becomes valid. Optional.
+  - `validTo` ?<[float]> Unix timestamp (in seconds) specifying
+    when this cert becomes invalid. Optional.
+
+## response-server-addr
+- returns: "RemoteAddr" <[null]|[Object]>
+  * alias-csharp: ResponseServerAddrResult
+  * alias-java: ServerAddr
+  - `ipAddress` <[string]> IPv4 or IPV6 address of the server.
+  - `port` <[int]>
+
+## resource-timing
+- returns: "ResourceTiming" <[Object]>
+  * alias-csharp: RequestTimingResult
+  * alias-java: Timing
+  - `startTime` <[float]> Request start time in milliseconds elapsed since January 1, 1970 00:00:00 UTC
+  - `domainLookupStart` <[float]> Time immediately before the client starts the domain name lookup for the
+    resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
+  - `domainLookupEnd` <[float]> Time immediately after the client ends the domain name lookup for the resource.
+    The value is given in milliseconds relative to `startTime`, -1 if not available.
+  - `connectStart` <[float]> Time immediately before the client starts establishing the connection to the server
+    to retrieve the resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
+  - `secureConnectionStart` <[float]> Time immediately before the client starts the handshake process to secure the
+    current connection. The value is given in milliseconds relative to `startTime`, -1 if not available.
+  - `connectEnd` <[float]> Time immediately after the client establishes the connection to the server
+    to retrieve the resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
+  - `requestStart` <[float]> Time immediately before the client starts requesting the resource from the server,
+    cache, or local resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
+  - `responseStart` <[float]> Time immediately after the client receives the first byte of the response from the server,
+    cache, or local resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
+  - `responseEnd` <[float]> Time immediately after the client receives the last byte of the resource or immediately
+    before the transport connection is closed, whichever comes first. The value is given in milliseconds relative to
+    `startTime`, -1 if not available.

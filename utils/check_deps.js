@@ -20,29 +20,33 @@
 
 const fs = require('fs');
 const ts = require('typescript');
-const path = require('path').posix;
+const nativePath = require('path');
+const path = nativePath.posix;
 const Module = require('module');
 const builtins = new Set(Module.builtinModules);
-const packagesDir = path.resolve(path.join(__dirname, '..', 'packages'));
+// path.posix.resolve() treats Windows drive-letter paths as relative, so resolve natively and keep forward slashes.
+const resolvePath = (...segments) => nativePath.resolve(...segments).replace(/\\/g, '/');
+const packagesDir = resolvePath(__dirname, '..', 'packages');
 
 const packages = new Map();
 packages.set('web', packagesDir + '/web/src/');
-packages.set('injected', packagesDir + '/playwright-core/src/server/injected/');
-packages.set('isomorphic', packagesDir + '/playwright-core/src/utils/isomorphic/');
+packages.set('injected', packagesDir + '/injected/src/');
+packages.set('isomorphic', packagesDir + '/isomorphic/');
+packages.set('protocol', packagesDir + '/protocol/src/');
+packages.set('utils', packagesDir + '/utils/');
 packages.set('testIsomorphic', packagesDir + '/playwright/src/isomorphic/');
 
-const peerDependencies = ['electron', 'react', 'react-dom', '@zip.js/zip.js'];
+const peerDependencies = ['electron', 'react', 'react-dom', 'react-dom/client', '@zip.js/zip.js', 'zod', 'zod/v3'];
 
 const depsCache = {};
 
 async function checkDeps() {
   await innerCheckDeps(path.join(packagesDir, 'html-reporter'));
-  await innerCheckDeps(path.join(packagesDir, 'playwright-ct-core'));
   await innerCheckDeps(path.join(packagesDir, 'protocol'));
   await innerCheckDeps(path.join(packagesDir, 'recorder'));
   await innerCheckDeps(path.join(packagesDir, 'trace-viewer'));
-  await innerCheckDeps(path.join(packagesDir, 'trace'));
   await innerCheckDeps(path.join(packagesDir, 'web'));
+  await innerCheckDeps(path.join(packagesDir, 'injected'));
 
   const corePackageJson = await innerCheckDeps(path.join(packagesDir, 'playwright-core'));
   const playwrightPackageJson = await innerCheckDeps(path.join(packagesDir, 'playwright'));
@@ -60,12 +64,13 @@ async function checkDeps() {
 
 async function innerCheckDeps(root) {
   console.log('Checking DEPS for ' + path.relative(packagesDir, root));
-  const deps = new Set();
+  /** @type {Map<string, Set<string>>} */
+  const deps = new Map();
   const src = path.join(root, 'src');
 
   let packageJSON;
   try {
-    packageJSON = require(path.resolve(path.join(root, 'package.json')));
+    packageJSON = require(resolvePath(root, 'package.json'));
   } catch {
   }
 
@@ -79,7 +84,8 @@ async function innerCheckDeps(root) {
   });
   const sourceFiles = program.getSourceFiles();
   const errors = [];
-  sourceFiles.filter(x => !x.fileName.includes('node_modules')).map(x => visit(x, x.fileName, x.getFullText()));
+  // Agent skills are shipped as-is (SKILL.md plus user-facing templates), they are not part of the program.
+  sourceFiles.filter(x => !x.fileName.includes(path.sep + 'node_modules' + path.sep) && !x.fileName.includes(path.sep + 'bundles' + path.sep) && !x.fileName.includes('/tools/skills/')).map(x => visit(x, x.fileName, x.getFullText()));
 
   if (errors.length) {
     for (const error of errors)
@@ -94,8 +100,21 @@ async function innerCheckDeps(root) {
   if (packageJSON) {
     for (const dep of peerDependencies)
       deps.delete(dep);
-    for (const dep of deps) {
-      const resolved = require.resolve(dep, { paths: [root] });
+    // Vendored packages live in `bundles/utils/node_modules/` and are bridged
+    // through utilsBundle. Per-file `node_modules/<pkg>` declarations in
+    // DEPS.list authorize their use; skip the package.json dep check for them.
+    const { VENDORED_PACKAGES } = require('./build/utilsBundleMapping');
+    for (const pkg of VENDORED_PACKAGES) {
+      const top = pkg.startsWith('@') ? pkg.split('/').slice(0, 2).join('/') : pkg.split('/')[0];
+      deps.delete(top);
+    }
+    for (const dep of [...deps.keys()]) {
+      let resolved;
+      try {
+        resolved = require.resolve(dep, { paths: [root] });
+      } catch {
+        continue;
+      }
       if (dep === resolved || !resolved.includes('node_modules'))
         deps.delete(dep);
     }
@@ -104,8 +123,11 @@ async function innerCheckDeps(root) {
 
     if (deps.size) {
       console.log('Dependencies are not declared in package.json:');
-      for (const dep of deps)
+      for (const [dep, files] of deps) {
         console.log(`  ${dep}`);
+        for (const file of files)
+          console.log(`    ${path.relative(root, file)}`);
+      }
       process.exit(1);
     }
   }
@@ -125,7 +147,7 @@ async function innerCheckDeps(root) {
       const importName = node.moduleSpecifier.text;
       let importPath;
       if (importName.startsWith('.')) {
-        importPath = path.resolve(path.dirname(fileName), importName);
+        importPath = resolvePath(path.dirname(fileName), importName);
       } else if (importName.startsWith('@')) {
         const tokens = importName.substring(1).split('/');
         const package = tokens[0];
@@ -151,6 +173,19 @@ async function innerCheckDeps(root) {
         return;
       }
 
+      // Per-folder explicit allow-list: `node_modules/<importName>` in DEPS.list
+      // declares the file may import that exact package specifier. When a
+      // DEPS.list authorizes the dep, do NOT add it to the package.json
+      // dependency check either — the per-file allowlist is the contract. This
+      // also bypasses the strict-mode external-import rejection below.
+      if (mergedDeps.includes('node_modules/' + importName))
+        return;
+
+      if (mergedDeps.includes('"strict"') && !builtins.has(node.moduleSpecifier.text)) {
+        errors.push(`Disallowed import ${node.moduleSpecifier.text} in ${path.relative(root, fileName)}`);
+        return;
+      }
+
       const fullStart = node.getFullStart();
       const commentRanges = ts.getLeadingCommentRanges(text, fullStart);
       for (const range of commentRanges || []) {
@@ -159,10 +194,12 @@ async function innerCheckDeps(root) {
             return;
       }
 
-      if (importName.startsWith('@'))
-        deps.add(importName.split('/').slice(0, 2).join('/'));
-      else
-        deps.add(importName.split('/')[0]);
+      const topLevel = importName.startsWith('@')
+          ? importName.split('/').slice(0, 2).join('/')
+          : importName.split('/')[0];
+      if (!deps.has(topLevel))
+        deps.set(topLevel, new Set());
+      deps.get(topLevel).add(fileName);
 
       if (!allowExternalImport(importName, packageJSON))
         errors.push(`Disallowed external dependency ${importName} from ${path.relative(root, fileName)}`);
@@ -192,10 +229,14 @@ async function innerCheckDeps(root) {
         }
         if (line === '***')
           group.push('***');
+        else if (line === '"strict"')
+          group.push('"strict"');
+        else if (line.startsWith('node_modules/'))
+          group.push(line);
         else if (line.startsWith('@'))
           group.push(line.replace(/@([\w-]+)\/(.*)/, (_, arg1, arg2) => packages.get(arg1) + arg2));
         else
-          group.push(path.resolve(depsDirectory, line));
+          group.push(resolvePath(depsDirectory, line));
       }
       depsCache[depsDirectory] = deps;
     }
@@ -204,12 +245,16 @@ async function innerCheckDeps(root) {
   }
 
   function allowImport(from, to, mergedDeps) {
+    const strict = mergedDeps.includes('"strict"');
     const fromDirectory = path.dirname(from);
     const toDirectory = isDirectory(to) ? to : path.dirname(to);
     if (to === toDirectory)
       to = path.join(to, 'index.ts');
-    if (fromDirectory === toDirectory)
+    if (!strict && fromDirectory === toDirectory)
       return true;
+
+    if (strict)
+      return mergedDeps.includes(to) && calculateDeps(to).includes('"strict"');
 
     for (const dep of mergedDeps) {
       if (dep === '***')
@@ -244,8 +289,8 @@ async function innerCheckDeps(root) {
 function listAllFiles(dir) {
   const dirs = fs.readdirSync(dir, { withFileTypes: true });
   const result = [];
-  dirs.map(d => {
-    const res = path.resolve(dir, d.name);
+  dirs.forEach(d => {
+    const res = resolvePath(dir, d.name);
     if (d.isDirectory())
       result.push(...listAllFiles(res));
     else

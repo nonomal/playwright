@@ -16,25 +16,27 @@
  */
 
 import os from 'os';
-import { test as it, expect } from './pageTest';
+import { test as it, expect, rafraf } from './pageTest';
 import { verifyViewport, attachFrame } from '../config/utils';
 import type { Route } from 'playwright-core';
 import path from 'path';
 import fs from 'fs';
+import { PNG } from 'pngjs';
 import { comparePNGs } from '../config/comparator';
+import { utils } from '../../packages/playwright-core/lib/coreBundle';
 
 it.describe('page screenshot', () => {
   it.skip(({ browserName, headless }) => browserName === 'firefox' && !headless, 'Firefox headed produces a different image.');
   it.skip(({ isAndroid }) => isAndroid, 'Different viewport');
 
-  it('should work @smoke', async ({ page, server }) => {
+  it('SS-001 should work @smoke', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
     const screenshot = await page.screenshot();
     expect(screenshot).toMatchSnapshot('screenshot-sanity.png');
   });
 
-  it('should not capture blinking caret by default', async ({ page, server, browserName }) => {
+  it('SS-002 should not capture blinking caret by default', async ({ page, server, browserName }) => {
     await page.setContent(`
       <!-- Refer to stylesheet from other origin. Accessing this
            stylesheet rules will throw.
@@ -61,7 +63,7 @@ it.describe('page screenshot', () => {
     }
   });
 
-  it('should capture blinking caret if explicitly asked for', async ({ page, server, browserName }) => {
+  it('SS-003 should capture blinking caret if explicitly asked for', async ({ page, server, browserName }) => {
     it.skip(browserName === 'firefox', 'browser-level screenshot API in firefox does not capture caret');
 
     await page.setContent(`
@@ -92,7 +94,7 @@ it.describe('page screenshot', () => {
     expect(hasDifferentScreenshots).toBe(true);
   });
 
-  it('should capture blinking caret in shadow dom', async ({ page, browserName }) => {
+  it('SS-004 should capture blinking caret in shadow dom', async ({ page, browserName }) => {
     it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16732' });
     await page.addScriptTag({
       content: `
@@ -136,7 +138,7 @@ it.describe('page screenshot', () => {
     expect(hasDifferentScreenshots).toBe(false);
   });
 
-  it('should clip rect', async ({ page, server }) => {
+  it('SS-005 should clip rect', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
     const screenshot = await page.screenshot({
@@ -150,7 +152,7 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-clip-rect.png');
   });
 
-  it('should clip rect with fullPage', async ({ page, server }) => {
+  it('SS-006 should clip rect with fullPage', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
     await page.evaluate(() => window.scrollBy(150, 200));
@@ -166,7 +168,7 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-clip-rect.png');
   });
 
-  it('should clip elements to the viewport', async ({ page, server }) => {
+  it('SS-007 should clip elements to the viewport', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
     const screenshot = await page.screenshot({
@@ -180,7 +182,7 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-offscreen-clip.png');
   });
 
-  it('should throw on clip outside the viewport', async ({ page, server }) => {
+  it('SS-008 should throw on clip outside the viewport', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
     const screenshotError = await page.screenshot({
@@ -194,7 +196,21 @@ it.describe('page screenshot', () => {
     expect(screenshotError.message).toContain('Clipped area is either empty or outside the resulting image');
   });
 
-  it('should run in parallel', async ({ page, server }) => {
+  it('SS-009 should throw on a negative clip size', async ({ page, server }) => {
+    await page.setViewportSize({ width: 500, height: 500 });
+    await page.goto(server.PREFIX + '/grid.html');
+    const screenshotError = await page.screenshot({
+      clip: {
+        x: 50,
+        y: 50,
+        width: -100,
+        height: 100
+      }
+    }).catch(error => error);
+    expect(screenshotError.message).toContain('Expected options.clip.width to be greater than 0');
+  });
+
+  it('SS-010 should run in parallel', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
     const promises = [];
@@ -212,7 +228,7 @@ it.describe('page screenshot', () => {
     expect(screenshots[1]).toMatchSnapshot('grid-cell-1.png');
   });
 
-  it('should take fullPage screenshots', async ({ page, server }) => {
+  it('SS-011 should take fullPage screenshots', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
     const screenshot = await page.screenshot({
@@ -221,7 +237,22 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-grid-fullpage.png');
   });
 
-  it('should take fullPage screenshots and mask elements outside of it', async ({ page, server }) => {
+  it('SS-097 should take fullPage screenshots of SVG documents', {
+    annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43962' },
+  }, async ({ page, server }) => {
+    await page.setViewportSize({ width: 500, height: 500 });
+    server.setRoute('/full-page.svg', (request, response) => {
+      response.setHeader('Content-Type', 'image/svg+xml');
+      response.end('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000"><rect width="800" height="1000" fill="orange"/></svg>');
+    });
+    await page.goto(server.PREFIX + '/full-page.svg');
+    const svgScreenshot = PNG.sync.read(await page.screenshot({ fullPage: true }));
+    expect(svgScreenshot.width).toBe(800);
+    expect(svgScreenshot.height).toBe(1000);
+    expect([...svgScreenshot.data.subarray(-4)]).toEqual([255, 165, 0, 255]);
+  });
+
+  it('SS-012 should take fullPage screenshots and mask elements outside of it', async ({ page, server }) => {
     it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30770' });
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
@@ -232,7 +263,7 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-grid-fullpage-mask-outside-viewport.png');
   });
 
-  it('should restore viewport after fullPage screenshot', async ({ page, server }) => {
+  it('SS-013 should restore viewport after fullPage screenshot', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
     const screenshot = await page.screenshot({ fullPage: true });
@@ -240,8 +271,8 @@ it.describe('page screenshot', () => {
     await verifyViewport(page, 500, 500);
   });
 
-  it('should allow transparency', async ({ page, browserName, platform, headless }) => {
-    it.fail(browserName === 'firefox');
+  it('SS-014 should allow transparency', async ({ page, browserName, isBidi }) => {
+    it.fail(browserName === 'firefox' || isBidi);
 
     await page.setViewportSize({ width: 300, height: 300 });
     await page.setContent(`
@@ -257,17 +288,75 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('transparent.png');
   });
 
-  it('should render white background on jpeg file', async ({ page, server, isElectron }) => {
-    it.fixme(isElectron, 'omitBackground with jpeg does not work');
-
+  it('SS-015 should render white background on jpeg file', async ({ page, server, isElectron }) => {
     await page.setViewportSize({ width: 300, height: 300 });
     await page.goto(server.EMPTY_PAGE);
     const screenshot = await page.screenshot({ omitBackground: true, type: 'jpeg' });
     expect(screenshot).toMatchSnapshot('white.jpg');
   });
 
-  it('should work with odd clip size on Retina displays', async ({ page, isElectron }) => {
-    it.fixme(isElectron, 'Scale is wrong');
+  it('SS-016 should produce a valid webp screenshot', async ({ page, server }) => {
+    await page.setViewportSize({ width: 300, height: 300 });
+    await page.goto(server.EMPTY_PAGE);
+    await page.evaluate(() => (document.body.style.background = 'rgb(255, 0, 0)'));
+    const screenshot = await page.screenshot({ type: 'webp' });
+    expect(screenshot).toMatchSnapshot('red.webp');
+  });
+
+  it('SS-017 path option should detect webp', async ({ page, server }, testInfo) => {
+    await page.setViewportSize({ width: 300, height: 300 });
+    await page.goto(server.EMPTY_PAGE);
+    await page.evaluate(() => (document.body.style.background = 'rgb(255, 0, 0)'));
+    const outputPath = testInfo.outputPath('screenshot.webp');
+    const screenshot = await page.screenshot({ path: outputPath });
+    expect(await fs.promises.readFile(outputPath)).toMatchSnapshot('red.webp');
+    expect(screenshot).toMatchSnapshot('red.webp');
+  });
+
+  it('SS-018 quality option should work for webp', async ({ page, server }) => {
+    await page.goto(server.PREFIX + '/grid.html');
+    const lowQuality = await page.screenshot({ type: 'webp', quality: 0 });
+    const highQuality = await page.screenshot({ type: 'webp', quality: 100 });
+    expect(lowQuality.byteLength).toBeLessThan(highQuality.byteLength);
+  });
+
+  it('SS-019 webp screenshots should be lossless by default', async ({ page, server }) => {
+    await page.goto(server.PREFIX + '/grid.html');
+    expect(utils.isLosslessWebp(await page.screenshot({ type: 'webp' }))).toBe(true);
+    expect(utils.isLosslessWebp(await page.screenshot({ type: 'webp', quality: 80 }))).toBe(false);
+  });
+
+  it('SS-020 should allow transparency with webp', async ({ page, browserName, isBidi }) => {
+    it.skip(isBidi, 'transparency is not supported via WebDriver BiDi');
+    it.fail(browserName === 'firefox');
+
+    await page.setViewportSize({ width: 300, height: 300 });
+    await page.setContent(`
+      <style>
+        body { margin: 0 }
+        div { width: 300px; height: 100px; }
+      </style>
+      <div style="background:black"></div>
+      <div style="background:white"></div>
+      <div style="background:transparent"></div>
+    `);
+    const screenshot = await page.screenshot({ omitBackground: true, type: 'webp' });
+    const { width, height, data } = utils.decodeWebp(screenshot);
+    expect(width).toBe(300);
+    expect(height).toBe(300);
+    const pixel = (x: number, y: number) => [...data.subarray((y * width + x) * 4, (y * width + x) * 4 + 4)];
+    expect(pixel(150, 50)).toEqual([0, 0, 0, 255]);
+    expect(pixel(150, 150)).toEqual([255, 255, 255, 255]);
+    expect(pixel(150, 250)[3]).toBe(0);
+  });
+
+  it('SS-021 quality option should throw for webp when out of range', async ({ page }) => {
+    const error = await page.screenshot({ type: 'webp', quality: 101 }).catch(e => e);
+    expect(error.message).toContain('Expected options.quality to be between 0 and 100');
+  });
+
+  it('SS-022 should work with odd clip size on Retina displays', async ({ page, isElectron }) => {
+    it.skip(isElectron, 'electron does not set device scale factor to 1');
 
     const screenshot = await page.screenshot({
       clip: {
@@ -280,18 +369,16 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-clip-odd-size.png');
   });
 
-  it('should work for canvas', async ({ page, server, isElectron, isMac }) => {
-    it.fixme(isElectron && isMac, 'Fails on the bots');
+  it('SS-023 should work for canvas', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/screenshots/canvas.html');
     const screenshot = await page.screenshot();
-    expect(screenshot).toMatchSnapshot('screenshot-canvas.png');
+    // Allow 4 corners to be rendered differently on various platforms/browsers.
+    expect(screenshot).toMatchSnapshot('screenshot-canvas.png', { maxDiffPixels: 4 });
   });
 
-  it('should capture canvas changes', async ({ page, isElectron, browserName, isMac, isWebView2 }) => {
-    it.fixme(browserName === 'webkit' && isMac, 'https://github.com/microsoft/playwright/issues/8796,https://github.com/microsoft/playwright/issues/16180');
+  it('SS-024 should capture canvas changes', async ({ page, isElectron }) => {
     it.skip(isElectron);
-    it.skip(isWebView2);
     await page.goto('data:text/html,<canvas></canvas>');
     await page.evaluate(() => {
       const canvas = document.querySelector('canvas');
@@ -320,9 +407,9 @@ it.describe('page screenshot', () => {
     }
   });
 
-  it('should work for webgl', async ({ page, server, browserName, platform }) => {
-    it.fixme(browserName === 'firefox');
-    it.fixme(browserName === 'chromium' && platform === 'darwin' && os.arch() === 'arm64', 'SwiftShader is not available on macOS-arm64 - https://github.com/microsoft/playwright/issues/28216');
+  it('SS-025 should work for webgl', async ({ page, server, browserName, platform, isElectron }) => {
+    it.skip(browserName === 'webkit' && platform === 'darwin' && os.arch() === 'x64', 'WebGL is not available on Intel macOS - https://bugs.webkit.org/show_bug.cgi?id=278277');
+    it.skip(isElectron, 'different rendering in electron');
 
     await page.setViewportSize({ width: 640, height: 480 });
     await page.goto(server.PREFIX + '/screenshots/webgl.html');
@@ -330,14 +417,39 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-webgl.png');
   });
 
-  it('should work for translateZ', async ({ page, server }) => {
+  it('SS-095 should capture webgl canvas after its drawing buffer is resized', async ({ page, browserName, platform }) => {
+    it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/42885' });
+    it.skip(browserName === 'webkit' && platform === 'darwin' && os.arch() === 'x64', 'WebGL is not available on Intel macOS - https://bugs.webkit.org/show_bug.cgi?id=278277');
+
+    await page.setViewportSize({ width: 300, height: 300 });
+    await page.setContent(`<body style="margin:0"><div style="width:100px;height:100px;background:rgb(0,255,0)"></div></body>`);
+    const expected = await page.screenshot();
+
+    await page.setContent(`<body style="margin:0"><canvas style="width:100px;height:100px"></canvas><script>
+      const gl = document.querySelector('canvas').getContext('webgl');
+      window.draw = size => {
+        gl.canvas.width = size;
+        gl.canvas.height = size;
+        gl.viewport(0, 0, size, size);
+        gl.clearColor(0, 1, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      };
+      draw(100);
+    </script></body>`);
+    await rafraf(page);
+    await page.evaluate(() => (window as any).draw(50));
+    await rafraf(page);
+    expect(comparePNGs(await page.screenshot(), expected)).toBe(null);
+  });
+
+  it('SS-026 should work for translateZ', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/screenshots/translateZ.html');
     const screenshot = await page.screenshot();
     expect(screenshot).toMatchSnapshot('screenshot-translateZ.png');
   });
 
-  it('should work while navigating', async ({ page, server }) => {
+  it('SS-027 should work while navigating', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/redirectloop1.html');
     for (let i = 0; i < 10; i++) {
@@ -350,13 +462,13 @@ it.describe('page screenshot', () => {
     }
   });
 
-  it('should work with iframe in shadow', async ({ page, server }) => {
+  it('SS-028 should work with iframe in shadow', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid-iframe-in-shadow.html');
     expect(await page.screenshot()).toMatchSnapshot('screenshot-iframe.png');
   });
 
-  it('path option should work', async ({ page, server }, testInfo) => {
+  it('SS-029 path option should work', async ({ page, server }, testInfo) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
     const outputPath = testInfo.outputPath('screenshot.png');
@@ -364,7 +476,7 @@ it.describe('page screenshot', () => {
     expect(await fs.promises.readFile(outputPath)).toMatchSnapshot('screenshot-sanity.png');
   });
 
-  it('path option should create subdirectories', async ({ page, server }, testInfo) => {
+  it('SS-030 path option should create subdirectories', async ({ page, server }, testInfo) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
     const outputPath = testInfo.outputPath(path.join('these', 'are', 'directories', 'screenshot.png'));
@@ -372,39 +484,49 @@ it.describe('page screenshot', () => {
     expect(await fs.promises.readFile(outputPath)).toMatchSnapshot('screenshot-sanity.png');
   });
 
-  it('path option should detect jpeg', async ({ page, server, isElectron }, testInfo) => {
-    it.fixme(isElectron, 'omitBackground with jpeg does not work');
-
+  it('SS-031 path option should detect jpeg', {
+    annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43323' },
+  }, async ({ page, server, isElectron }, testInfo) => {
     await page.setViewportSize({ width: 300, height: 300 });
     await page.goto(server.EMPTY_PAGE);
     const outputPath = testInfo.outputPath('screenshot.jpg');
     const screenshot = await page.screenshot({ omitBackground: true, path: outputPath });
     expect(await fs.promises.readFile(outputPath)).toMatchSnapshot('white.jpg');
     expect(screenshot).toMatchSnapshot('white.jpg');
+    const upperCasePath = testInfo.outputPath('screenshot.JPG');
+    await page.screenshot({ omitBackground: true, path: upperCasePath });
+    expect(await fs.promises.readFile(upperCasePath)).toMatchSnapshot('white.jpg');
   });
 
-  it('path option should throw for unsupported mime type', async ({ page }) => {
+  it('SS-032 path option should throw for unsupported mime type', async ({ page }) => {
     const error = await page.screenshot({ path: 'file.txt' }).catch(e => e);
     expect(error.message).toContain('path: unsupported mime type "text/plain"');
   });
 
-  it('quality option should throw for png', async ({ page }) => {
+  it('SS-033 quality option should throw for png', async ({ page }) => {
     const error = await page.screenshot({ quality: 10 }).catch(e => e);
     expect(error.message).toContain('options.quality is unsupported for the png');
   });
 
-  it('zero quality option should throw for png', async ({ page }) => {
+  it('SS-034 zero quality option should throw for png', async ({ page }) => {
     const error = await page.screenshot({ quality: 0, type: 'png' }).catch(e => e);
     expect(error.message).toContain('options.quality is unsupported for the png');
   });
 
-  it('should prefer type over extension', async ({ page }, testInfo) => {
+  it('SS-035 quality option should work for jpeg', async ({ page, server }) => {
+    await page.goto(server.PREFIX + '/grid.html');
+    const zeroQuality = await page.screenshot({ type: 'jpeg', quality: 0 });
+    const highQuality = await page.screenshot({ type: 'jpeg', quality: 100 });
+    expect(zeroQuality.byteLength).toBeLessThan(highQuality.byteLength);
+  });
+
+  it('SS-036 should prefer type over extension', async ({ page }, testInfo) => {
     const outputPath = testInfo.outputPath('file.png');
     const buffer = await page.screenshot({ path: outputPath, type: 'jpeg' });
     expect([buffer[0], buffer[1], buffer[2]]).toEqual([0xFF, 0xD8, 0xFF]);
   });
 
-  it('should not issue resize event', async ({ page, server }) => {
+  it('SS-037 should not issue resize event', async ({ page, server }) => {
     await page.goto(server.PREFIX + '/grid.html');
     let resizeTriggered = false;
     await page.exposeFunction('resize', () => {
@@ -417,7 +539,7 @@ it.describe('page screenshot', () => {
     expect(resizeTriggered).toBeFalsy();
   });
 
-  it('should work with Array deleted', async ({ page, server }) => {
+  it('SS-038 should work with Array deleted', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
     await page.evaluate(() => delete window.Array);
@@ -425,7 +547,9 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-grid-fullpage.png');
   });
 
-  it('should take fullPage screenshots during navigation', async ({ page, server }) => {
+  it('SS-039 should take fullPage screenshots during navigation', async ({ page, server }) => {
+    it.slow();
+
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
     const reloadSeveralTimes = async () => {
@@ -442,8 +566,27 @@ it.describe('page screenshot', () => {
     ]);
   });
 
+  it('SS-096 should not wait for unused font face with failed local() source', async ({ page, server, browserName }) => {
+    it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/42986' });
+    it.fixme(browserName === 'webkit', 'Fixed upstream in https://commits.webkit.org/323883@main');
+
+    await page.goto(server.EMPTY_PAGE);
+    await page.setContent(`
+      <style>
+      @font-face {
+        font-family: 'pwtest-iconfont';
+        src: local('NoSuchFont'), url('${server.PREFIX}/webfont/iconfont.woff2') format('woff2');
+        unicode-range: U+0400-04FF;
+      }
+      </style>
+      <div style="font-family: 'pwtest-iconfont'">hello</div>
+    `);
+    await page.screenshot();
+    expect(await page.evaluate(() => document.fonts.status)).toBe('loaded');
+  });
+
   it.describe('mask option', () => {
-    it('should work', async ({ page, server }) => {
+    it('SS-040 should work', async ({ page, server }) => {
       await page.setViewportSize({ width: 500, height: 500 });
       await page.goto(server.PREFIX + '/grid.html');
       expect(await page.screenshot({
@@ -451,7 +594,7 @@ it.describe('page screenshot', () => {
       })).toMatchSnapshot('mask-should-work.png');
     });
 
-    it('should work with locator', async ({ page, server }) => {
+    it('SS-041 should work with locator', async ({ page, server }) => {
       await page.setViewportSize({ width: 500, height: 500 });
       await page.goto(server.PREFIX + '/grid.html');
       const bodyLocator = page.locator('body');
@@ -460,7 +603,7 @@ it.describe('page screenshot', () => {
       })).toMatchSnapshot('mask-should-work-with-locator.png');
     });
 
-    it('should work with elementhandle', async ({ page, server }) => {
+    it('SS-042 should work with elementhandle', async ({ page, server }) => {
       await page.setViewportSize({ width: 500, height: 500 });
       await page.goto(server.PREFIX + '/grid.html');
       const bodyHandle = await page.$('body');
@@ -469,7 +612,7 @@ it.describe('page screenshot', () => {
       })).toMatchSnapshot('mask-should-work-with-elementhandle.png');
     });
 
-    it('should mask multiple elements', async ({ page, server }) => {
+    it('SS-043 should mask multiple elements', async ({ page, server }) => {
       await page.setViewportSize({ width: 500, height: 500 });
       await page.goto(server.PREFIX + '/grid.html');
       expect(await page.screenshot({
@@ -480,7 +623,7 @@ it.describe('page screenshot', () => {
       })).toMatchSnapshot('should-mask-multiple-elements.png');
     });
 
-    it('should mask inside iframe', async ({ page, server }) => {
+    it('SS-044 should mask inside iframe', async ({ page, server }) => {
       await page.setViewportSize({ width: 500, height: 500 });
       await page.goto(server.PREFIX + '/grid.html');
       await attachFrame(page, 'frame1', server.PREFIX + '/grid.html');
@@ -493,7 +636,7 @@ it.describe('page screenshot', () => {
       })).toMatchSnapshot('should-mask-inside-iframe.png');
     });
 
-    it('should mask in parallel', async ({ page, server }) => {
+    it('SS-045 should mask in parallel', async ({ page, server }) => {
       await page.setViewportSize({ width: 500, height: 500 });
       await attachFrame(page, 'frame1', server.PREFIX + '/grid.html');
       await attachFrame(page, 'frame2', server.PREFIX + '/grid.html');
@@ -510,7 +653,7 @@ it.describe('page screenshot', () => {
       expect(screenshots[1]).toMatchSnapshot('should-mask-in-parallel-2.png');
     });
 
-    it('should remove mask after screenshot', async ({ page, server }) => {
+    it('SS-046 should remove mask after screenshot', async ({ page, server }) => {
       await page.setViewportSize({ width: 500, height: 500 });
       await page.goto(server.PREFIX + '/grid.html');
       const screenshot1 = await page.screenshot();
@@ -521,7 +664,7 @@ it.describe('page screenshot', () => {
       expect(screenshot1.equals(screenshot2)).toBe(true);
     });
 
-    it('should work when subframe has stalled navigation', async ({ page, server }) => {
+    it('SS-047 should work when subframe has stalled navigation', async ({ page, server }) => {
       let cb;
       const routeReady = new Promise<Route>(f => cb = f);
       await page.route('**/subframe.html', cb); // Stalling subframe.
@@ -535,7 +678,7 @@ it.describe('page screenshot', () => {
       await done;
     });
 
-    it('should work when subframe used document.open after a weird url', async ({ page, server }) => {
+    it('SS-048 should work when subframe used document.open after a weird url', async ({ page, server }) => {
       await page.goto(server.EMPTY_PAGE);
       await page.evaluate(() => {
         const iframe = document.createElement('iframe');
@@ -548,7 +691,7 @@ it.describe('page screenshot', () => {
       await page.screenshot({ mask: [page.locator('non-existent')] });
     });
 
-    it('should work when mask color is not pink #F0F', async ({ page, server }) => {
+    it('SS-049 should work when mask color is not pink #F0F', async ({ page, server }) => {
       await page.setViewportSize({ width: 500, height: 500 });
       await page.goto(server.PREFIX + '/grid.html');
       expect(await page.screenshot({
@@ -557,7 +700,7 @@ it.describe('page screenshot', () => {
       })).toMatchSnapshot('mask-color-should-work.png');
     });
 
-    it('should hide elements based on attr', async ({ page, server }) => {
+    it('SS-050 should hide elements based on attr', async ({ page, server }) => {
       await page.setViewportSize({ width: 500, height: 500 });
       await page.goto(server.PREFIX + '/grid.html');
       await page.locator('div').nth(5).evaluate(element => {
@@ -572,7 +715,7 @@ it.describe('page screenshot', () => {
       expect(visibility).toBe('');
     });
 
-    it('should remove elements based on attr', async ({ page, server }) => {
+    it('SS-051 should remove elements based on attr', async ({ page, server }) => {
       await page.setViewportSize({ width: 500, height: 500 });
       await page.goto(server.PREFIX + '/grid.html');
       await page.locator('div').nth(5).evaluate(element => {
@@ -589,14 +732,6 @@ it.describe('page screenshot', () => {
   });
 });
 
-async function rafraf(page) {
-  // Do a double raf since single raf does not
-  // actually guarantee a new animation frame.
-  await page.evaluate(() => new Promise(x => {
-    requestAnimationFrame(() => requestAnimationFrame(x));
-  }));
-}
-
 declare global {
   interface Window {
     animation?: Animation;
@@ -605,7 +740,31 @@ declare global {
 }
 
 it.describe('page screenshot animations', () => {
-  it('should not capture infinite css animation', async ({ page, server }) => {
+  it('SS-098 should preserve scroll animation progress during screenshots', {
+    annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43986' },
+  }, async ({ page, isAndroid }) => {
+    it.skip(isAndroid, 'Returns screenshot of a different size.');
+
+    await page.setContent(`
+      <style>
+        @keyframes reveal { from { opacity: 0 } to { opacity: 1 } }
+        body { timeline-scope: --progress; }
+        #scroller { width: 100px; overflow-x: auto; scroll-timeline: --progress x; }
+        #content { width: 200px; height: 20px; }
+        #indicator { width: 40px; height: 40px; background: red;
+          animation: reveal linear both; animation-timeline: --progress; }
+      </style>
+      <div id="scroller"><div id="content"></div></div>
+      <div id="indicator"></div>
+    `);
+    await rafraf(page);
+    const expected = await page.screenshot({ animations: 'allow' });
+    const actual = await page.screenshot({ animations: 'disabled' });
+    expect(comparePNGs(actual, expected)).toBe(null);
+    expect((await page.screenshot({ animations: 'allow' })).equals(expected)).toBe(true);
+  });
+
+  it('SS-052 should not capture infinite css animation', async ({ page, server }) => {
     await page.goto(server.PREFIX + '/rotate-z.html');
     const div = page.locator('div');
     const screenshot = await div.screenshot({
@@ -620,7 +779,7 @@ it.describe('page screenshot animations', () => {
     }
   });
 
-  it('should not capture pseudo element css animation', async ({ page, server }) => {
+  it('SS-053 should not capture pseudo element css animation', async ({ page, server }) => {
     await page.goto(server.PREFIX + '/rotate-pseudo.html');
     const div = page.locator('div');
     const screenshot = await div.screenshot({
@@ -635,7 +794,7 @@ it.describe('page screenshot animations', () => {
     }
   });
 
-  it('should not capture css animations in shadow DOM', async ({ page, server, isAndroid }) => {
+  it('SS-054 should not capture css animations in shadow DOM', async ({ page, server, isAndroid }) => {
     it.skip(isAndroid, 'Different viewport');
     await page.goto(server.PREFIX + '/rotate-z-shadow-dom.html');
     const screenshot = await page.screenshot({
@@ -650,7 +809,7 @@ it.describe('page screenshot animations', () => {
     }
   });
 
-  it('should stop animations that happen right before screenshot', async ({ page, server, mode, isAndroid }) => {
+  it('SS-055 should stop animations that happen right before screenshot', async ({ page, server, mode, isAndroid }) => {
     it.skip(mode !== 'default');
     it.skip(isAndroid, 'Different viewport');
     await page.goto(server.PREFIX + '/rotate-z.html');
@@ -670,7 +829,7 @@ it.describe('page screenshot animations', () => {
     expect(comparePNGs(buffer1, buffer2)).toBe(null);
   });
 
-  it('should resume infinite animations', async ({ page, server }) => {
+  it('SS-056 should resume infinite animations', async ({ page, server }) => {
     await page.goto(server.PREFIX + '/rotate-z.html');
     await page.screenshot({
       animations: 'disabled',
@@ -681,7 +840,7 @@ it.describe('page screenshot animations', () => {
     expect(comparePNGs(buffer1, buffer2, { maxDiffPixels: 50 })).not.toBe(null);
   });
 
-  it('should not capture infinite web animations', async ({ page, server }) => {
+  it('SS-057 should not capture infinite web animations', async ({ page, server }) => {
     await page.goto(server.PREFIX + '/web-animation.html');
     const div = page.locator('div');
     const screenshot = await div.screenshot({
@@ -701,7 +860,7 @@ it.describe('page screenshot animations', () => {
     expect(comparePNGs(buffer1, buffer2, { maxDiffPixels: 50 })).not.toBe(null);
   });
 
-  it('should fire transitionend for finite transitions', async ({ page, server, browserName, platform }) => {
+  it('SS-058 should fire transitionend for finite transitions', async ({ page, server, browserName, platform }) => {
     await page.goto(server.PREFIX + '/css-transition.html');
     const div = page.locator('div');
     await div.evaluate(el => {
@@ -727,14 +886,14 @@ it.describe('page screenshot animations', () => {
     expect(await page.evaluate(() => window['__TRANSITION_END'])).toBe(true);
   });
 
-  it('should capture screenshots after layoutchanges in transitionend event', async ({ page, server, browserName, platform }) => {
+  it('SS-059 should capture screenshots after layoutchanges in transitionend event', async ({ page, server, browserName, platform }) => {
     await page.goto(server.PREFIX + '/css-transition.html');
     const div = page.locator('div');
     await div.evaluate(el => {
       el.addEventListener('transitionend', () => {
-        const time = Date.now();
+        const time = window.builtins.Date.now();
         // Block main thread for 200ms, emulating heavy layout.
-        while (Date.now() - time < 200) {}
+        while (window.builtins.Date.now() - time < 200) {}
         const h1 = document.createElement('h1');
         h1.textContent = 'woof-woof';
         document.body.append(h1);
@@ -765,7 +924,7 @@ it.describe('page screenshot animations', () => {
     expect(screenshot1.equals(screenshot2)).toBe(true);
   });
 
-  it('should not change animation with playbackRate equal to 0', async ({ page, server, isAndroid }) => {
+  it('SS-060 should not change animation with playbackRate equal to 0', async ({ page, server, isAndroid }) => {
     it.skip(isAndroid, 'Different viewport');
     await page.goto(server.PREFIX + '/rotate-z.html');
     await page.evaluate(async () => {
@@ -792,7 +951,7 @@ it.describe('page screenshot animations', () => {
     });
   });
 
-  it('should trigger particular events for css transitions', async ({ page, server }) => {
+  it('SS-061 should trigger particular events for css transitions', async ({ page, server }) => {
     await page.goto(server.PREFIX + '/css-transition.html');
     const div = page.locator('div');
     await div.evaluate(async el => {
@@ -816,7 +975,7 @@ it.describe('page screenshot animations', () => {
     ]);
   });
 
-  it('should trigger particular events for INfinite css animation', async ({ page, server }) => {
+  it('SS-062 should trigger particular events for INfinite css animation', async ({ page, server }) => {
     await page.goto(server.PREFIX + '/rotate-z.html');
     const div = page.locator('div');
     await div.evaluate(async el => {
@@ -840,7 +999,7 @@ it.describe('page screenshot animations', () => {
     ]);
   });
 
-  it('should trigger particular events for finite css animation', async ({ page, server }) => {
+  it('SS-063 should trigger particular events for finite css animation', async ({ page, server }) => {
     await page.goto(server.PREFIX + '/rotate-z.html');
     const div = page.locator('div');
     await div.evaluate(async el => {
@@ -868,7 +1027,7 @@ it.describe('page screenshot animations', () => {
     ]);
   });
 
-  it('should wait for fonts to load', async ({ page, server, isWindows, isAndroid }) => {
+  it('SS-064 should wait for fonts to load', async ({ page, server, isWindows, isAndroid }) => {
     it.fixme(isWindows, 'This requires a windows-specific test expectations. https://github.com/microsoft/playwright/issues/12707');
     it.skip(isAndroid, 'Different viewport');
     await page.setViewportSize({ width: 500, height: 500 });
@@ -896,25 +1055,28 @@ it.describe('page screenshot animations', () => {
   });
 });
 
-it('should throw if screenshot size is too large', async ({ page, browserName, isMac }) => {
+it('SS-065 should throw if screenshot size is too large', async ({ page, browserName, isMac, isBidi }) => {
+  const maxSize = browserName === 'firefox' && isBidi ? 65535 : 32767;
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16727' });
   {
-    await page.setContent(`<style>body {margin: 0; padding: 0;}</style><div style='min-height: 32767px; background: red;'></div>`);
+    await page.setContent(`<style>body {margin: 0; padding: 0;}</style><div style='min-height: ${maxSize}px; background: red;'></div>`);
     const result = await page.screenshot({ fullPage: true });
     expect(result).toBeTruthy();
   }
   {
-    await page.setContent(`<style>body {margin: 0; padding: 0;}</style><div style='min-height: 32768px; background: red;'></div>`);
+    await page.setContent(`<style>body {margin: 0; padding: 0;}</style><div style='min-height: ${maxSize + 1}px; background: red;'></div>`);
     const exception = await page.screenshot({ fullPage: true }).catch(e => e);
-    if (browserName === 'firefox' || (browserName === 'webkit' && !isMac))
+    if ((browserName === 'firefox' && !isBidi) || (browserName === 'webkit' && !isMac))
       expect(exception.message).toContain('Cannot take screenshot larger than 32767');
+    else if (browserName === 'firefox' && isBidi)
+      expect(exception.message).toContain('65536 exceeds the maximum allowed screenshot height of 65535 pixels');
   }
 });
 
-it('page screenshot should capture css transform', async function({ page, browserName, isElectron, isAndroid }) {
+it('SS-066 page screenshot should capture css transform', async function({ page, browserName, isElectron, isAndroid }) {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/26447' });
   it.fixme(browserName === 'webkit');
-  it.fixme(isElectron || isAndroid, 'Returns screenshot of a different size.');
+  it.skip(isElectron || isAndroid, 'Returns screenshot of a different size.');
   await page.setContent(`
     <style>
     .container {
@@ -955,9 +1117,9 @@ it('page screenshot should capture css transform', async function({ page, browse
   await expect(page).toHaveScreenshot();
 });
 
-it('should capture css box-shadow', async ({ page, isElectron, isAndroid }) => {
+it('SS-067 should capture css box-shadow', async ({ page, isElectron, isAndroid }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21620' });
-  it.fixme(isElectron || isAndroid, 'Returns screenshot of a different size.');
+  it.skip(isElectron || isAndroid, 'Returns screenshot of a different size.');
   await page.setContent(`<div style="box-shadow: red 10px 10px 10px; width: 50px; height: 50px;"></div>`);
   await expect(page).toHaveScreenshot();
 });

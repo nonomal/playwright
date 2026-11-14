@@ -14,31 +14,49 @@
  * limitations under the License.
  */
 
-import type { StackFrame } from '@protocol/channels';
 import type { BrowserContext } from './browserContext';
-import type { APIRequestContext } from './fetch';
+import type { APIRequestContext, NewContextOptions } from './fetch';
+import type { StackFrame } from './channels';
+import type { Page } from './page';
+import type { BrowserContextOptions } from './types';
+
+// Instrumentation can mutate the data, for example assign the callId.
+export interface ApiCallData {
+  title?: string;
+  frames: StackFrame[];
+  userData: any;
+  callId?: string;
+  error?: Error;
+}
 
 export interface ClientInstrumentation {
   addListener(listener: ClientInstrumentationListener): void;
   removeListener(listener: ClientInstrumentationListener): void;
   removeAllListeners(): void;
-  onApiCallBegin(apiCall: string, params: Record<string, any>, frames: StackFrame[], userData: any, out: { stepId?: string }): void;
-  onApiCallEnd(userData: any, error?: Error): void;
-  onDidCreateBrowserContext(context: BrowserContext): Promise<void>;
-  onDidCreateRequestContext(context: APIRequestContext): Promise<void>;
-  onWillPause(): void;
-  onWillCloseBrowserContext(context: BrowserContext): Promise<void>;
-  onWillCloseRequestContext(context: APIRequestContext): Promise<void>;
+  onApiCallBegin(apiCall: ApiCallData, channel: { type: string, method: string, params?: Record<string, any> }): void;
+  onApiCallEnd(apiCall: ApiCallData): void;
+  onWillPause(options: { keepTestTimeout: boolean }): void;
+  onPage(page: Page): void;
+
+  runBeforeCreateBrowserContext(options: BrowserContextOptions): Promise<void>;
+  runBeforeCreateRequestContext(options: NewContextOptions): Promise<void>;
+  runAfterCreateBrowserContext(context: BrowserContext): Promise<void>;
+  runAfterCreateRequestContext(context: APIRequestContext): Promise<void>;
+  runBeforeCloseBrowserContext(context: BrowserContext): Promise<void>;
+  runBeforeCloseRequestContext(context: APIRequestContext): Promise<void>;
 }
 
 export interface ClientInstrumentationListener {
-  onApiCallBegin?(apiName: string, params: Record<string, any>, frames: StackFrame[], userData: any, out: { stepId?: string }): void;
-  onApiCallEnd?(userData: any, error?: Error): void;
-  onDidCreateBrowserContext?(context: BrowserContext): Promise<void>;
-  onDidCreateRequestContext?(context: APIRequestContext): Promise<void>;
-  onWillPause?(): void;
-  onWillCloseBrowserContext?(context: BrowserContext): Promise<void>;
-  onWillCloseRequestContext?(context: APIRequestContext): Promise<void>;
+  onApiCallBegin?(apiCall: ApiCallData, channel: { type: string, method: string, params?: Record<string, any>  }): void;
+  onApiCallEnd?(apiCall: ApiCallData): void;
+  onWillPause?(options: { keepTestTimeout: boolean }): void;
+  onPage?(page: Page): void;
+  runBeforeCreateBrowserContext?(options: BrowserContextOptions): Promise<void>;
+  runBeforeCreateRequestContext?(options: NewContextOptions): Promise<void>;
+  runAfterCreateBrowserContext?(context: BrowserContext): Promise<void>;
+  runAfterCreateRequestContext?(context: APIRequestContext): Promise<void>;
+  runBeforeCloseBrowserContext?(context: BrowserContext): Promise<void>;
+  runBeforeCloseRequestContext?(context: APIRequestContext): Promise<void>;
 }
 
 export function createInstrumentation(): ClientInstrumentation {
@@ -53,12 +71,19 @@ export function createInstrumentation(): ClientInstrumentation {
         return (listener: ClientInstrumentationListener) => listeners.splice(listeners.indexOf(listener), 1);
       if (prop === 'removeAllListeners')
         return () => listeners.splice(0, listeners.length);
-      if (!prop.startsWith('on'))
-        return obj[prop];
-      return async (...params: any[]) => {
-        for (const listener of listeners)
-          await (listener as any)[prop]?.(...params);
-      };
+      if (prop.startsWith('run')) {
+        return async (...params: any[]) => {
+          for (const listener of listeners)
+            await (listener as any)[prop]?.(...params);
+        };
+      }
+      if (prop.startsWith('on')) {
+        return (...params: any[]) => {
+          for (const listener of listeners)
+            (listener as any)[prop]?.(...params);
+        };
+      }
+      return obj[prop];
     },
   });
 }

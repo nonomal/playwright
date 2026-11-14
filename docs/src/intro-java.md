@@ -32,7 +32,7 @@ public class App {
         try (Playwright playwright = Playwright.create()) {
             Browser browser = playwright.chromium().launch();
             Page page = browser.newPage();
-            page.navigate("http://playwright.dev");
+            page.navigate("https://playwright.dev");
             System.out.println(page.title());
         }
     }
@@ -82,7 +82,7 @@ public class App {
 </TabItem>
 </Tabs>
 
-With the Example.java and pom.xml above, compile and execute your new program as follows:
+With the App.java and pom.xml above, compile and execute your new program as follows:
 
 ```bash
 mvn compile exec:java -D exec.mainClass="org.example.App"
@@ -112,7 +112,7 @@ public class App {
 }
 ```
 
-By default, Playwright runs the browsers in headless mode. To see the browser UI, pass the `setHeadless(false)` flag while launching the browser. You can also use [`option: slowMo`] to slow down execution. Learn more in the debugging tools [section](./debug.md).
+By default, Playwright runs the browsers in headless mode. To see the browser UI, [`option: BrowserType.launch.headless`] option to `false`. You can also use [`option: BrowserType.launch.slowMo`] to slow down execution. Learn more in the debugging tools [section](./debug.md).
 
 ```java
 playwright.firefox().launch(new BrowserType.LaunchOptions().setHeadless(false).setSlowMo(50));
@@ -129,9 +129,9 @@ By default browsers launched with Playwright run headless, meaning no browser UI
 ## System requirements
 
 - Java 8 or higher.
-- Windows 10+, Windows Server 2016+ or Windows Subsystem for Linux (WSL).
-- MacOS 12 Monterey, MacOS 13 Ventura, or MacOS 14 Sonoma.
-- Debian 11, Debian 12, Ubuntu 20.04 or Ubuntu 22.04.
+- Windows 11+, Windows Server 2019+ or Windows Subsystem for Linux (WSL).
+- macOS 14 (Sonoma) or later.
+- Debian 12 / 13, Ubuntu 22.04 / 24.04 / 26.04 (x86-64 or arm64).
 
 ## What's next
 

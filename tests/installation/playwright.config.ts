@@ -18,13 +18,13 @@ import path from 'path';
 import { defineConfig } from '@playwright/test';
 import type { ReporterDescription } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
-loadEnv({ path: path.join(__dirname, '..', '..', '.env') });
+loadEnv({ path: path.join(__dirname, '..', '..', '.env'), quiet: true });
 
 const reporters = () => {
   const result: ReporterDescription[] = process.env.CI ? [
     ['dot'],
-    ['json', { outputFile: path.join(outputDir, 'report.json') }],
-    ['blob', { fileName: `${process.env.PWTEST_BOT_NAME}.zip` }],
+    ['blob'],
+    ['../config/parquetReporter.ts'],
   ] : [
     ['list'],
     ['html', { open: 'on-failure' }]
@@ -38,8 +38,9 @@ export default defineConfig({
   outputDir,
   testIgnore: '**\/fixture-scripts/**',
   timeout: 5 * 60 * 1000,
-  retries: 0,
+  retries: process.env.CI ? 3 : 0,
   reporter: reporters(),
+  tag: process.env.PW_TAG,
   forbidOnly: !!process.env.CI,
   workers: 1,
   projects: [

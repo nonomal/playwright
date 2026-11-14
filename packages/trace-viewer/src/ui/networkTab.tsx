@@ -14,21 +14,22 @@
  * limitations under the License.
  */
 
-import type { Entry } from '@trace/har';
 import * as React from 'react';
-import type { Boundaries } from '../geometry';
+import type { Boundaries } from './geometry';
 import './networkTab.css';
-import { NetworkResourceDetails } from './networkResourceDetails';
-import { bytesToString, msToString } from '@web/uiUtils';
+import { NetworkResourceDetails, WebSocketResourceDetails } from './networkResourceDetails';
+import { bytesToString, msToString } from '@isomorphic/formatUtils';
 import { PlaceholderPanel } from './placeholderPanel';
-import { context, type MultiTraceModel } from './modelUtil';
+import { resourceOwnerRef } from '@isomorphic/trace/traceModel';
+import type { ResourceEntry, TraceModel } from '@isomorphic/trace/traceModel';
 import { GridView, type RenderedGridCell } from '@web/components/gridView';
 import { SplitView } from '@web/components/splitView';
-import type { ContextEntry } from '../entries';
+import { NetworkFilters, defaultFilterState, type FilterState, type ResourceType } from './networkFilters';
+import type { Language } from '@isomorphic/locatorGenerators';
 
 type NetworkTabModel = {
-  resources: Entry[],
-  contextIdMap: ContextIdMap,
+  resources: ResourceEntry[],
+  model: TraceModel | undefined,
 };
 
 type RenderedEntry = {
@@ -40,66 +41,91 @@ type RenderedEntry = {
   size: number,
   start: number,
   route: string,
-  resource: Entry,
+  resource: ResourceEntry,
   contextId: string,
 };
 type ColumnName = keyof RenderedEntry;
 type Sorting = { by: ColumnName, negate: boolean};
 const NetworkGridView = GridView<RenderedEntry>;
 
-export function useNetworkTabModel(model: MultiTraceModel | undefined, selectedTime: Boundaries | undefined): NetworkTabModel {
+export function useNetworkTabModel(model: TraceModel | undefined, selectedTime: Boundaries | undefined, pageId?: string): NetworkTabModel {
   const resources = React.useMemo(() => {
     const resources = model?.resources || [];
     const filtered = resources.filter(resource => {
+      if (pageId && resource.pageref !== pageId)
+        return false;
       if (!selectedTime)
         return true;
       return !!resource._monotonicTime && (resource._monotonicTime >= selectedTime.minimum && resource._monotonicTime <= selectedTime.maximum);
     });
     return filtered;
-  }, [model, selectedTime]);
-  const contextIdMap = React.useMemo(() => new ContextIdMap(model), [model]);
-  return { resources, contextIdMap };
+  }, [model, selectedTime, pageId]);
+  return { resources, model };
 }
 
 export const NetworkTab: React.FunctionComponent<{
   boundaries: Boundaries,
   networkModel: NetworkTabModel,
-  onEntryHovered: (entry: Entry | undefined) => void,
-}> = ({ boundaries, networkModel, onEntryHovered }) => {
+  onResourceHovered?: (time: Boundaries | undefined) => void,
+  sdkLanguage: Language,
+}> = ({ boundaries, networkModel, onResourceHovered, sdkLanguage }) => {
   const [sorting, setSorting] = React.useState<Sorting | undefined>(undefined);
-  const [selectedEntry, setSelectedEntry] = React.useState<RenderedEntry | undefined>(undefined);
+  const [selectedResourceKey, setSelectedResourceKey] = React.useState<string | undefined>(undefined);
+  const [filterState, setFilterState] = React.useState(defaultFilterState);
 
-  const { renderedEntries } = React.useMemo(() => {
-    const renderedEntries = networkModel.resources.map(entry => renderEntry(entry, boundaries, networkModel.contextIdMap));
+  const { renderedEntries, multipleContexts } = React.useMemo(() => {
+    const renderedEntries = networkModel.resources.map(entry => renderEntry(entry, boundaries, networkModel.model)).filter(filterEntry(filterState));
     if (sorting)
       sort(renderedEntries, sorting);
-    return { renderedEntries };
-  }, [networkModel.resources, networkModel.contextIdMap, sorting, boundaries]);
+    const multipleContexts = new Set(renderedEntries.map(entry => entry.contextId).filter(Boolean)).size > 1;
+    return { renderedEntries, multipleContexts };
+  }, [networkModel.resources, networkModel.model, filterState, sorting, boundaries]);
+
+  const visibleSelectedEntry = React.useMemo(() => (selectedResourceKey ? renderedEntries.find(entry => entry.resource.id === selectedResourceKey) : undefined), [selectedResourceKey, renderedEntries]);
+
+  const [columnWidths, setColumnWidths] = React.useState<Map<ColumnName, number>>(() => {
+    return new Map(allColumns().map(column => [column, columnWidth(column)]));
+  });
+
+  const onFilterStateChange = React.useCallback((newFilterState: FilterState) => {
+    setFilterState(newFilterState);
+    setSelectedResourceKey(undefined);
+  }, []);
 
   if (!networkModel.resources.length)
     return <PlaceholderPanel text='No network calls' />;
 
   const grid = <NetworkGridView
     name='network'
+    ariaLabel='Network requests'
     items={renderedEntries}
-    selectedItem={selectedEntry}
-    onSelected={item => setSelectedEntry(item)}
-    onHighlighted={item => onEntryHovered(item?.resource)}
-    columns={visibleColumns(!!selectedEntry, renderedEntries)}
+    selectedItem={visibleSelectedEntry}
+    onSelected={item => setSelectedResourceKey(item.resource.id)}
+    onHighlighted={item => onResourceHovered?.(item ? resourceTimeRange(item.resource) : undefined)}
+    columns={visibleColumns(!!visibleSelectedEntry, multipleContexts)}
     columnTitle={columnTitle}
-    columnWidth={columnWidth}
-    isError={item => item.status.code >= 400}
+    columnWidths={columnWidths}
+    setColumnWidths={setColumnWidths}
+    isError={item => item.status.code >= 400 || item.status.code === -1}
     isInfo={item => !!item.route}
     render={(item, column) => renderCell(item, column)}
     sorting={sorting}
     setSorting={setSorting}
   />;
   return <>
-    {!selectedEntry && grid}
-    {selectedEntry && <SplitView sidebarSize={200} sidebarIsFirst={true} orientation='horizontal'>
-      <NetworkResourceDetails resource={selectedEntry.resource} onClose={() => setSelectedEntry(undefined)} />
-      {grid}
-    </SplitView>}
+    <NetworkFilters filterState={filterState} onFilterStateChange={onFilterStateChange} />
+    {!visibleSelectedEntry && grid}
+    {visibleSelectedEntry &&
+      <SplitView
+        sidebarSize={columnWidths.get('name')!}
+        sidebarIsFirst={true}
+        orientation='horizontal'
+        settingName='networkResourceDetails'
+        main={visibleSelectedEntry.resource._resourceType === 'websocket'
+          ? <WebSocketResourceDetails resource={visibleSelectedEntry.resource} startTimeOffset={visibleSelectedEntry.start} onClose={() => setSelectedResourceKey(undefined)} />
+          : <NetworkResourceDetails resource={visibleSelectedEntry.resource} sdkLanguage={sdkLanguage} startTimeOffset={visibleSelectedEntry.start} onClose={() => setSelectedResourceKey(undefined)} />}
+        sidebar={grid}
+      />}
   </>;
 };
 
@@ -139,14 +165,21 @@ const columnWidth = (column: ColumnName) => {
   return 100;
 };
 
-function visibleColumns(entrySelected: boolean, renderedEntries: RenderedEntry[]): (keyof RenderedEntry)[] {
-  if (entrySelected)
-    return ['name'];
-  const columns: (keyof RenderedEntry)[] = [];
-  if (hasMultipleContexts(renderedEntries))
-    columns.push('contextId');
-  columns.push('name', 'method', 'status', 'contentType', 'duration', 'size', 'start', 'route');
+function visibleColumns(entrySelected: boolean, multipleContexts: boolean): (keyof RenderedEntry)[] {
+  if (entrySelected) {
+    const columns: (keyof RenderedEntry)[] = ['name'];
+    if (multipleContexts)
+      columns.unshift('contextId');
+    return columns;
+  }
+  let columns: (keyof RenderedEntry)[] = allColumns();
+  if (!multipleContexts)
+    columns = columns.filter(name => name !== 'contextId');
   return columns;
+}
+
+function allColumns(): (keyof RenderedEntry)[] {
+  return ['contextId', 'name', 'method', 'status', 'contentType', 'duration', 'size', 'start', 'route'];
 }
 
 const renderCell = (entry: RenderedEntry, column: ColumnName): RenderedGridCell => {
@@ -166,8 +199,8 @@ const renderCell = (entry: RenderedEntry, column: ColumnName): RenderedGridCell 
     return { body: entry.method };
   if (column === 'status') {
     return {
-      body: entry.status.code > 0 ? entry.status.code : '',
-      title: entry.status.text
+      body: entry.status.code === -1 ? 'canceled' : entry.status.code > 0 ? entry.status.code : '',
+      title: entry.status.code === -1 ? 'canceled' : entry.status.text,
     };
   }
   if (column === 'contentType')
@@ -183,57 +216,14 @@ const renderCell = (entry: RenderedEntry, column: ColumnName): RenderedGridCell 
   return { body: '' };
 };
 
-class ContextIdMap {
-  private _pagerefToShortId = new Map<string, string>();
-  private _contextToId = new Map<ContextEntry, string>();
-  private _lastPageId = 0;
-  private _lastApiRequestContextId = 0;
-
-  constructor(model: MultiTraceModel | undefined) {}
-
-  contextId(resource: Entry): string {
-    if (resource.pageref)
-      return this._pageId(resource.pageref);
-    else if (resource._apiRequest)
-      return this._apiRequestContextId(resource);
+function resourceContextId(model: TraceModel | undefined, resource: ResourceEntry): string {
+  const ownerRef = resourceOwnerRef(resource);
+  if (!model || !ownerRef)
     return '';
-  }
-
-  private _pageId(pageref: string): string {
-    let shortId = this._pagerefToShortId.get(pageref);
-    if (!shortId) {
-      ++this._lastPageId;
-      shortId = 'page#' + this._lastPageId;
-      this._pagerefToShortId.set(pageref, shortId);
-    }
-    return shortId;
-  }
-
-  private _apiRequestContextId(resource: Entry): string {
-    const contextEntry = context(resource);
-    if (!contextEntry)
-      return '';
-    let contextId = this._contextToId.get(contextEntry);
-    if (!contextId) {
-      ++this._lastApiRequestContextId;
-      contextId = 'api#' + this._lastApiRequestContextId;
-      this._contextToId.set(contextEntry, contextId);
-    }
-    return contextId;
-  }
+  return model.resourceOwnerRefToTitle.get(ownerRef) || '';
 }
 
-function hasMultipleContexts(renderedEntries: RenderedEntry[]): boolean {
-  const contextIds = new Set<string>();
-  for (const entry of renderedEntries) {
-    contextIds.add(entry.contextId);
-    if (contextIds.size > 1)
-      return true;
-  }
-  return false;
-}
-
-const renderEntry = (resource: Entry, boundaries: Boundaries, contextIdGenerator: ContextIdMap): RenderedEntry => {
+const renderEntry = (resource: ResourceEntry, boundaries: Boundaries, model: TraceModel | undefined): RenderedEntry => {
   const routeStatus = formatRouteStatus(resource);
   let resourceName: string;
   try {
@@ -241,13 +231,20 @@ const renderEntry = (resource: Entry, boundaries: Boundaries, contextIdGenerator
     resourceName = url.pathname.substring(url.pathname.lastIndexOf('/') + 1);
     if (!resourceName)
       resourceName = url.host;
+    if (url.search)
+      resourceName += url.search;
   } catch {
     resourceName = resource.request.url;
   }
-  let contentType = resource.response.content.mimeType;
-  const charset = contentType.match(/^(.*);\s*charset=.*$/);
-  if (charset)
-    contentType = charset[1];
+  let contentType: string;
+  if (resource._resourceType === 'websocket') {
+    contentType = 'websocket';
+  } else {
+    contentType = resource.response.content.mimeType;
+    const charset = contentType.match(/^(.*);\s*charset=.*$/);
+    if (charset)
+      contentType = charset[1];
+  }
 
   return {
     name: { name: resourceName, url: resource.request.url },
@@ -259,18 +256,24 @@ const renderEntry = (resource: Entry, boundaries: Boundaries, contextIdGenerator
     start: resource._monotonicTime! - boundaries.minimum,
     route: routeStatus,
     resource,
-    contextId: contextIdGenerator.contextId(resource),
+    contextId: resourceContextId(model, resource),
   };
 };
 
-function formatRouteStatus(request: Entry): string {
+function resourceTimeRange(resource: ResourceEntry): Boundaries | undefined {
+  if (!resource._monotonicTime)
+    return undefined;
+  return { minimum: resource._monotonicTime, maximum: resource._monotonicTime + resource.time };
+}
+
+function formatRouteStatus(request: ResourceEntry): string {
   if (request._wasAborted)
     return 'aborted';
   if (request._wasContinued)
     return 'continued';
   if (request._wasFulfilled)
     return 'fulfilled';
-  if (request._apiRequest)
+  if (request._apiRequestRef)
     return 'api';
   return '';
 }
@@ -327,4 +330,21 @@ function comparator(sortBy: ColumnName) {
 
   if (sortBy === 'contextId')
     return (a: RenderedEntry, b: RenderedEntry) => a.contextId.localeCompare(b.contextId);
+}
+
+const resourceTypePredicates: Record<ResourceType, (entry: RenderedEntry) => boolean> = {
+  'Fetch': entry => entry.contentType === 'application/json',
+  'HTML': entry => entry.contentType === 'text/html',
+  'CSS': entry => entry.contentType === 'text/css',
+  'JS': entry => entry.contentType.includes('javascript'),
+  'Font': entry => entry.contentType.includes('font'),
+  'Image': entry => entry.contentType.includes('image'),
+  'WS': entry => entry.resource._resourceType === 'websocket',
+};
+
+function filterEntry({ searchValue, resourceTypes }: FilterState) {
+  return (entry: RenderedEntry) => {
+    const isRightType = resourceTypes.size === 0 || Array.from(resourceTypes).some(type => resourceTypePredicates[type](entry));
+    return isRightType && entry.name.url.toLowerCase().includes(searchValue.toLowerCase());
+  };
 }

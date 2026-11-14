@@ -151,7 +151,7 @@ test('should use options from the config', async ({ runInlineTest }) => {
       });
     `,
     'playwright.config.ts': `
-      module.exports = { use: { foo: 'bar' } };
+      export default { use: { foo: 'bar' } };
     `,
     'a.test.ts': `
       import { test, expect } from './helper';
@@ -186,4 +186,3 @@ test('test.use() should throw if called from beforeAll ', async ({ runInlineTest
   expect(result.exitCode).toBe(1);
   expect(result.output).toContain('Playwright Test did not expect test.use() to be called here');
 });
-

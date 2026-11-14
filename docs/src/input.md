@@ -33,7 +33,7 @@ page.getByRole(AriaRole.TEXTBOX).fill("Peter");
 page.getByLabel("Birth date").fill("2020-02-02");
 
 // Time input
-page.getByLabel("Appointment time").fill("13-15");
+page.getByLabel("Appointment time").fill("13:15");
 
 // Local datetime input
 page.getByLabel("Local time").fill("2020-03-02T05:15");
@@ -75,7 +75,7 @@ await page.GetByRole(AriaRole.Textbox).FillAsync("Peter");
 await page.GetByLabel("Birth date").FillAsync("2020-02-02");
 
 // Time input
-await page.GetByLabel("Appointment time").FillAsync("13-15");
+await page.GetByLabel("Appointment time").FillAsync("13:15");
 
 // Local datetime input
 await page.GetByLabel("Local time").FillAsync("2020-03-02T05:15");
@@ -101,7 +101,7 @@ await page.getByLabel('XL').check();
 page.getByLabel("I agree to the terms above").check();
 
 // Assert the checked state
-assertTrue(page.getByLabel("Subscribe to newsletter")).isChecked();
+assertThat(page.getByLabel("Subscribe to newsletter")).isChecked();
 
 // Select the radio button
 page.getByLabel("XL").check();
@@ -217,7 +217,7 @@ await page.getByText('Item').click({ button: 'right' });
 // Shift + click
 await page.getByText('Item').click({ modifiers: ['Shift'] });
 
-// Ctrl + click or Windows and Linux
+// Ctrl + click on Windows and Linux
 // Meta + click on macOS
 await page.getByText('Item').click({ modifiers: ['ControlOrMeta'] });
 
@@ -241,7 +241,7 @@ page.getByText("Item").click(new Locator.ClickOptions().setButton(MouseButton.RI
 // Shift + click
 page.getByText("Item").click(new Locator.ClickOptions().setModifiers(Arrays.asList(KeyboardModifier.SHIFT)));
 
-// Ctrl + click or Windows and Linux
+// Ctrl + click on Windows and Linux
 // Meta + click on macOS
 page.getByText("Item").click(new Locator.ClickOptions().setModifiers(Arrays.asList(KeyboardModifier.CONTROL_OR_META)));
 
@@ -265,7 +265,7 @@ await page.get_by_text("Item").click(button="right")
 # Shift + click
 await page.get_by_text("Item").click(modifiers=["Shift"])
 
-# Ctrl + click or Windows and Linux
+# Ctrl + click on Windows and Linux
 # Meta + click on macOS
 await page.get_by_text("Item").click(modifiers=["ControlOrMeta"])
 
@@ -309,7 +309,7 @@ await page.GetByText("Item").ClickAsync(new() { Button = MouseButton.Right });
 // Shift + click
 await page.GetByText("Item").ClickAsync(new() { Modifiers = new[] { KeyboardModifier.Shift } });
 
-// Ctrl + click or Windows and Linux
+// Ctrl + click on Windows and Linux
 // Meta + click on macOS
 await page.GetByText("Item").ClickAsync(new() { Modifiers = new[] { KeyboardModifier.ControlOrMeta } });
 
@@ -397,17 +397,17 @@ page.locator("#area").pressSequentially("Hello World!");
 
 ```python async
 # Press keys one by one
-await page.locator('#area').pressSequentially('Hello World!')
+await page.locator('#area').press_sequentially('Hello World!')
 ```
 
 ```python sync
 # Press keys one by one
-page.locator('#area').pressSequentially('Hello World!')
+page.locator('#area').press_sequentially('Hello World!')
 ```
 
 ```csharp
 // Press keys one by one
-await page.Locator("#area").TypeAsync("Hello World!");
+await Page.Locator("#area").PressSequentiallyAsync("Hello World!");
 ```
 
 This method will emit all the necessary keyboard events, with all the `keydown`, `keyup`, `keypress` events in place. You can even specify the optional `delay` between the key presses to simulate real user behavior.
@@ -542,6 +542,9 @@ await page.getByLabel('Upload files').setInputFiles([
   path.join(__dirname, 'file2.txt'),
 ]);
 
+// Select a directory
+await page.getByLabel('Upload directory').setInputFiles(path.join(__dirname, 'mydir'));
+
 // Remove all the selected files
 await page.getByLabel('Upload file').setInputFiles([]);
 
@@ -560,6 +563,9 @@ page.getByLabel("Upload file").setInputFiles(Paths.get("myfile.pdf"));
 // Select multiple files
 page.getByLabel("Upload files").setInputFiles(new Path[] {Paths.get("file1.txt"), Paths.get("file2.txt")});
 
+// Select a directory
+page.getByLabel("Upload directory").setInputFiles(Paths.get("mydir"));
+
 // Remove all the selected files
 page.getByLabel("Upload file").setInputFiles(new Path[0]);
 
@@ -574,6 +580,9 @@ await page.get_by_label("Upload file").set_input_files('myfile.pdf')
 
 # Select multiple files
 await page.get_by_label("Upload files").set_input_files(['file1.txt', 'file2.txt'])
+
+# Select a directory
+await page.get_by_label("Upload directory").set_input_files('mydir')
 
 # Remove all the selected files
 await page.get_by_label("Upload file").set_input_files([])
@@ -593,6 +602,9 @@ page.get_by_label("Upload file").set_input_files('myfile.pdf')
 # Select multiple files
 page.get_by_label("Upload files").set_input_files(['file1.txt', 'file2.txt'])
 
+# Select a directory
+page.get_by_label("Upload directory").set_input_files('mydir')
+
 # Remove all the selected files
 page.get_by_label("Upload file").set_input_files([])
 
@@ -610,6 +622,9 @@ await page.GetByLabel("Upload file").SetInputFilesAsync("myfile.pdf");
 
 // Select multiple files
 await page.GetByLabel("Upload files").SetInputFilesAsync(new[] { "file1.txt", "file12.txt" });
+
+// Select a directory
+await page.GetByLabel("Upload directory").SetInputFilesAsync("mydir");
 
 // Remove all the selected files
 await page.GetByLabel("Upload file").SetInputFilesAsync(new[] {});

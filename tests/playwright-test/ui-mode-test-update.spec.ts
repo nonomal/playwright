@@ -149,7 +149,7 @@ test('should not loose run information after execution if test wrote into testDi
   await page.getByTitle('Run all').click();
   await page.waitForTimeout(5_000);
   await expect(page.getByText('Did not run')).toBeHidden();
-  const listItem = page.getByTestId('actions-tree').getByRole('listitem');
+  const listItem = page.getByTestId('actions-tree').getByRole('treeitem');
   await expect(
       listItem,
       'action list'
@@ -215,9 +215,10 @@ test('should update test locations', async ({ runUITest, writeFiles }) => {
   const messages: any[] = [];
   await page.exposeBinding('__logForTest', (source, arg) => messages.push(arg));
 
-  const passesItemLocator = page.getByRole('listitem').filter({ hasText: 'passes' });
+  const passesItemLocator = page.getByRole('treeitem', { name: 'passes' });
   await passesItemLocator.hover();
-  await passesItemLocator.getByTitle('Open in VS Code').click();
+  await passesItemLocator.getByTitle('Show source').click();
+  await page.getByTitle('Open in VS Code').click();
 
   expect(messages).toEqual([{
     method: 'open',
@@ -225,7 +226,7 @@ test('should update test locations', async ({ runUITest, writeFiles }) => {
       location: {
         file: expect.stringContaining('a.test.ts'),
         line: 3,
-        column: 11,
+        column: 7,
       }
     },
   }]);
@@ -247,7 +248,8 @@ test('should update test locations', async ({ runUITest, writeFiles }) => {
 
   messages.length = 0;
   await passesItemLocator.hover();
-  await passesItemLocator.getByTitle('Open in VS Code').click();
+  await passesItemLocator.getByTitle('Show source').click();
+  await page.getByTitle('Open in VS Code').click();
 
   expect(messages).toEqual([{
     method: 'open',
@@ -255,7 +257,7 @@ test('should update test locations', async ({ runUITest, writeFiles }) => {
       location: {
         file: expect.stringContaining('a.test.ts'),
         line: 5,
-        column: 11,
+        column: 7,
       }
     },
   }]);

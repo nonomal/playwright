@@ -17,13 +17,18 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { sourceMapSupport } from '../utilsBundle';
-import { isWorkerProcess } from '../common/globals';
+import url from 'url';
+
+import sourceMapSupport from 'source-map-support';
+import { MultiMap } from '@isomorphic/multimap';
+import { calculateSha1 } from '@utils/crypto';
+
+import { isWorkerProcess } from '../globals';
+import { packageRoot } from '../package';
 
 export type MemoryCache = {
   codePath: string;
   sourceMapPath: string;
-  dataPath: string;
   moduleUrl?: string;
 };
 
@@ -31,7 +36,6 @@ export type SerializedCompilationCache = {
   sourceMaps: [string, string][],
   memoryCache: [string, MemoryCache][],
   fileDependencies: [string, string[]][],
-  externalDependencies: [string, string[]][],
 };
 
 // Assumptions for the compilation cache:
@@ -47,7 +51,7 @@ export type SerializedCompilationCache = {
 // - For workers-only dynamic imports or some cache problems, we will re-transpile files in
 //   each worker anew.
 
-export const cacheDir = process.env.PWTEST_CACHE_DIR || (() => {
+export const cacheDir = process.env.PLAYWRIGHT_TRANSFORM_CACHE_DIR || process.env.PWTEST_CACHE_DIR || (() => {
   if (process.platform === 'win32')
     return path.join(os.tmpdir(), `playwright-transform-cache`);
   // Use `geteuid()` instead of more natural `os.userInfo().username`
@@ -61,16 +65,8 @@ const sourceMaps: Map<string, string> = new Map();
 const memoryCache = new Map<string, MemoryCache>();
 // Dependencies resolved by the loader.
 const fileDependencies = new Map<string, Set<string>>();
-// Dependencies resolved by the external bundler.
-const externalDependencies = new Map<string, Set<string>>();
 
-let sourceMapSupportInstalled = false;
-
-export function installSourceMapSupportIfNeeded() {
-  if (sourceMapSupportInstalled)
-    return;
-  sourceMapSupportInstalled = true;
-
+export function installSourceMapSupport() {
   Error.stackTraceLimit = 200;
 
   sourceMapSupport.install({
@@ -103,47 +99,70 @@ function _innerAddToCompilationCacheAndSerialize(filename: string, entry: Memory
   };
 }
 
+// Cached code files are prefixed with a `// <sha1>` line so that a partially
+// written cache entry is detected and ignored when reading.
+function writeCodeCache(codePath: string, code: string) {
+  fs.writeFileSync(codePath, `// ${calculateSha1(code)}\n${code}`, 'utf8');
+}
+
+function readCodeCache(codePath: string): string {
+  const content = fs.readFileSync(codePath, 'utf8');
+  const newLineIndex = content.indexOf('\n');
+  if (newLineIndex === -1)
+    throw new Error(`Cache file is missing the hash header`);
+  const firstLine = content.substring(0, newLineIndex);
+  const sha1Length = 40;
+  if (firstLine.length !== '// '.length + sha1Length || !firstLine.startsWith('// '))
+    throw new Error(`Cache file has a malformed hash header`);
+  const code = content.substring(newLineIndex + 1);
+  if (calculateSha1(code) !== firstLine.substring('// '.length))
+    throw new Error(`Cache file content does not match the hash header`);
+  return code;
+}
+
 type CompilationCacheLookupResult = {
   serializedCache?: any;
   cachedCode?: string;
-  addToCache?: (code: string, map: any | undefined | null, data: Map<string, any>) => { serializedCache?: any };
+  addToCache?: (code: string, map: any | undefined | null) => { serializedCache?: any };
 };
 
-export function getFromCompilationCache(filename: string, hash: string, moduleUrl?: string): CompilationCacheLookupResult {
+export function getFromCompilationCache(filename: string, contentHash: string, moduleUrl?: string): CompilationCacheLookupResult {
   // First check the memory cache by filename, this cache will always work in the worker,
   // because we just compiled this file in the loader.
   const cache = memoryCache.get(filename);
   if (cache?.codePath) {
     try {
-      return { cachedCode: fs.readFileSync(cache.codePath, 'utf-8') };
+      return { cachedCode: readCodeCache(cache.codePath) };
     } catch {
       // Not able to read the file - fall through.
     }
   }
 
   // Then do the disk cache, this cache works between the Playwright Test runs.
-  const cachePath = calculateCachePath(filename, hash);
+  const filePathHash = calculateFilePathHash(filename);
+  const hashPrefix = filePathHash + '_' + contentHash.substring(0, 7);
+  const cacheFolderName = filePathHash.substring(0, 2);
+  const cachePath = calculateCachePath(filename, cacheFolderName, hashPrefix);
   const codePath = cachePath + '.js';
   const sourceMapPath = cachePath + '.map';
-  const dataPath = cachePath + '.data';
   try {
-    const cachedCode = fs.readFileSync(codePath, 'utf8');
-    const serializedCache = _innerAddToCompilationCacheAndSerialize(filename, { codePath, sourceMapPath, dataPath, moduleUrl });
+    const cachedCode = readCodeCache(codePath);
+    const serializedCache = _innerAddToCompilationCacheAndSerialize(filename, { codePath, sourceMapPath, moduleUrl });
     return { cachedCode, serializedCache };
   } catch {
   }
 
   return {
-    addToCache: (code: string, map: any | undefined | null, data: Map<string, any>) => {
+    addToCache: (code: string, map: any | undefined | null) => {
       if (isWorkerProcess())
         return {};
+      // Trim cache. This won't help with deleted files, but it will remove storing multiple copies of the same file
+      clearOldCacheEntries(cacheFolderName, filePathHash);
       fs.mkdirSync(path.dirname(cachePath), { recursive: true });
       if (map)
         fs.writeFileSync(sourceMapPath, JSON.stringify(map), 'utf8');
-      if (data.size)
-        fs.writeFileSync(dataPath, JSON.stringify(Object.fromEntries(data.entries()), undefined, 2), 'utf8');
-      fs.writeFileSync(codePath, code, 'utf8');
-      const serializedCache = _innerAddToCompilationCacheAndSerialize(filename, { codePath, sourceMapPath, dataPath, moduleUrl });
+      writeCodeCache(codePath, code);
+      const serializedCache = _innerAddToCompilationCacheAndSerialize(filename, { codePath, sourceMapPath, moduleUrl });
       return { serializedCache };
     }
   };
@@ -154,7 +173,6 @@ export function serializeCompilationCache(): SerializedCompilationCache {
     sourceMaps: [...sourceMaps.entries()],
     memoryCache: [...memoryCache.entries()],
     fileDependencies: [...fileDependencies.entries()].map(([filename, deps]) => ([filename, [...deps]])),
-    externalDependencies: [...externalDependencies.entries()].map(([filename, deps]) => ([filename, [...deps]])),
   };
 }
 
@@ -167,28 +185,60 @@ export function addToCompilationCache(payload: SerializedCompilationCache) {
     const existing = fileDependencies.get(entry[0]) || [];
     fileDependencies.set(entry[0], new Set([...entry[1], ...existing]));
   }
-  for (const entry of payload.externalDependencies) {
-    const existing = externalDependencies.get(entry[0]) || [];
-    externalDependencies.set(entry[0], new Set([...entry[1], ...existing]));
-  }
 }
 
-function calculateCachePath(filePath: string, hash: string): string {
-  const fileName = path.basename(filePath, path.extname(filePath)).replace(/\W/g, '') + '_' + hash;
-  return path.join(cacheDir, hash[0] + hash[1], fileName);
+function calculateFilePathHash(filePath: string): string {
+  // Larger file path hash allows for fewer collisions compared to content, as we only check file path collision for deleting files
+  return calculateSha1(filePath).substring(0, 10);
+}
+
+function calculateCachePath(filePath: string, cacheFolderName: string, hashPrefix: string): string {
+  const fileName = hashPrefix + '_' + path.basename(filePath, path.extname(filePath)).replace(/\W/g, '');
+  return path.join(cacheDir, cacheFolderName, fileName);
+}
+
+function clearOldCacheEntries(cacheFolderName: string, filePathHash: string) {
+  const cachePath = path.join(cacheDir, cacheFolderName);
+  try {
+    const cachedRelevantFiles = fs.readdirSync(cachePath).filter(file => file.startsWith(filePathHash));
+    for (const file of cachedRelevantFiles)
+      fs.rmSync(path.join(cachePath, file), { force: true });
+  } catch {
+  }
 }
 
 // Since ESM and CJS collect dependencies differently,
 // we go via the global state to collect them.
 let depsCollector: Set<string> | undefined;
+// Retain import and require edges even outside collection, for later test files that reuse cached modules.
+const importGraph = new MultiMap<string, string>();
+
+export function recordResolvedFile(resolvedUrl: string | undefined, parentUrl: string | undefined) {
+  if (isWorkerProcess() || !resolvedUrl?.startsWith('file://'))
+    return;
+  const child = url.fileURLToPath(resolvedUrl);
+  depsCollector?.add(child);
+  if (!parentUrl?.startsWith('file://'))
+    return;
+  const parent = url.fileURLToPath(parentUrl);
+  if (!belongsToNodeModules(parent) && !importGraph.hasValue(parent, child))
+    importGraph.set(parent, child);
+}
 
 export function startCollectingFileDeps() {
   depsCollector = new Set();
 }
 
-export function stopCollectingFileDeps(filename: string) {
+export function stopCollectingFileDeps(filename: string, additionalDeps: string[] = []) {
   if (!depsCollector)
     return;
+  for (const dep of additionalDeps)
+    depsCollector.add(dep);
+  // Sets visit entries added during iteration, so this collects the whole transitive closure.
+  for (const dep of depsCollector) {
+    for (const child of importGraph.get(dep))
+      depsCollector.add(child);
+  }
   depsCollector.delete(filename);
   for (const dep of depsCollector) {
     if (belongsToNodeModules(dep))
@@ -202,24 +252,20 @@ export function currentFileDepsCollector(): Set<string> | undefined {
   return depsCollector;
 }
 
-export function setExternalDependencies(filename: string, deps: string[]) {
-  const depsSet = new Set(deps.filter(dep => !belongsToNodeModules(dep) && dep !== filename));
-  externalDependencies.set(filename, depsSet);
-}
-
 export function fileDependenciesForTest() {
-  return fileDependencies;
+  return Object.fromEntries([...fileDependencies.entries()].map(entry => (
+    [path.basename(entry[0]), [...entry[1]].map(f => path.basename(f)).sort()]
+  )));
 }
 
-export function collectAffectedTestFiles(dependency: string, testFileCollector: Set<string>) {
-  if (fileDependencies.has(dependency))
-    testFileCollector.add(dependency);
+export function collectAffectedTestFiles(changedFile: string, testFileCollector: Set<string>) {
+  const isTestFile = (file: string) => fileDependencies.has(file);
+
+  if (isTestFile(changedFile))
+    testFileCollector.add(changedFile);
+
   for (const [testFile, deps] of fileDependencies) {
-    if (deps.has(dependency))
-      testFileCollector.add(testFile);
-  }
-  for (const [testFile, deps] of externalDependencies) {
-    if (deps.has(dependency))
+    if (deps.has(changedFile))
       testFileCollector.add(testFile);
   }
 }
@@ -236,18 +282,13 @@ export function internalDependenciesForTestFile(filename: string): Set<string> |
 }
 
 export function dependenciesForTestFile(filename: string): Set<string> {
-  const result = new Set<string>();
-  for (const dep of fileDependencies.get(filename) || [])
-    result.add(dep);
-  for (const dep of externalDependencies.get(filename) || [])
-    result.add(dep);
-  return result;
+  return fileDependencies.get(filename) || new Set();
 }
 
 // This is only used in the dev mode, specifically excluding
 // files from packages/playwright*. In production mode, node_modules covers
 // that.
-const kPlaywrightInternalPrefix = path.resolve(__dirname, '../../../playwright');
+const kPlaywrightInternalPrefix = packageRoot;
 
 export function belongsToNodeModules(file: string) {
   if (file.includes(`${path.sep}node_modules${path.sep}`))
@@ -255,18 +296,4 @@ export function belongsToNodeModules(file: string) {
   if (file.startsWith(kPlaywrightInternalPrefix) && (file.endsWith('.js') || file.endsWith('.mjs')))
     return true;
   return false;
-}
-
-export async function getUserData(pluginName: string): Promise<Map<string, any>> {
-  const result = new Map<string, any>();
-  for (const [fileName, cache] of memoryCache) {
-    if (!cache.dataPath)
-      continue;
-    if (!fs.existsSync(cache.dataPath))
-      continue;
-    const data = JSON.parse(await fs.promises.readFile(cache.dataPath, 'utf8'));
-    if (data[pluginName])
-      result.set(fileName, data[pluginName]);
-  }
-  return result;
 }

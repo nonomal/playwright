@@ -15,50 +15,41 @@
  * limitations under the License.
  */
 
-import type { Size, Point, TimeoutOptions, HeadersArray } from '../common/types';
-export type { Size, Point, Rect, Quad, URLMatch, TimeoutOptions, HeadersArray } from '../common/types';
-import type * as channels from '@protocol/channels';
+import type { HeadersArray, Point } from '@isomorphic/types';
+import type { ElementHandle } from './dom';
+export type { HeadersArray, Point, Quad, Rect, Size, DeviceDescriptor, Devices } from '@isomorphic/types';
+import type * as channels from './channels';
+import type { ProxySettings } from '@utils/network';
 
-export type StrictOptions = {
+export type SelectorTarget = {
+  selector: string,
   strict?: boolean,
+  scope?: ElementHandle,
 };
 
-export type QueryOnSelectorOptions = StrictOptions & TimeoutOptions;
-
-export type WaitForElementOptions = TimeoutOptions & StrictOptions & { state?: 'attached' | 'detached' | 'visible' | 'hidden' } & { omitReturnValue?: boolean };
-
-export type WaitForFunctionOptions = TimeoutOptions & { pollingInterval?: number };
+export type WaitForElementOptions = { state?: 'attached' | 'detached' | 'visible' | 'hidden', omitReturnValue?: boolean };
 
 export type LifecycleEvent = 'load' | 'domcontentloaded' | 'networkidle' | 'commit';
 export const kLifecycleEvents: Set<LifecycleEvent> = new Set(['load', 'domcontentloaded', 'networkidle', 'commit']);
 
-export type NavigateOptions = TimeoutOptions & {
+export type NavigateOptions = {
   waitUntil?: LifecycleEvent,
 };
 
-export type NavigatingActionWaitOptions = TimeoutOptions & StrictOptions & {
-  noWaitAfter?: boolean,
-};
-
-export type ForceOptions = {
+export type CommonActionOptions = {
   force?: boolean,
 };
 
-export type PointerActionWaitOptions = TimeoutOptions & ForceOptions & StrictOptions & {
+export type PointerActionWaitOptions = CommonActionOptions & {
   trial?: boolean;
+  scroll?: 'auto' | 'none';
 };
 
-export type PageScreencastOptions = {
-  width: number,
-  height: number,
-  outputFile: string,
-};
-
-export type Credentials = {
-  username: string;
-  password: string;
-  origin?: string;
-  sendImmediately?: boolean;
+export type ScreencastFrame = {
+  buffer: Buffer,
+  frameSwapWallTime: number,
+  viewportWidth: number,
+  viewportHeight: number,
 };
 
 export type Geolocation = {
@@ -68,6 +59,7 @@ export type Geolocation = {
 };
 
 export type SelectOption = {
+  valueOrLabel?: string;
   value?: string;
   label?: string;
   index?: number;
@@ -88,22 +80,9 @@ export type ReducedMotion = 'no-preference' | 'reduce' | 'no-override';
 
 export type ForcedColors = 'active' | 'none' | 'no-override';
 
-export type DeviceDescriptor = {
-  userAgent: string,
-  viewport: Size,
-  deviceScaleFactor: number,
-  isMobile: boolean,
-  hasTouch: boolean,
-  defaultBrowserType: 'chromium' | 'firefox' | 'webkit'
-};
-export type Devices = { [name: string]: DeviceDescriptor };
+export type Contrast = 'no-preference' | 'more' | 'no-override';
 
-export type ProxySettings = {
-  server: string,
-  bypass?: string,
-  username?: string,
-  password?: string
-};
+export type { ProxySettings } from '@utils/network';
 
 export type KeyboardModifier = 'Alt' | 'Control' | 'Meta' | 'Shift';
 export type SmartKeyboardModifier = KeyboardModifier |  'ControlOrMeta';
@@ -117,6 +96,7 @@ export type PointerActionOptions = {
 export type DragActionOptions = {
   sourcePosition?: Point;
   targetPosition?: Point;
+  steps?: number;
 };
 
 
@@ -124,11 +104,7 @@ export type MouseClickOptions = PointerActionOptions & {
   delay?: number;
   button?: MouseButton;
   clickCount?: number;
-};
-
-export type MouseMultiClickOptions = PointerActionOptions & {
-  delay?: number;
-  button?: MouseButton;
+  steps?: number;
 };
 
 export type World = 'main' | 'utility';
@@ -152,9 +128,15 @@ export type NormalizedContinueOverrides = {
   isFallback: boolean,
 };
 
-export type EmulatedSize = { viewport: Size, screen: Size };
+export type LaunchOptions = Omit<channels.BrowserTypeLaunchParams, 'timeout'> & {
+  proxyOverride?: ProxySettings,
+  socksProxyPort?: number,
+};
 
-export type LaunchOptions = channels.BrowserTypeLaunchOptions & { useWebSocket?: boolean };
+export type BrowserContextOptions = channels.BrowserNewContextOptions & {
+  proxyOverride?: ProxySettings;
+  internalIgnoreHTTPSErrors?: boolean;
+};
 
 export type ProtocolLogger = (direction: 'send' | 'receive', message: object) => void;
 

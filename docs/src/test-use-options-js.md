@@ -1,6 +1,6 @@
 ---
 id: test-use-options
-title: "Test use options"
+title: "Configuration (use)"
 ---
 
 ## Introduction
@@ -17,7 +17,7 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   use: {
     // Base URL to use in actions like `await page.goto('/')`.
-    baseURL: 'http://127.0.0.1:3000',
+    baseURL: 'http://localhost:3000',
 
     // Populates context with given storage state.
     storageState: 'state.json',
@@ -64,10 +64,13 @@ export default defineConfig({
 
 | Option | Description |
 | :- | :- |
-| [`property: TestOptions.colorScheme`] | [Emulates](./emulation.md#color-scheme-and-media) `'prefers-colors-scheme'` media feature, supported values are `'light'`, `'dark'`, `'no-preference'` |
+| [`property: TestOptions.colorScheme`] | [Emulates](./emulation.md#color-scheme-and-media) `'prefers-colors-scheme'` media feature, supported values are `'light'` and `'dark'` |
+| [`property: TestOptions.contrast`] | [Emulates](./emulation.md#color-scheme-and-media) `'prefers-contrast'` media feature, supported values are `'no-preference'` and `'more'` |
+| [`property: TestOptions.forcedColors`] | [Emulates](./emulation.md#color-scheme-and-media) `'forced-colors'` media feature, supported values are `'active'` and `'none'` |
 | [`property: TestOptions.geolocation`] | Context [geolocation](./emulation.md#geolocation). |
 | [`property: TestOptions.locale`] | [Emulates](./emulation.md#locale--timezone) the user locale, for example `en-GB`, `de-DE`, etc. |
 | [`property: TestOptions.permissions`] | A list of [permissions](./emulation.md#permissions) to grant to all pages in the context. |
+| [`property: TestOptions.reducedMotion`] | [Emulates](./emulation.md#color-scheme-and-media) `'prefers-reduced-motion'` media feature, supported values are `'reduce'` and `'no-preference'` |
 | [`property: TestOptions.timezoneId`] | Changes the [timezone](./emulation.md#locale--timezone) of the context. |
 | [`property: TestOptions.viewport`] | [Viewport](./emulation.md#viewport) used for all pages in the context. |
 
@@ -112,11 +115,13 @@ export default defineConfig({
 | Option | Description |
 | :- | :- |
 | [`property: TestOptions.acceptDownloads`] | Whether to automatically download all the attachments, defaults to `true`. [Learn more](./downloads.md) about working with downloads. |
+| [`property: TestOptions.clientCertificates`] | TLS Client Authentication allows the server to request a client certificate and verify it. |
 | [`property: TestOptions.extraHTTPHeaders`] | An object containing additional HTTP headers to be sent with every request. All header values must be strings. |
 | [`property: TestOptions.httpCredentials`] | Credentials for [HTTP authentication](./network.md#http-authentication). |
 | [`property: TestOptions.ignoreHTTPSErrors`] | Whether to ignore HTTPS errors during navigation. |
 | [`property: TestOptions.offline`] | Whether to emulate network being offline. |
 | [`property: TestOptions.proxy`] | [Proxy settings](./network.md#http-proxy) used for all pages in the test. |
+| [`property: TestOptions.serviceWorkers`] | Whether to allow sites to register Service workers, defaults to `'allow'`. [Learn more](./network.md#missing-network-events-and-service-workers) about Service Workers and network mocking. |
 
 
 :::note
@@ -152,6 +157,57 @@ export default defineConfig({
 | [`property: TestOptions.trace`] | Playwright can produce test traces while running the tests. Later on, you can view the trace and get detailed information about Playwright execution by opening [Trace Viewer](./trace-viewer.md). Options include: `'off'`, `'on'`, `'retain-on-failure'` and `'on-first-retry'`  |
 | [`property: TestOptions.video`] | Playwright can record [videos](./videos.md) for your tests. Options include: `'off'`, `'on'`, `'retain-on-failure'` and `'on-first-retry'` |
 
+#### Trace modes
+
+The `trace` option supports several modes that differ in **which runs are recorded** and **which recordings are kept** after the test finishes. The initial run of a test is the "first run"; subsequent runs caused by [retries](./test-retries.md) are "retries".
+
+| Mode | Records a trace on | Keeps the trace when |
+| :- | :- | :- |
+| `'off'` | never | — |
+| `'on'` | every run | always |
+| `'retain-on-failure'` | every run | that run failed |
+| `'retain-on-first-failure'` | first run only | the first run failed |
+| `'retain-on-failure-and-retries'` | every run | that run failed, or it is a retry |
+| `'on-first-retry'` | first retry only | always |
+| `'on-all-retries'` | every retry | always |
+
+The following table shows which traces are kept in a few common scenarios, assuming `retries: 2` is configured:
+
+| Mode | Passes on first run | Fails, then passes on retry | Fails on every run |
+| :- | :- | :- | :- |
+| `'off'` | — | — | — |
+| `'on'` | first run | first run + retry | all three runs |
+| `'retain-on-failure'` | — | first run | all three runs |
+| `'retain-on-first-failure'` | — | first run | first run |
+| `'retain-on-failure-and-retries'` | — | first run + retry | all three runs |
+| `'on-first-retry'` | — | first retry | first retry |
+| `'on-all-retries'` | — | first retry | both retries |
+
+#### Video modes
+
+The `video` option supports the same set of modes as `trace`, and they record and keep recordings using the same rules.
+
+| Mode | Records a video on | Keeps the video when |
+| :- | :- | :- |
+| `'off'` | never | — |
+| `'on'` | every run | always |
+| `'retain-on-failure'` | every run | that run failed |
+| `'retain-on-first-failure'` | first run only | the first run failed |
+| `'retain-on-failure-and-retries'` | every run | that run failed, or it is a retry |
+| `'on-first-retry'` | first retry only | always |
+| `'on-all-retries'` | every retry | always |
+
+The following table shows which videos are kept in a few common scenarios, assuming `retries: 2` is configured:
+
+| Mode | Passes on first run | Fails, then passes on retry | Fails on every run |
+| :- | :- | :- | :- |
+| `'off'` | — | — | — |
+| `'on'` | first run | first run + retry | all three runs |
+| `'retain-on-failure'` | — | first run | all three runs |
+| `'retain-on-first-failure'` | — | first run | first run |
+| `'retain-on-failure-and-retries'` | — | first run + retry | all three runs |
+| `'on-first-retry'` | — | first retry | first retry |
+| `'on-all-retries'` | — | first retry | both retries |
 
 ### Other Options
 
@@ -188,11 +244,12 @@ export default defineConfig({
 | [`property: TestOptions.bypassCSP`] |Toggles bypassing Content-Security-Policy. Useful when CSP includes the production origin. Defaults to `false`. |
 | [`property: TestOptions.channel`] | Browser channel to use. [Learn more](./browsers.md) about different browsers and channels. |
 | [`property: TestOptions.headless`] | Whether to run the browser in headless mode meaning no browser is shown when running tests. Defaults to `true`. |
+| [`property: TestOptions.navigationTimeout`] | Timeout for each navigation action in milliseconds. Defaults to `0` (no timeout). Learn more about [timeouts](./test-timeouts.md). |
 | [`property: TestOptions.testIdAttribute`] | Changes the default [`data-testid` attribute](./locators.md#locate-by-test-id) used by Playwright locators. |
 
 ### More browser and context options
 
-Any options accepted by [`method: BrowserType.launch`] or [`method: Browser.newContext`] can be put into `launchOptions` or `contextOptions` respectively in the `use` section.
+Any options accepted by [`method: BrowserType.launch`], [`method: Browser.newContext`] or [`method: BrowserType.connect`] can be put into `launchOptions`, `contextOptions` or `connectOptions` respectively in the `use` section.
 
 ```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
@@ -210,7 +267,7 @@ However, most common ones like `headless` or `viewport` are available directly i
 
 ### Explicit Context Creation and Option Inheritance
 
-If using the built-in `browser` fixture, calling [`method: Browser.newContext`] will create a context with options inherited from the config:
+While a test or hook runs, every browser context created through the Playwright instance used by the test runner inherits context options from the `use` section.  This includes contexts created with the built-in `browser` fixture, a separately launched browser, [`method: BrowserType.launchPersistentContext`], or a direct `playwright-core` import that resolves to the same instance.  Explicit context options take precedence:
 
 ```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
@@ -294,5 +351,56 @@ test.describe('french language block', () => {
   test('example', async ({ page }) => {
     // ...
   });
+});
+```
+
+### Reset an option
+
+You can reset an option to the value defined in the config file. Consider the following config that sets a `baseURL`:
+
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  use: {
+    baseURL: 'https://playwright.dev',
+  },
+});
+```
+
+You can now configure `baseURL` for a file, and also opt-out for a single test.
+
+```js title="intro.spec.ts"
+import { test } from '@playwright/test';
+
+// Configure baseURL for this file.
+test.use({ baseURL: 'https://playwright.dev/docs/intro' });
+
+test('check intro contents', async ({ page }) => {
+  // This test will use "https://playwright.dev/docs/intro" base url as defined above.
+});
+
+test.describe(() => {
+  // Reset the value to a config-defined one.
+  test.use({ baseURL: undefined });
+
+  test('can navigate to intro from the home page', async ({ page }) => {
+    // This test will use "https://playwright.dev" base url as defined in the config.
+  });
+});
+```
+
+If you would like to completely reset the value to `undefined`, use a long-form fixture notation.
+
+```js title="intro.spec.ts"
+import { test } from '@playwright/test';
+
+// Completely unset baseURL for this file.
+test.use({
+  baseURL: [async ({}, use) => use(undefined), { scope: 'test' }],
+});
+
+test('no base url', async ({ page }) => {
+  // This test will not have a base url.
 });
 ```

@@ -17,22 +17,22 @@
 
 import { test as it, expect } from './pageTest';
 
-it('should work for primitives', async ({ page }) => {
+it('JH-018 should work for primitives', async ({ page }) => {
   const numberHandle = await page.evaluateHandle(() => 2);
   expect(numberHandle.toString()).toBe('2');
   const stringHandle = await page.evaluateHandle(() => 'a');
   expect(stringHandle.toString()).toBe('a');
 });
 
-it('should work for complicated objects', async ({ page, browserName }) => {
+it('JH-019 should work for complicated objects', async ({ page, browserName, channel }) => {
   const aHandle = await page.evaluateHandle(() => window);
-  if (browserName !== 'firefox')
+  if (browserName !== 'firefox' || channel?.startsWith('moz-firefox'))
     expect(aHandle.toString()).toBe('Window');
   else
     expect(aHandle.toString()).toBe('JSHandle@object');
 });
 
-it('should beautifully render sparse arrays', async ({ page, browserName }) => {
+it('JH-020 should beautifully render sparse arrays', async ({ page, browserName }) => {
   const [msg] = await Promise.all([
     page.waitForEvent('console'),
     page.evaluateHandle(() => {
@@ -49,15 +49,19 @@ it('should beautifully render sparse arrays', async ({ page, browserName }) => {
     expect(msg.text()).toBe('[empty, 1, empty x 8, 2, empty x 89, 3]');
 });
 
-it('should work for promises', async ({ page }) => {
+it('JH-021 should work for promises', async ({ page }) => {
   // wrap the promise in an object, otherwise we will await.
   const wrapperHandle = await page.evaluateHandle(() => ({ b: Promise.resolve(123) }));
   const bHandle = await wrapperHandle.getProperty('b');
   expect(bHandle.toString()).toBe('Promise');
 });
 
-it('should work with different subtypes @smoke', async ({ page, browserName, browserMajorVersion }) => {
-  expect((await page.evaluateHandle('(function(){})')).toString()).toContain('function');
+it('JH-022 should work with different subtypes @smoke', async ({ page, browserName, channel }) => {
+  const isBiDi = channel?.startsWith('bidi-chrom') || channel?.startsWith('moz-firefox');
+  if (!isBiDi)
+    expect((await page.evaluateHandle('(function(){})')).toString()).toContain('function');
+  else
+    expect((await page.evaluateHandle('(function(){})')).toString()).toBe('Function');
   expect((await page.evaluateHandle('12')).toString()).toBe('12');
   expect((await page.evaluateHandle('true')).toString()).toBe('true');
   expect((await page.evaluateHandle('undefined')).toString()).toBe('undefined');
@@ -67,16 +71,21 @@ it('should work with different subtypes @smoke', async ({ page, browserName, bro
   expect((await page.evaluateHandle('new Set()')).toString()).toContain('Set');
   expect((await page.evaluateHandle('[]')).toString()).toContain('Array');
   expect((await page.evaluateHandle('null')).toString()).toBe('null');
-  expect((await page.evaluateHandle('document.body')).toString()).toBe('JSHandle@node');
+  const bodyHandle = await page.evaluateHandle('document.body');
+  await expect.poll(() => bodyHandle.toString()).toBe('JSHandle@<body></body>');
   expect((await page.evaluateHandle('new WeakMap()')).toString()).toBe('WeakMap');
   expect((await page.evaluateHandle('new WeakSet()')).toString()).toBe('WeakSet');
   expect((await page.evaluateHandle('new Error()')).toString()).toContain('Error');
-  expect((await page.evaluateHandle('new Proxy({}, {})')).toString()).toBe((browserName === 'chromium' && browserMajorVersion >= 111) ? 'Proxy(Object)' : 'Proxy');
+  expect((await page.evaluateHandle('new Proxy({}, {})')).toString()).toBe((browserName === 'chromium' && !isBiDi) ? 'Proxy(Object)' : 'Proxy');
 });
 
-it('should work with previewable subtypes', async ({ page, browserName }) => {
-  it.skip(browserName === 'firefox');
+it('JH-023 should work with previewable subtypes', async ({ page, browserName, channel }) => {
+  const isBiDi = channel?.startsWith('bidi-chrom') || channel?.startsWith('moz-firefox');
+  it.skip(browserName === 'firefox' && !isBiDi);
   expect((await page.evaluateHandle('/foo/')).toString()).toBe('/foo/');
   expect((await page.evaluateHandle('new Date(0)')).toString()).toContain('GMT');
-  expect((await page.evaluateHandle('new Int32Array()')).toString()).toContain('Int32Array');
+  if (!isBiDi)
+    expect((await page.evaluateHandle('new Int32Array()')).toString()).toContain('Int32Array');
+  else
+    expect((await page.evaluateHandle('new Int32Array()')).toString()).toBe('TypedArray');
 });

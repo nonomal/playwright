@@ -1,10 +1,10 @@
 // This is generated from /utils/protocol-types-generator/index.js
 type binary = string;
-export module Protocol {
+export namespace Protocol {
   /**
    * Domain for tracking/modifying Web Animations, as well as CSS (declarative) animations and transitions.
    */
-  export module Animation {
+  export namespace Animation {
     /**
      * Unique Web Animation identifier.
      */
@@ -26,7 +26,6 @@ export module Protocol {
        * Equal to the corresponding `transition-property` CSS property. Should not be provided if `animationName` is also provided.
        */
       cssTransitionProperty?: string;
-      effect?: Effect;
       /**
        * Backtrace that was captured when this `WebAnimation` was created.
        */
@@ -104,10 +103,6 @@ export module Protocol {
      */
     export type effectChangedPayload = {
       animationId: AnimationId;
-      /**
-       * This is omitted when the effect is removed without a replacement.
-       */
-      effect?: Effect;
     }
     /**
      * Dispatched whenever the target of any effect of any animation is changed in any way.
@@ -156,6 +151,18 @@ export module Protocol {
     export type disableReturnValue = {
     }
     /**
+     * Gets the `Effect` for the animation with the given `AnimationId`.
+     */
+    export type requestEffectParameters = {
+      animationId: AnimationId;
+    }
+    export type requestEffectReturnValue = {
+      /**
+       * This is omitted when there is no effect.
+       */
+      effect?: Effect;
+    }
+    /**
      * Gets the `DOM.NodeId` for the target of the effect of the animation with the given `AnimationId`.
      */
     export type requestEffectTargetParameters = {
@@ -193,143 +200,7 @@ export module Protocol {
     }
   }
   
-  export module ApplicationCache {
-    /**
-     * Detailed application cache resource information.
-     */
-    export interface ApplicationCacheResource {
-      /**
-       * Resource url.
-       */
-      url: string;
-      /**
-       * Resource size.
-       */
-      size: number;
-      /**
-       * Resource type.
-       */
-      type: string;
-    }
-    /**
-     * Detailed application cache information.
-     */
-    export interface ApplicationCache {
-      /**
-       * Manifest URL.
-       */
-      manifestURL: string;
-      /**
-       * Application cache size.
-       */
-      size: number;
-      /**
-       * Application cache creation time.
-       */
-      creationTime: number;
-      /**
-       * Application cache update time.
-       */
-      updateTime: number;
-      /**
-       * Application cache resources.
-       */
-      resources: ApplicationCacheResource[];
-    }
-    /**
-     * Frame identifier - manifest URL pair.
-     */
-    export interface FrameWithManifest {
-      /**
-       * Frame identifier.
-       */
-      frameId: Network.FrameId;
-      /**
-       * Manifest URL.
-       */
-      manifestURL: string;
-      /**
-       * Application cache status.
-       */
-      status: number;
-    }
-    
-    export type applicationCacheStatusUpdatedPayload = {
-      /**
-       * Identifier of the frame containing document whose application cache updated status.
-       */
-      frameId: Network.FrameId;
-      /**
-       * Manifest URL.
-       */
-      manifestURL: string;
-      /**
-       * Updated application cache status.
-       */
-      status: number;
-    }
-    export type networkStateUpdatedPayload = {
-      isNowOnline: boolean;
-    }
-    
-    /**
-     * Returns array of frame identifiers with manifest urls for each frame containing a document associated with some application cache.
-     */
-    export type getFramesWithManifestsParameters = {
-    }
-    export type getFramesWithManifestsReturnValue = {
-      /**
-       * Array of frame identifiers with manifest urls for each frame containing a document associated with some application cache.
-       */
-      frameIds: FrameWithManifest[];
-    }
-    /**
-     * Enables application cache domain notifications.
-     */
-    export type enableParameters = {
-    }
-    export type enableReturnValue = {
-    }
-    /**
-     * Disable application cache domain notifications.
-     */
-    export type disableParameters = {
-    }
-    export type disableReturnValue = {
-    }
-    /**
-     * Returns manifest URL for document in the given frame.
-     */
-    export type getManifestForFrameParameters = {
-      /**
-       * Identifier of the frame containing document whose manifest is retrieved.
-       */
-      frameId: Network.FrameId;
-    }
-    export type getManifestForFrameReturnValue = {
-      /**
-       * Manifest URL for document in the given frame.
-       */
-      manifestURL: string;
-    }
-    /**
-     * Returns relevant application cache data for the document in given frame.
-     */
-    export type getApplicationCacheForFrameParameters = {
-      /**
-       * Identifier of the frame containing document whose application cache is retrieved.
-       */
-      frameId: Network.FrameId;
-    }
-    export type getApplicationCacheForFrameReturnValue = {
-      /**
-       * Relevant application cache data for the document in given frame.
-       */
-      applicationCache: ApplicationCache;
-    }
-  }
-  
-  export module Audit {
+  export namespace Audit {
     
     
     /**
@@ -378,7 +249,7 @@ export module Protocol {
   /**
    * The Browser domain contains commands and events related to getting information about the browser 
    */
-  export module Browser {
+  export namespace Browser {
     /**
      * Unique extension identifier.
      */
@@ -429,7 +300,7 @@ export module Protocol {
   /**
    * CPUProfiler domain exposes cpu usage tracking.
    */
-  export module CPUProfiler {
+  export namespace CPUProfiler {
     /**
      * CPU usage for an individual thread.
      */
@@ -501,7 +372,7 @@ export module Protocol {
   /**
    * This domain exposes CSS read/write operations. All CSS objects, like stylesheets, rules, and styles, have an associated <code>id</code> used in subsequent operations on the related object. Each object type has a specific <code>id</code> structure, and those are not interchangeable between objects of different kinds. CSS objects can be loaded using the <code>get*ForNode()</code> calls (which accept a DOM node id). Alternatively, a client can discover all the existing stylesheets with the <code>getAllStyleSheets()</code> method and subsequently load the required stylesheet contents using the <code>getStyleSheet[Text]()</code> methods.
    */
-  export module CSS {
+  export namespace CSS {
     export type StyleSheetId = string;
     /**
      * This object identifies a CSS style in a unique way.
@@ -536,7 +407,7 @@ export module Protocol {
     /**
      * Pseudo-style identifier (see <code>enum PseudoId</code> in <code>RenderStyleConstants.h</code>).
      */
-    export type PseudoId = "first-line"|"first-letter"|"grammar-error"|"highlight"|"marker"|"before"|"after"|"selection"|"backdrop"|"spelling-error"|"view-transition"|"view-transition-group"|"view-transition-image-pair"|"view-transition-old"|"view-transition-new"|"-webkit-scrollbar"|"-webkit-resizer"|"-webkit-scrollbar-thumb"|"-webkit-scrollbar-button"|"-webkit-scrollbar-track"|"-webkit-scrollbar-track-piece"|"-webkit-scrollbar-corner";
+    export type PseudoId = "first-line"|"first-letter"|"grammar-error"|"highlight"|"marker"|"before"|"after"|"selection"|"backdrop"|"spelling-error"|"target-text"|"checkmark"|"picker-icon"|"slider-fill"|"slider-thumb"|"slider-track"|"placeholder"|"file-selector-button"|"view-transition"|"view-transition-group"|"view-transition-image-pair"|"view-transition-old"|"view-transition-new"|"-webkit-scrollbar"|"-webkit-resizer"|"-webkit-scrollbar-thumb"|"-webkit-scrollbar-button"|"-webkit-scrollbar-track"|"-webkit-scrollbar-track-piece"|"-webkit-scrollbar-corner";
     /**
      * Pseudo-style identifier (see <code>enum PseudoId</code> in <code>RenderStyleConstants.h</code>).
      */
@@ -550,6 +421,10 @@ export module Protocol {
        * Matches of CSS rules applicable to the pseudo style.
        */
       matches: RuleMatch[];
+      /**
+       * The rules of all <code>@keyframes</code> referenced by the computed <code>animation-name</code> list.
+       */
+      keyframes?: CSSRule[];
     }
     /**
      * CSS rule collection for a single pseudo style.
@@ -715,7 +590,7 @@ export module Protocol {
        */
       groupings?: Grouping[];
       /**
-       * <code>true</code> if this style is for a rule implicitly wrapping properties declared inside of CSSGrouping.
+       * <code>true</code> if this is a nested declarations rule holding declarations interleaved with other rules inside a style rule or nested grouping rule. Such a rule has no selector of its own, it matches whatever its nesting parent style rule matches.
        */
       isImplicitlyNested?: boolean;
     }
@@ -861,9 +736,9 @@ export module Protocol {
      */
     export interface Grouping {
       /**
-       * Source of the media query: "media-rule" if specified by a @media rule, "media-import-rule" if specified by an @import rule, "media-link-node" if specified by a "media" attribute in a linked style sheet's LINK tag, "media-style-node" if specified by a "media" attribute in an inline style sheet's STYLE tag, "supports-rule" if specified by an @supports rule, "layer-rule" if specified by an @layer rule, "container-rule" if specified by an @container rule, "style-rule" if specified by a CSSStyleRule containing the rule inside this grouping.
+       * Source of the media query: "media-rule" if specified by a @media rule, "media-import-rule" if specified by an @import rule, "media-link-node" if specified by a "media" attribute in a linked style sheet's LINK tag, "media-style-node" if specified by a "media" attribute in an inline style sheet's STYLE tag, "supports-rule" if specified by an @supports rule, "layer-rule" if specified by an @layer rule, "container-rule" if specified by an @container rule, "scope-rule" if specified by a @scope rule, "starting-style-rule" if specified by a @starting-style rule, "style-rule" if specified by a CSSStyleRule containing the rule inside this grouping, "keyframes-rule" if specified by a CSSKeyframesRule containing the rules inside this grouping.
        */
-      type: "media-rule"|"media-import-rule"|"media-link-node"|"media-style-node"|"supports-rule"|"layer-rule"|"layer-import-rule"|"container-rule"|"style-rule";
+      type: "media-rule"|"media-import-rule"|"media-link-node"|"media-style-node"|"supports-rule"|"layer-rule"|"layer-import-rule"|"container-rule"|"scope-rule"|"starting-style-rule"|"style-rule"|"keyframes-rule";
       /**
        * The CSS rule identifier for the `@rule` (absent for non-editable grouping rules) or the nesting parent style rule's selector. In CSSOM terms, this is the parent rule of either the previous Grouping for a CSSRule, or of a CSSRule itself.
        */
@@ -882,6 +757,19 @@ export module Protocol {
       range?: SourceRange;
     }
     /**
+     * An inclusive range of Unicode scalar values.
+     */
+    export interface CharacterRange {
+      /**
+       * The first Unicode scalar value in the range.
+       */
+      start: number;
+      /**
+       * The last Unicode scalar value in the range.
+       */
+      end: number;
+    }
+    /**
      * A representation of WebCore::Font. Conceptually this is backed by either a font file on disk or from the network.
      */
     export interface Font {
@@ -890,17 +778,25 @@ export module Protocol {
        */
       displayName: string;
       /**
+       * The absolute final URL of the resource backing the font.
+       */
+      url?: string;
+      /**
        * The variation axes defined by the font.
        */
-      variationAxes: FontVariationAxis[];
+      variationAxes?: FontVariationAxis[];
       /**
        * Whether the font has synthesized its boldness or not.
        */
       synthesizedBold?: boolean;
       /**
-       * Whether the font has synthesized its obliqueness or not
+       * Whether the font has synthesized its obliqueness or not.
        */
       synthesizedOblique?: boolean;
+      /**
+       * The nonempty ranges of Unicode scalar values rendered with this font.
+       */
+      characterRanges?: CharacterRange[];
     }
     /**
      * A single variation axis associated with a Font.
@@ -930,12 +826,16 @@ export module Protocol {
     /**
      * Relevant layout information about the node. Things not in this list are not important to Web Inspector.
      */
-    export type LayoutFlag = "rendered"|"scrollable"|"flex"|"grid"|"event";
+    export type LayoutFlag = "rendered"|"scrollable"|"flex"|"grid"|"subgrid"|"grid-lanes"|"event"|"slot-assigned"|"slot-filled";
     /**
      * The mode for how layout context type changes are handled (default: <code>Observed</code>). <code>Observed</code> limits handling to those nodes already known to the frontend by other means (generally, this means the node is a visible item in the Elements tab). <code>All</code> informs the frontend of all layout context type changes and all nodes with a known layout context are sent to the frontend.
      */
     export type LayoutContextTypeChangedMode = "observed"|"all";
     
+    /**
+     * Fired when font data previously returned by this target may have changed.
+     */
+    export type fontDataChangedPayload = void;
     /**
      * Fires whenever a MediaQuery result changes (for example, after a browser window has been resized.) The current implementation considers only viewport-dependent media features.
      */
@@ -1005,6 +905,10 @@ export module Protocol {
        * Whether to include inherited styles (default: true).
        */
       includeInherited?: boolean;
+      /**
+       * Whether to include <code>@keyframes</code> rules (default: true).
+       */
+      includeKeyframes?: boolean;
     }
     export type getMatchedStylesForNodeReturnValue = {
       /**
@@ -1019,6 +923,10 @@ export module Protocol {
        * A chain of inherited styles (from the immediate node parent up to the DOM tree root).
        */
       inherited?: InheritedStyleEntry[];
+      /**
+       * The rules of all <code>@keyframes</code> referenced by the computed <code>animation-name</code> list.
+       */
+      keyframes?: CSSRule[];
     }
     /**
      * Returns the styles defined inline (explicitly in the "style" attribute and implicitly, using DOM attributes) for a DOM node identified by <code>nodeId</code>.
@@ -1049,7 +957,7 @@ export module Protocol {
       computedStyle: CSSComputedStyleProperty[];
     }
     /**
-     * Returns the primary font of the computed font cascade for a DOM node identified by <code>nodeId</code>.
+     * Returns the primary font of the computed font cascade for a DOM node identified by <code>nodeId</code> and the fonts used to render text in its subtree.
      */
     export type getFontDataForNodeParameters = {
       nodeId: DOM.NodeId;
@@ -1059,6 +967,14 @@ export module Protocol {
        * Computed primary font for the specified DOM node.
        */
       primaryFont: Font;
+      /**
+       * Fonts that rendered at least one character in the specified DOM node's subtree.
+       */
+      renderedFonts?: Font[];
+      /**
+       * Ranges of Unicode scalar values for which no font supplied a glyph.
+       */
+      missingCharacterRanges?: CharacterRange[];
     }
     /**
      * Returns metainfo entries for all known stylesheets.
@@ -1148,7 +1064,7 @@ export module Protocol {
      */
     export type createStyleSheetParameters = {
       /**
-       * Identifier of the frame where the new "inspector" stylesheet should be created.
+       * Identifier of the frame where the new "inspector" stylesheet should be created. Ignored when dispatched to a FrameTarget; the receiving frame is used implicitly.
        */
       frameId: Network.FrameId;
     }
@@ -1224,7 +1140,7 @@ export module Protocol {
   /**
    * Canvas domain allows tracking of canvases that have an associated graphics context. Tracks canvases in the DOM and CSS canvases created with -webkit-canvas.
    */
-  export module Canvas {
+  export namespace Canvas {
     /**
      * Unique canvas identifier.
      */
@@ -1233,12 +1149,12 @@ export module Protocol {
      * Unique shader program identifier.
      */
     export type ProgramId = string;
-    export type ColorSpace = "srgb"|"display-p3";
+    export type ColorSpace = "srgb"|"srgb-linear"|"display-p3"|"display-p3-linear";
     /**
      * The type of rendering context backing the canvas element.
      */
-    export type ContextType = "canvas-2d"|"offscreen-canvas-2d"|"bitmaprenderer"|"offscreen-bitmaprenderer"|"webgl"|"offscreen-webgl"|"webgl2"|"offscreen-webgl2";
-    export type ProgramType = "compute"|"render";
+    export type ContextType = "canvas-2d"|"offscreen-canvas-2d"|"bitmaprenderer"|"offscreen-bitmaprenderer"|"webgl"|"offscreen-webgl"|"webgl2"|"offscreen-webgl2"|"webgpu";
+    export type ProgramType = "compute"|"render"|"vertex";
     export type ShaderType = "compute"|"fragment"|"vertex";
     /**
      * Drawing surface attributes.
@@ -1301,42 +1217,41 @@ export module Protocol {
        * The type of rendering context backing the canvas.
        */
       contextType: ContextType;
+      sizes?: GenericTypes.Size[];
       /**
-       * Width of the canvas in pixels.
+       * The CSS canvas identifiers, for canvases created with <code>document.getCSSCanvasContext</code>.
        */
-      width: number;
-      /**
-       * Height of the canvas in pixels.
-       */
-      height: number;
-      /**
-       * The corresponding DOM node id.
-       */
-      nodeId?: DOM.NodeId;
-      /**
-       * The CSS canvas identifier, for canvases created with <code>document.getCSSCanvasContext</code>.
-       */
-      cssCanvasName?: string;
+      cssCanvasNames?: string[];
       /**
        * Context attributes for rendering contexts.
        */
       contextAttributes?: ContextAttributes;
       /**
-       * Memory usage of the canvas in bytes.
+       * Enabled WebGPU device features.
+       */
+      features?: string[];
+      /**
+       * Estimated memory usage of the graphics context and its associated resources, in bytes.
        */
       memoryCost?: number;
       /**
        * Backtrace that was captured when this canvas context was created.
        */
       stackTrace?: Console.StackTrace;
+      name?: string;
     }
     /**
-     * Information about a WebGL/WebGL2 shader program.
+     * Information about a WebGL/WebGL2 shader program or WebGPU shader pipeline.
      */
     export interface ShaderProgram {
       programId: ProgramId;
       programType: ProgramType;
       canvasId: CanvasId;
+      /**
+       * Indicates whether the vertex and fragment shader modules are the same object for a WebGPU render pipeline.
+       */
+      sharesVertexFragmentShader?: boolean;
+      name?: string;
     }
     
     export type canvasAddedPayload = {
@@ -1351,19 +1266,16 @@ export module Protocol {
        */
       canvasId: CanvasId;
     }
+    export type canvasNameChangedPayload = {
+      canvasId: CanvasId;
+      name: string;
+    }
     export type canvasSizeChangedPayload = {
       /**
        * Identifier of canvas that changed.
        */
       canvasId: CanvasId;
-      /**
-       * Width of the canvas in pixels.
-       */
-      width: number;
-      /**
-       * Height of the canvas in pixels.
-       */
-      height: number;
+      sizes?: GenericTypes.Size[];
     }
     export type canvasMemoryChangedPayload = {
       /**
@@ -1371,7 +1283,7 @@ export module Protocol {
        */
       canvasId: CanvasId;
       /**
-       * New memory cost value for the canvas in bytes.
+       * New estimated memory cost of the graphics context and its associated resources, in bytes.
        */
       memoryCost: number;
     }
@@ -1382,11 +1294,27 @@ export module Protocol {
        */
       extension: string;
     }
-    export type clientNodesChangedPayload = {
+    export type nodesChangedPayload = {
       /**
        * Identifier of canvas that changed.
        */
       canvasId: CanvasId;
+    }
+    export type cssCanvasClientNodesChangedPayload = {
+      /**
+       * Identifier of canvas that changed.
+       */
+      canvasId: CanvasId;
+    }
+    export type cssCanvasNamesChangedPayload = {
+      /**
+       * Identifier of canvas that changed.
+       */
+      canvasId: CanvasId;
+      /**
+       * The CSS canvas identifiers, for canvases created with <code>document.getCSSCanvasContext</code>.
+       */
+      cssCanvasNames: string[];
     }
     export type recordingStartedPayload = {
       canvasId: CanvasId;
@@ -1410,6 +1338,10 @@ export module Protocol {
     export type programDeletedPayload = {
       programId: ProgramId;
     }
+    export type programNameChangedPayload = {
+      programId: ProgramId;
+      name: string;
+    }
     
     /**
      * Enables Canvas domain events.
@@ -1426,19 +1358,19 @@ export module Protocol {
     export type disableReturnValue = {
     }
     /**
-     * Gets the NodeId for the canvas node with the given CanvasId.
+     * Gets the NodeIds for the canvas nodes with the given CanvasId.
      */
-    export type requestNodeParameters = {
+    export type requestNodesParameters = {
       /**
        * Canvas identifier.
        */
       canvasId: CanvasId;
     }
-    export type requestNodeReturnValue = {
+    export type requestNodesReturnValue = {
       /**
-       * Node identifier for given canvas.
+       * Node identifiers for the given canvas.
        */
-      nodeId: DOM.NodeId;
+      nodeIds: DOM.NodeId[];
     }
     /**
      * Gets the data for the canvas node with the given CanvasId.
@@ -1456,12 +1388,12 @@ export module Protocol {
       content: string;
     }
     /**
-     * Gets all <code>-webkit-canvas</code> nodes or active <code>HTMLCanvasElement</code> for a <code>WebGPUDevice</code>.
+     * Gets all nodes using a <code>-webkit-canvas</code> image associated with the given CanvasId.
      */
-    export type requestClientNodesParameters = {
+    export type requestCSSCanvasClientNodesParameters = {
       canvasId: CanvasId;
     }
-    export type requestClientNodesReturnValue = {
+    export type requestCSSCanvasClientNodesReturnValue = {
       clientNodeIds: DOM.NodeId[];
     }
     /**
@@ -1561,11 +1493,11 @@ export module Protocol {
   /**
    * Console domain defines methods and events for interaction with the JavaScript console. Console collects messages created by means of the <a href='http://getfirebug.com/wiki/index.php/Console_API'>JavaScript Console API</a>. One needs to enable this domain using <code>enable</code> command in order to start receiving the console messages. Browser collects messages issued while console domain is not enabled as well and reports them using <code>messageAdded</code> notification upon enabling.
    */
-  export module Console {
+  export namespace Console {
     /**
      * Channels for different types of log messages.
      */
-    export type ChannelSource = "xml"|"javascript"|"network"|"console-api"|"storage"|"appcache"|"rendering"|"css"|"security"|"content-blocker"|"media"|"mediasource"|"webrtc"|"itp-debug"|"private-click-measurement"|"payment-request"|"other";
+    export type ChannelSource = "xml"|"javascript"|"network"|"console-api"|"storage"|"rendering"|"css"|"accessibility"|"security"|"content-blocker"|"media"|"mediasource"|"webrtc"|"itp-debug"|"private-click-measurement"|"payment-request"|"other";
     /**
      * Level of logging.
      */
@@ -1781,7 +1713,7 @@ export module Protocol {
   /**
    * This domain exposes DOM read/write operations. Each DOM Node is represented with its mirror object that has an <code>id</code>. This <code>id</code> can be used to get additional information on the Node, resolve it into the JavaScript object wrapper, etc. It is important that client receives DOM events only for the nodes that are known to the client. Backend keeps track of the nodes that were sent to the client and never sends the same node twice. It is client's responsibility to collect information about the nodes that were sent to the client.<p>Note that <code>iframe</code> owner elements will return corresponding document elements as their child nodes.</p>
    */
-  export module DOM {
+  export namespace DOM {
     /**
      * Unique DOM node identifier.
      */
@@ -1834,6 +1766,10 @@ export module Protocol {
        * Identifier of the containing frame.
        */
       frameId?: Network.FrameId;
+      /**
+       * Identifier of the frame hosted by a frame owner element, even when that frame is in another process.
+       */
+      contentFrameId?: Network.FrameId;
       /**
        * Child count for <code>Container</code> nodes.
        */
@@ -2122,6 +2058,10 @@ export module Protocol {
        * Array of <code>DOMNode</code> ids of any children marked as selected.
        */
       selectedChildNodeIds?: NodeId[];
+      /**
+       * On / off state of switch form controls.
+       */
+      switchState?: "off"|"on";
     }
     /**
      * A structure holding an RGBA color.
@@ -2201,6 +2141,10 @@ export module Protocol {
        * Show labels for grid area names. If not specified, the default value is false.
        */
       showAreaNames?: boolean;
+      /**
+       * Show labels for grid item order. If not specified, the default value is false.
+       */
+      showOrderNumbers?: boolean;
     }
     /**
      * Configuration data for flex overlays.
@@ -2266,6 +2210,10 @@ export module Protocol {
        * The sample rate of the primary audio track in hertz.
        */
       sampleRate: number;
+      /**
+       * Whether the track contains protected contents
+       */
+      isProtected?: boolean;
     }
     /**
      * A structure holding media element's audio-specific statistics and configurations.
@@ -2296,6 +2244,11 @@ export module Protocol {
        * The native width of the video track in CSS pixels
        */
       width: number;
+      immersiveVideoMetadata?: ImmersiveVideoMetadata;
+      /**
+       * Whether the track contains protected contents
+       */
+      isProtected?: boolean;
     }
     /**
      * WebCodecs VideoColorSpace
@@ -2335,26 +2288,36 @@ export module Protocol {
        */
       totalVideoFrames: number;
     }
+    /**
+     * A structure containing metadata describing spatial video properties.
+     */
+    export interface ImmersiveVideoMetadata {
+      /**
+       * The kind of immersive video.
+       */
+      kind: VideoProjectionMetadataKind;
+      width: number;
+      height: number;
+      /**
+       * The horizontal field-of-view measurement, in degrees
+       */
+      horizontalFieldOfView?: number;
+      /**
+       * The distance between the centers of the lenses in a camera system, in micrometers
+       */
+      stereoCameraBaseline?: number;
+      /**
+       * The relative shift of the left and right eye images, as a percentage
+       */
+      horizontalDisparityAdjustment?: number;
+    }
+    /**
+     * Video Projection Metadata Kind.
+     */
+    export type VideoProjectionMetadataKind = "unknown"|"rectilinear"|"equirectangular"|"half-equirectangular"|"equi-angular-cubemap"|"parametric"|"pyramid"|"apple-immersive-video";
     export interface ViewportSize {
       width: number;
       height: number;
-    }
-    /**
-     * Data to construct File object.
-     */
-    export interface FilePayload {
-      /**
-       * File name.
-       */
-      name: string;
-      /**
-       * File type.
-       */
-      type: string;
-      /**
-       * Base64-encoded file data.
-       */
-      data: string;
     }
     
     /**
@@ -2613,6 +2576,27 @@ export module Protocol {
       depth?: number;
     }
     export type requestChildNodesReturnValue = {
+    }
+    /**
+     * Requests the <code>HTMLSlotElement</code> that the node with the given id is assigned to.
+     */
+    export type requestAssignedSlotParameters = {
+      nodeId: NodeId;
+    }
+    export type requestAssignedSlotReturnValue = {
+      /**
+       * Not provided if the given node is not assigned to a <code>HTMLSlotElement</code>.
+       */
+      slotElementId?: NodeId;
+    }
+    /**
+     * Requests the list of assigned nodes for the <code>HTMLSlotElement</code> with the given id.
+     */
+    export type requestAssignedNodesParameters = {
+      slotElementId: NodeId;
+    }
+    export type requestAssignedNodesReturnValue = {
+      assignedNodeIds: NodeId[];
     }
     /**
      * Executes <code>querySelector</code> on a given node.
@@ -2965,6 +2949,21 @@ export module Protocol {
       nodeId: NodeId;
     }
     /**
+     * Requests that the frame owner element (such as <code>iframe</code>) of a child frame is sent to the caller. The child frame may be hosted by another process. All nodes that form the path from the owner element to the root are also sent to the client as a series of <code>setChildNodes</code> notifications.
+     */
+    export type requestFrameOwnerParameters = {
+      /**
+       * Identifier of a frame whose owner element is in the document tree of this target.
+       */
+      frameId: Network.FrameId;
+    }
+    export type requestFrameOwnerReturnValue = {
+      /**
+       * Node id for the frame owner element.
+       */
+      nodeId: NodeId;
+    }
+    /**
      * Enters the 'inspect' mode. In this mode, elements that user is hovering over are highlighted. Backend then generates 'inspect' command upon element selection.
      */
     export type setInspectModeEnabledParameters = {
@@ -2992,7 +2991,7 @@ export module Protocol {
     export type setInspectModeEnabledReturnValue = {
     }
     /**
-     * Highlights given rectangle. Coordinates are absolute with respect to the main frame viewport.
+     * Highlights given rectangle. Coordinates are absolute with respect to the target's viewport: the main frame viewport for a page target, or the frame's own viewport for a frame target.
      */
     export type highlightRectParameters = {
       /**
@@ -3027,7 +3026,7 @@ export module Protocol {
     export type highlightRectReturnValue = {
     }
     /**
-     * Highlights given quad. Coordinates are absolute with respect to the main frame viewport.
+     * Highlights given quad. Coordinates are absolute with respect to the target's viewport: the main frame viewport for a page target, or the frame's own viewport for a frame target.
      */
     export type highlightQuadParameters = {
       /**
@@ -3419,13 +3418,9 @@ might return multiple quads for inline nodes.
        */
       objectId: Runtime.RemoteObjectId;
       /**
-       * Files to set
-       */
-      files?: FilePayload[];
-      /**
        * File paths to set
        */
-      paths?: string[];
+      paths: string[];
     }
     export type setInputFilesReturnValue = {
     }
@@ -3434,7 +3429,7 @@ might return multiple quads for inline nodes.
   /**
    * DOM debugging allows setting breakpoints on particular DOM operations and events. JavaScript execution will stop on these operations as if there was a regular breakpoint set.
    */
-  export module DOMDebugger {
+  export namespace DOMDebugger {
     /**
      * DOM breakpoint type.
      */
@@ -3562,7 +3557,7 @@ might return multiple quads for inline nodes.
   /**
    * Query and modify DOM storage.
    */
-  export module DOMStorage {
+  export namespace DOMStorage {
     /**
      * DOM Storage identifier.
      */
@@ -3640,85 +3635,10 @@ might return multiple quads for inline nodes.
     }
   }
   
-  export module Database {
-    /**
-     * Unique identifier of Database object.
-     */
-    export type DatabaseId = string;
-    /**
-     * Database object.
-     */
-    export interface Database {
-      /**
-       * Database ID.
-       */
-      id: DatabaseId;
-      /**
-       * Database domain.
-       */
-      domain: string;
-      /**
-       * Database name.
-       */
-      name: string;
-      /**
-       * Database version.
-       */
-      version: string;
-    }
-    /**
-     * Database error.
-     */
-    export interface Error {
-      /**
-       * Error message.
-       */
-      message: string;
-      /**
-       * Error code.
-       */
-      code: number;
-    }
-    
-    export type addDatabasePayload = {
-      database: Database;
-    }
-    
-    /**
-     * Enables database tracking, database events will now be delivered to the client.
-     */
-    export type enableParameters = {
-    }
-    export type enableReturnValue = {
-    }
-    /**
-     * Disables database tracking, prevents database events from being sent to the client.
-     */
-    export type disableParameters = {
-    }
-    export type disableReturnValue = {
-    }
-    export type getDatabaseTableNamesParameters = {
-      databaseId: DatabaseId;
-    }
-    export type getDatabaseTableNamesReturnValue = {
-      tableNames: string[];
-    }
-    export type executeSQLParameters = {
-      databaseId: DatabaseId;
-      query: string;
-    }
-    export type executeSQLReturnValue = {
-      columnNames?: string[];
-      values?: any[];
-      sqlError?: Error;
-    }
-  }
-  
   /**
    * Debugger domain exposes JavaScript debugging capabilities. It allows setting and removing breakpoints, stepping through execution, exploring stack traces, etc.
    */
-  export module Debugger {
+  export namespace Debugger {
     /**
      * Breakpoint identifier.
      */
@@ -3731,6 +3651,7 @@ might return multiple quads for inline nodes.
      * Unique script identifier.
      */
     export type ScriptId = string;
+    export type ScriptType = "program"|"module"|"webassembly";
     /**
      * Call frame identifier.
      */
@@ -3748,7 +3669,7 @@ might return multiple quads for inline nodes.
        */
       lineNumber: number;
       /**
-       * Column number in the script (0-based).
+       * Column number in the script (0-based) or bytecode offset for WebAssembly modules (0-based).
        */
       columnNumber?: number;
     }
@@ -3951,9 +3872,17 @@ might return multiple quads for inline nodes.
        */
       endLine: number;
       /**
-       * Length of the last line of the script.
+       * Length of the last line of the script or the end bytecode offset for WebAssembly modules.
        */
       endColumn: number;
+      /**
+       * Identifier of the execution context in which this script was parsed.
+       */
+      executionContextId: Runtime.ExecutionContextId;
+      /**
+       * Type of script.
+       */
+      scriptType: ScriptType;
       /**
        * Determines whether this script is a user extension script.
        */
@@ -3967,9 +3896,13 @@ might return multiple quads for inline nodes.
        */
       sourceMapURL?: string;
       /**
-       * True if this script was parsed as a module.
+       * Human-readable name of the script.
        */
-      module?: boolean;
+      displayName?: string;
+      /**
+       * Identifier of the network request associated with this script (if any).
+       */
+      requestId?: Network.RequestId;
     }
     /**
      * Fired when virtual machine fails to parse the script.
@@ -4448,19 +4381,23 @@ might return multiple quads for inline nodes.
       savedResultIndex?: number;
     }
     /**
-     * Sets whether the given URL should be in the list of blackboxed scripts, which are ignored when pausing/stepping/debugging.
+     * Sets whether the given URL should be in the list of blackboxed scripts, which are ignored when pausing.
      */
     export type setShouldBlackboxURLParameters = {
       url: string;
       shouldBlackbox: boolean;
       /**
-       * If true, <code>url</code> is case sensitive.
+       * If <code>true</code>, <code>url</code> is case sensitive. Defaults to true.
        */
       caseSensitive?: boolean;
       /**
-       * If true, treat <code>url</code> as regular expression.
+       * If <code>true</code>, treat <code>url</code> as regular expression. Defaults to false.
        */
       isRegex?: boolean;
+      /**
+       * If provided, limits where in the script the debugger will skip pauses. Expected structure is a repeated <code>[startLine, startColumn, endLine, endColumn]</code>. Ignored if <code>shouldBlackbox</code> is <code>false</code>.
+       */
+      sourceRanges?: number[];
     }
     export type setShouldBlackboxURLReturnValue = {
     }
@@ -4477,7 +4414,7 @@ might return multiple quads for inline nodes.
   /**
    * Actions and events related to alert boxes.
    */
-  export module Dialog {
+  export namespace Dialog {
     
     /**
      * Fired when a JavaScript initiated dialog (alert, confirm, prompt, or onbeforeunload) is about to open.
@@ -4496,6 +4433,10 @@ might return multiple quads for inline nodes.
        */
       defaultPrompt?: string;
     }
+    /**
+     * Fired when a JavaScript initiated dialog (alert, confirm, prompt, or onbeforeunload) has been closed.
+     */
+    export type javascriptDialogClosedPayload = void;
     
     /**
      * Enables dialog domain notifications.
@@ -4528,7 +4469,25 @@ might return multiple quads for inline nodes.
     }
   }
   
-  export module Emulation {
+  export namespace Emulation {
+    /**
+     * Credentials for HTTP authentication.
+     */
+    export interface AuthCredentials {
+      username: string;
+      password: string;
+      /**
+       * When specified, the credentials are only used for challenges from the matching origin.
+       */
+      origin?: string;
+    }
+    /**
+     * Credentials for proxy authentication.
+     */
+    export interface ProxyCredentials {
+      username: string;
+      password: string;
+    }
     
     
     /**
@@ -4543,6 +4502,13 @@ might return multiple quads for inline nodes.
     export type setDeviceMetricsOverrideReturnValue = {
     }
     /**
+     * Clears device metrics overrides without resizing the browser window.
+     */
+    export type clearDeviceMetricsOverrideParameters = {
+    }
+    export type clearDeviceMetricsOverrideReturnValue = {
+    }
+    /**
      * Allows to disable script execution for the page.
      */
     export type setJavaScriptEnabledParameters = {
@@ -4551,12 +4517,14 @@ might return multiple quads for inline nodes.
     export type setJavaScriptEnabledReturnValue = {
     }
     /**
-     * Credentials to use during HTTP authentication.
+     * Credentials to use during HTTP authentication. The first credentials with matching origin are used.
      */
     export type setAuthCredentialsParameters = {
-      username?: string;
-      password?: string;
-      origin?: string;
+      credentials: AuthCredentials[];
+      /**
+       * Proxy challenges are answered only with these credentials.
+       */
+      proxyCredentials?: ProxyCredentials;
     }
     export type setAuthCredentialsReturnValue = {
     }
@@ -4584,12 +4552,20 @@ might return multiple quads for inline nodes.
     }
     export type resetPermissionsReturnValue = {
     }
+    /**
+     * Overrides window.orientation with provided value.
+     */
+    export type setOrientationOverrideParameters = {
+      angle?: number;
+    }
+    export type setOrientationOverrideReturnValue = {
+    }
   }
   
   /**
    * Exposes generic types to be used by any domain.
    */
-  export module GenericTypes {
+  export namespace GenericTypes {
     /**
      * Search match in a resource.
      */
@@ -4603,6 +4579,13 @@ might return multiple quads for inline nodes.
        */
       lineContent: string;
     }
+    /**
+     * A two-dimensional size.
+     */
+    export interface Size {
+      width: number;
+      height: number;
+    }
     
     
   }
@@ -4610,7 +4593,7 @@ might return multiple quads for inline nodes.
   /**
    * Heap domain exposes JavaScript heap attributes and capabilities.
    */
-  export module Heap {
+  export namespace Heap {
     /**
      * Information about a garbage collection.
      */
@@ -4742,7 +4725,7 @@ might return multiple quads for inline nodes.
     }
   }
   
-  export module IndexedDB {
+  export namespace IndexedDB {
     /**
      * Database with an array of object stores.
      */
@@ -4996,11 +4979,28 @@ might return multiple quads for inline nodes.
     }
   }
   
-  export module Input {
+  export namespace Input {
     /**
      * UTC time in seconds, counted from January 1, 1970.
      */
     export type TimeSinceEpoch = number;
+    /**
+     * Touch point.
+     */
+    export interface TouchPoint {
+      /**
+       * X coordinate of the event relative to the main frame's viewport in CSS pixels.
+       */
+      x: number;
+      /**
+       * Y coordinate of the event relative to the main frame's viewport in CSS pixels.
+       */
+      y: number;
+      /**
+       * Identifier used to track touch sources between events, must be unique within an event.
+       */
+      id: number;
+    }
     
     
     /**
@@ -5096,14 +5096,6 @@ Left=1, Right=2, Middle=4, Back=8, Forward=16, None=0.
        * Number of times the mouse button was clicked (default: 0).
        */
       clickCount?: number;
-      /**
-       * X delta in CSS pixels for mouse wheel event (default: 0).
-       */
-      deltaX?: number;
-      /**
-       * Y delta in CSS pixels for mouse wheel event (default: 0).
-       */
-      deltaY?: number;
     }
     export type dispatchMouseEventReturnValue = {
     }
@@ -5157,9 +5149,29 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     }
     export type dispatchTapEventReturnValue = {
     }
+    /**
+     * Dispatches a touch event to the page.
+     */
+    export type dispatchTouchEventParameters = {
+      /**
+       * Type of the touch event.
+       */
+      type: "touchStart"|"touchMove"|"touchEnd"|"touchCancel";
+      /**
+       * Bit field representing pressed modifier keys. Alt=1, Ctrl=2, Meta/Command=4, Shift=8
+(default: 0).
+       */
+      modifiers?: number;
+      /**
+       * List of touch points
+       */
+      touchPoints?: TouchPoint[];
+    }
+    export type dispatchTouchEventReturnValue = {
+    }
   }
   
-  export module Inspector {
+  export namespace Inspector {
     
     export type evaluateForTestInFrontendPayload = {
       script: string;
@@ -5192,7 +5204,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     }
   }
   
-  export module LayerTree {
+  export namespace LayerTree {
     /**
      * Unique RenderLayer identifier.
      */
@@ -5443,12 +5455,27 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        */
       compositingReasons: CompositingReasons;
     }
+    /**
+     * Captures a snapshot of the layer's rendered content as a PNG data URL.
+     */
+    export type requestContentParameters = {
+      /**
+       * The id of the layer to snapshot.
+       */
+      layerId: LayerId;
+    }
+    export type requestContentReturnValue = {
+      /**
+       * Base64-encoded PNG data URL of the layer's rendered content.
+       */
+      content: string;
+    }
   }
   
   /**
    * Memory domain exposes page memory tracking.
    */
-  export module Memory {
+  export namespace Memory {
     export interface Event {
       timestamp: number;
       /**
@@ -5529,7 +5556,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
   /**
    * Network domain allows tracking network activities of the page. It exposes information about http, file, data and other requests and responses, their headers, bodies, timing, etc.
    */
-  export module Network {
+  export namespace Network {
     /**
      * Unique loader identifier.
      */
@@ -6197,6 +6224,17 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     export type setResourceCachingDisabledReturnValue = {
     }
     /**
+     * Toggles whether resource data is cleared on page navigations / reloads.
+     */
+    export type setClearResourceDataOnNavigateParameters = {
+      /**
+       * Whether to clear resource data on navigations.
+       */
+      clearResourceDataOnNavigate: boolean;
+    }
+    export type setClearResourceDataOnNavigateReturnValue = {
+    }
+    /**
      * Loads a resource in the context of a frame on the inspected page without cross origin checks.
      */
     export type loadResourceParameters = {
@@ -6433,7 +6471,11 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       /**
        * Limits the bytes per second of requests if positive. Removes any limits if zero or not provided.
        */
-      bytesPerSecondLimit?: number;
+      bandwidth?: number;
+      /**
+       * Adds a round-trip delay (in milliseconds) to each request if positive. Removes any delay if zero or not provided.
+       */
+      latency?: number;
     }
     export type setEmulatedConditionsReturnValue = {
     }
@@ -6453,11 +6495,11 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
   /**
    * Actions and events related to the inspected page belong to the page domain.
    */
-  export module Page {
+  export namespace Page {
     /**
      * List of settings able to be overridden by WebInspector.
      */
-    export type Setting = "PrivateClickMeasurementDebugModeEnabled"|"AuthorAndUserStylesEnabled"|"ICECandidateFilteringEnabled"|"ITPDebugModeEnabled"|"ImagesEnabled"|"MediaCaptureRequiresSecureConnection"|"MockCaptureDevicesEnabled"|"NeedsSiteSpecificQuirks"|"ScriptEnabled"|"ShowDebugBorders"|"ShowRepaintCounter"|"WebSecurityEnabled"|"DeviceOrientationEventEnabled"|"SpeechRecognitionEnabled"|"PointerLockEnabled"|"NotificationsEnabled"|"FullScreenEnabled"|"InputTypeMonthEnabled"|"InputTypeWeekEnabled";
+    export type Setting = "PrivateClickMeasurementDebugModeEnabled"|"AuthorAndUserStylesEnabled"|"FixedBackgroundsPaintRelativeToDocument"|"FullScreenEnabled"|"ICECandidateFilteringEnabled"|"ITPDebugModeEnabled"|"ImagesEnabled"|"InputTypeMonthEnabled"|"InputTypeWeekEnabled"|"MediaCaptureRequiresSecureConnection"|"MockCaptureDevicesEnabled"|"NeedsSiteSpecificQuirks"|"NotificationsEnabled"|"PointerLockEnabled"|"PushAPIEnabled"|"ScriptEnabled"|"ShowDebugBorders"|"ShowRepaintCounter"|"WebSecurityEnabled"|"DeviceOrientationEventEnabled"|"SpeechRecognitionEnabled";
     /**
      * A user preference that can be overriden by Web Inspector, like an accessibility preference.
      */
@@ -6487,6 +6529,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
      * Coordinate system used by supplied coordinates.
      */
     export type CoordinateSystem = "Viewport"|"Page";
+    /**
+     * Image format used to encode a captured snapshot.
+     */
+    export type ImageFormat = "png"|"jpeg"|"webp";
     /**
      * Same-Site policy of a cookie.
      */
@@ -6636,119 +6682,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Cookie Same-Site policy.
        */
       sameSite: CookieSameSitePolicy;
-    }
-    /**
-     * Accessibility Node
-     */
-    export interface AXNode {
       /**
-       * The role.
+       * Cookie partition key. If null and partitioned property is true, then key must be computed.
        */
-      role: string;
-      /**
-       * A human readable name for the node.
-       */
-      name?: string;
-      /**
-       * The current value of the node.
-       */
-      value?: any;
-      /**
-       * An additional human readable description of the node.
-       */
-      description?: string;
-      /**
-       * Keyboard shortcuts associated with this node.
-       */
-      keyshortcuts?: string;
-      /**
-       * A human readable alternative to the role.
-       */
-      roledescription?: string;
-      /**
-       * A description of the current value.
-       */
-      valuetext?: string;
-      /**
-       * Whether the node is disabled.
-       */
-      disabled?: boolean;
-      /**
-       * Whether the node is expanded or collapsed.
-       */
-      expanded?: boolean;
-      /**
-       * Whether the node is focused.
-       */
-      focused?: boolean;
-      /**
-       * Whether the node is modal.
-       */
-      modal?: boolean;
-      /**
-       * Whether more than one child can be selected.
-       */
-      multiselectable?: boolean;
-      /**
-       * Whether the node is read only.
-       */
-      readonly?: boolean;
-      /**
-       * Whether the node is required.
-       */
-      required?: boolean;
-      /**
-       * Whether the node is selected in its parent node.
-       */
-      selected?: boolean;
-      /**
-       * Whether the checkbox is checked, or "mixed".
-       */
-      checked?: "true"|"false"|"mixed";
-      /**
-       * Whether the toggle button is checked, or "mixed".
-       */
-      pressed?: "true"|"false"|"mixed";
-      /**
-       * The level of a heading.
-       */
-      level?: number;
-      /**
-       * The minimum value in a node.
-       */
-      valuemin?: number;
-      /**
-       * The maximum value in a node.
-       */
-      valuemax?: number;
-      /**
-       * What kind of autocomplete is supported by a control.
-       */
-      autocomplete?: string;
-      /**
-       * What kind of popup is currently being shown for a node.
-       */
-      haspopup?: string;
-      /**
-       * Whether and in what way this node's value is invalid.
-       */
-      invalid?: "true"|"false"|"grammar"|"spelling";
-      /**
-       * Whether the node is oriented horizontally or vertically.
-       */
-      orientation?: string;
-      /**
-       * Whether the node is focusable.
-       */
-      focusable?: boolean;
-      /**
-       * Child AXNodes of this node, if any.
-       */
-      children?: AXNode[];
-      /**
-       * True if this AXNode corresponds with the ObjectId passed into acessibilitySnapshot.
-       */
-      found?: boolean;
+      partitionKey?: string;
     }
     export interface Insets {
       top: number;
@@ -6799,50 +6736,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     export type frameDetachedPayload = {
       /**
        * Id of the frame that has been detached.
-       */
-      frameId: Network.FrameId;
-    }
-    /**
-     * Fired when frame has started loading.
-     */
-    export type frameStartedLoadingPayload = {
-      /**
-       * Id of the frame that has started loading.
-       */
-      frameId: Network.FrameId;
-    }
-    /**
-     * Fired when frame has stopped loading.
-     */
-    export type frameStoppedLoadingPayload = {
-      /**
-       * Id of the frame that has stopped loading.
-       */
-      frameId: Network.FrameId;
-    }
-    /**
-     * Fired when frame schedules a potential navigation.
-     */
-    export type frameScheduledNavigationPayload = {
-      /**
-       * Id of the frame that has scheduled a navigation.
-       */
-      frameId: Network.FrameId;
-      /**
-       * Delay (in seconds) until the navigation is scheduled to begin. The navigation is not guaranteed to start.
-       */
-      delay: number;
-      /**
-       * Whether the naviation will happen in the same frame.
-       */
-      targetIsCurrentFrame: boolean;
-    }
-    /**
-     * Fired when frame no longer has a scheduled navigation.
-     */
-    export type frameClearedScheduledNavigationPayload = {
-      /**
-       * Id of the frame that has cleared its scheduled navigation.
        */
       frameId: Network.FrameId;
     }
@@ -6948,17 +6841,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     export type goForwardReturnValue = {
     }
     /**
-     * Navigates current page to the given URL.
-     */
-    export type navigateParameters = {
-      /**
-       * URL to navigate the page to.
-       */
-      url: string;
-    }
-    export type navigateReturnValue = {
-    }
-    /**
      * Override's the user agent of the inspected page
      */
     export type overrideUserAgentParameters = {
@@ -7020,6 +6902,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
      */
     export type setCookieParameters = {
       cookie: Cookie;
+      /**
+       * If true, then cookie's partition key should be set.
+       */
+      shouldPartition?: boolean;
     }
     export type setCookieReturnValue = {
     }
@@ -7241,10 +7127,18 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * By default, screenshot is inflated by device scale factor to avoid blurry image. This flag disables it.
        */
       omitDeviceScaleFactor?: boolean;
+      /**
+       * Image format of the resulting snapshot. Defaults to "png".
+       */
+      format?: ImageFormat;
+      /**
+       * Compression quality from 0 to 100 (ignored for the "png" format). For "jpeg" it defaults to 80. For "webp", omitting the quality or setting it to 100 produces a lossless image; any other value uses lossy compression at that quality.
+       */
+      quality?: number;
     }
     export type snapshotRectReturnValue = {
       /**
-       * Base64-encoded image data (PNG).
+       * Base64-encoded image data.
        */
       dataURL: string;
     }
@@ -7284,21 +7178,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       text: string;
     }
     export type insertTextReturnValue = {
-    }
-    /**
-     * Serializes and returns all of the accessibility nodes of the page.
-     */
-    export type accessibilitySnapshotParameters = {
-      /**
-       * Object Id of a node to find in the accessibility tree.
-       */
-      objectId?: string;
-    }
-    export type accessibilitySnapshotReturnValue = {
-      /**
-       * The root AXNode.
-       */
-      axNode: AXNode;
     }
     /**
      * Intercepts file chooser dialog
@@ -7352,14 +7231,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     export type crashReturnValue = {
     }
     /**
-     * Overrides window.orientation with provided value.
-     */
-    export type setOrientationOverrideParameters = {
-      angle?: number;
-    }
-    export type setOrientationOverrideReturnValue = {
-    }
-    /**
      * Ensures that the scroll regions are up to date.
      */
     export type updateScrollingStateParameters = {
@@ -7368,7 +7239,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     }
   }
   
-  export module Playwright {
+  export namespace Playwright {
     /**
      * Id of Browser context.
      */
@@ -7421,6 +7292,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Cookie Same-Site policy.
        */
       sameSite: CookieSameSitePolicy;
+      /**
+       * Cookie partition key for partitioned (CHIPS) cookies.
+       */
+      partitionKey?: string;
     }
     /**
      * Cookie object
@@ -7462,6 +7337,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Cookie Same-Site policy.
        */
       sameSite?: CookieSameSitePolicy;
+      /**
+       * Cookie partition key for partitioned (CHIPS) cookies.
+       */
+      partitionKey?: string;
     }
     /**
      * Name-value pair
@@ -7567,12 +7446,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       uuid: string;
       error: string;
     }
-    export type screencastFinishedPayload = {
-      /**
-       * Unique identifier of the screencast.
-       */
-      screencastId: Screencast.ScreencastId;
-    }
     
     export type enableParameters = {
     }
@@ -7609,6 +7482,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Proxy bypass list, similar to the one passed to --proxy-bypass-list
        */
       proxyBypassList?: string;
+      /**
+       * Wether to use storage partitioning. Be default Playwright disables the partitioning.
+       */
+      enableStoragePartitioning?: boolean;
     }
     export type createContextReturnValue = {
       /**
@@ -7638,6 +7515,17 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Unique identifier of the page proxy.
        */
       pageProxyId: PageProxyID;
+    }
+    /**
+     * Maximizes the native browser window.
+     */
+    export type maximizeWindowParameters = {
+      /**
+       * Unique identifier of the page proxy.
+       */
+      pageProxyId: PageProxyID;
+    }
+    export type maximizeWindowReturnValue = {
     }
     /**
      * Navigates current page to the given URL.
@@ -7727,6 +7615,33 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       ignore: boolean;
     }
     export type setIgnoreCertificateErrorsReturnValue = {
+    }
+    /**
+     * Changes page zoom factor.
+     */
+    export type setPageZoomFactorParameters = {
+      /**
+       * Unique identifier of the page proxy.
+       */
+      pageProxyId: PageProxyID;
+      zoomFactor: number;
+    }
+    export type setPageZoomFactorReturnValue = {
+    }
+    /**
+     * Closes the page, destroying the page proxy. Works for both live and crashed pages.
+     */
+    export type closePageParameters = {
+      /**
+       * Unique identifier of the page proxy.
+       */
+      pageProxyId: PageProxyID;
+      /**
+       * Whether to run the beforeunload page handlers.
+       */
+      runBeforeUnload?: boolean;
+    }
+    export type closePageReturnValue = {
     }
     /**
      * Returns all cookies in the given browser context.
@@ -7824,7 +7739,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       /**
        * Browser context id.
        */
-      browserContextId: ContextID;
+      browserContextId?: ContextID;
     }
     export type clearMemoryCacheReturnValue = {
     }
@@ -7833,11 +7748,11 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
   /**
    * General types used for recordings of actions performed in the inspected page.
    */
-  export module Recording {
+  export namespace Recording {
     /**
      * The type of the recording.
      */
-    export type Type = "canvas-2d"|"offscreen-canvas-2d"|"canvas-bitmaprenderer"|"offscreen-canvas-bitmaprenderer"|"canvas-webgl"|"offscreen-canvas-webgl"|"canvas-webgl2"|"offscreen-canvas-webgl2";
+    export type Type = "canvas-2d"|"offscreen-canvas-2d"|"canvas-bitmaprenderer"|"offscreen-canvas-bitmaprenderer"|"canvas-webgl"|"offscreen-canvas-webgl"|"canvas-webgl2"|"offscreen-canvas-webgl2"|"canvas-webgpu";
     export type Initiator = "frontend"|"console"|"auto-capture";
     /**
      * Information about the initial state of the recorded object.
@@ -7865,7 +7780,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
      */
     export interface Frame {
       /**
-       * Information about an action made to the recorded object. Follows the structure [name, parameters, swizzleTypes, stackTrace, snapshot], where name is a string, parameters is an array, swizzleTypes is an array, stackTrace is a Console.StackTrace, and snapshot is a data URL image of the current contents after this action.
+       * Information about an action made to the recorded object. Follows the structure [name, parameters, swizzleTypes, stackTrace, result, receiver, snapshot], where name is a string, parameters is an array, swizzleTypes is an array, stackTrace is a Console.StackTrace, result and receiver follow the structure [identifier, swizzleType] for the object returned by the action and the object that received it, respectively, and snapshot is a data URL image of the current contents after this action.
        */
       actions: any[];
       /**
@@ -7900,7 +7815,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
   /**
    * Runtime domain exposes JavaScript runtime by means of remote evaluation and mirror objects. Evaluation results are returned as mirror object that expose object type, string representation and unique identifier that can be used for further object reference. Original objects are maintained in memory unless they are either explicitly released or are released along with the other objects in their object group.
    */
-  export module Runtime {
+  export namespace Runtime {
     /**
      * Unique object identifier.
      */
@@ -8706,7 +8621,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     }
   }
   
-  export module Screencast {
+  export namespace Screencast {
     /**
      * Unique identifier of the screencast.
      */
@@ -8717,35 +8632,11 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Base64 data
        */
       data: string;
+      timestamp: number;
       deviceWidth: number;
       deviceHeight: number;
     }
     
-    /**
-     * Starts recoring video to speified file.
-     */
-    export type startVideoParameters = {
-      /**
-       * Output file location.
-       */
-      file: string;
-      width: number;
-      height: number;
-      toolbarHeight: number;
-    }
-    export type startVideoReturnValue = {
-      /**
-       * Unique identifier of the screencast.
-       */
-      screencastId: ScreencastId;
-    }
-    /**
-     * Stops recoding video. Returns after the file has been closed.
-     */
-    export type stopVideoParameters = {
-    }
-    export type stopVideoReturnValue = {
-    }
     /**
      * Starts screencast.
      */
@@ -8781,7 +8672,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
   /**
    * Profiler domain exposes JavaScript evaluation timing and profiling.
    */
-  export module ScriptProfiler {
+  export namespace ScriptProfiler {
     export type EventType = "API"|"Microtask"|"Other";
     export interface Event {
       startTime: number;
@@ -8875,7 +8766,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
   /**
    * Security domain allows the frontend to query for information relating to the security of the page (e.g. HTTPS info, TLS info, user activity, etc.).
    */
-  export module Security {
+  export namespace Security {
     /**
      * Information about a SSL connection to display in the frontend.
      */
@@ -8913,7 +8804,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
   /**
    * Actions and events related to the inspected service worker.
    */
-  export module ServiceWorker {
+  export namespace ServiceWorker {
     /**
      * ServiceWorker metadata and initial state.
      */
@@ -8941,7 +8832,198 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     }
   }
   
-  export module Target {
+  /**
+   * Query and modify storage (cookies for now) under Site Isolation. Reads and deletes are scoped to the cookies the inspected page's frames can access, as Page.getCookies does without Site Isolation: for each frame, including cross-origin iframes in other processes, the cookies its document would send to its own URL and to its loaded same-site subresources' URLs, each labeled with its partitionKey. setCookie is not scoped.
+   */
+  export namespace Storage {
+    /**
+     * Same-Site policy of a cookie.
+     */
+    export type CookieSameSitePolicy = "None"|"Lax"|"Strict";
+    /**
+     * Cookie object.
+     */
+    export interface Cookie {
+      /**
+       * Cookie name.
+       */
+      name: string;
+      /**
+       * Cookie value.
+       */
+      value: string;
+      /**
+       * Cookie domain.
+       */
+      domain: string;
+      /**
+       * Cookie path.
+       */
+      path: string;
+      /**
+       * Cookie expires.
+       */
+      expires: number;
+      /**
+       * True in case of session cookie.
+       */
+      session: boolean;
+      /**
+       * True if cookie is http-only.
+       */
+      httpOnly: boolean;
+      /**
+       * True if cookie is secure.
+       */
+      secure: boolean;
+      /**
+       * Cookie Same-Site policy.
+       */
+      sameSite: CookieSameSitePolicy;
+      /**
+       * Cookie partition key.
+       */
+      partitionKey?: string;
+    }
+    /**
+     * Filter parameters for cookie retrieval and deletion. Every provided field narrows the result set.
+     */
+    export interface CookieFilter {
+      /**
+       * The name of the cookie.
+       */
+      name?: string;
+      /**
+       * The value of the cookie.
+       */
+      value?: string;
+      /**
+       * The domain of the cookie.
+       */
+      domain?: string;
+      /**
+       * The path of the cookie.
+       */
+      path?: string;
+      /**
+       * If the cookie is HTTP only.
+       */
+      httpOnly?: boolean;
+      /**
+       * If the cookie is secure.
+       */
+      secure?: boolean;
+      /**
+       * The partition of the cookie. An empty string matches only unpartitioned cookies.
+       */
+      partitionKey?: string;
+    }
+    /**
+     * Identifies the storage partition a cookie belongs to. At least one of 'userContext' or 'sourceOrigin' is present.
+     */
+    export interface PartitionKey {
+      /**
+       * The user context identifier of the partition.
+       */
+      userContext?: string;
+      /**
+       * The serialization of the origin of resources that can access the storage partition.
+       */
+      sourceOrigin?: string;
+    }
+    /**
+     * The type of storage partition descriptor.
+     */
+    export type PartitionDescriptorType = "context";
+    /**
+     * Describes a storage partition. Omit to target the inspected page's default data store. Type 'context' targets the inspected page's main-frame origin.
+     */
+    export interface PartitionDescriptor {
+      /**
+       * The type of partition descriptor.
+       */
+      type: PartitionDescriptorType;
+    }
+    
+    
+    /**
+     * Marks the Storage domain enabled for this target. No tracking is started; cookies are read on demand from the authoritative store, so this is effectively a no-op kept for domain-lifecycle symmetry.
+     */
+    export type enableParameters = {
+    }
+    export type enableReturnValue = {
+    }
+    /**
+     * Marks the Storage domain disabled for this target. Counterpart to enable; a no-op beyond lifecycle bookkeeping.
+     */
+    export type disableParameters = {
+    }
+    export type disableReturnValue = {
+    }
+    /**
+     * Retrieves zero or more cookies which match the provided filter, within the given partition.
+     */
+    export type getCookiesParameters = {
+      /**
+       * Filter parameters for cookie retrieval.
+       */
+      filter?: CookieFilter;
+      /**
+       * The storage partition in which to get cookies. Defaults to the origin of the inspected page's main frame.
+       */
+      partition?: PartitionDescriptor;
+    }
+    export type getCookiesReturnValue = {
+      /**
+       * The list of matching cookies.
+       */
+      cookies: Cookie[];
+      /**
+       * The storage partition key the cookies came from.
+       */
+      partitionKey: PartitionKey;
+    }
+    /**
+     * Creates a new cookie, replacing any cookie in the partition which matches.
+     */
+    export type setCookieParameters = {
+      /**
+       * The cookie to set.
+       */
+      cookie: Cookie;
+      /**
+       * The storage partition in which to set the cookie. Defaults to the origin of the inspected page's main frame.
+       */
+      partition?: PartitionDescriptor;
+    }
+    export type setCookieReturnValue = {
+      /**
+       * The storage partition key the cookie was set in.
+       */
+      partitionKey: PartitionKey;
+    }
+    /**
+     * Removes zero or more cookies which match the provided filter, within the given partition. A filter is required; omitting it fails rather than deleting every cookie.
+     */
+    export type deleteCookiesParameters = {
+      /**
+       * Filter parameters for cookie deletion. Required in practice: a request with no filter is rejected to avoid an accidental clear of the entire store.
+       */
+      filter?: CookieFilter;
+      /**
+       * The storage partition in which to delete cookies. Defaults to the origin of the inspected page's main frame.
+       */
+      partition?: PartitionDescriptor;
+    }
+    export type deleteCookiesReturnValue = {
+      /**
+       * The storage partition key the cookies were deleted from.
+       */
+      partitionKey: PartitionKey;
+    }
+  }
+  
+  export namespace Target {
     /**
      * Description of a target.
      */
@@ -8950,7 +9032,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Unique identifier for the target.
        */
       targetId: string;
-      type: "page"|"service-worker"|"worker";
+      type: "page"|"frame"|"service-worker"|"worker";
       /**
        * True value indicates that this is a provisional page target i.e. Such target may be created when current page starts cross-origin navigation. Eventually each provisional target is either committed and swaps with the current target or gets destroyed, e.g. in case of load request failure.
        */
@@ -8960,6 +9042,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        */
       isPaused?: boolean;
     }
+    /**
+     * State of a debugger pause session. While it is paused, the UI process holds every page of the browsing context group: each frame is either stopped or held. Closed means the hold was released, not that no frame is stopped: a frame can stay in the debugger, so Debugger.paused and Debugger.resumed remain the source of truth for which frames are stopped.
+     */
+    export type DebuggerPauseSessionState = "paused"|"closed";
     
     export type targetCreatedPayload = {
       targetInfo: TargetInfo;
@@ -8980,6 +9066,20 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * ID of the committed target.
        */
       newTargetId: string;
+    }
+    /**
+     * Fired when a debugger pause session opens, when the set of frames whose pause has not ended changes, and when the hold is released.
+     */
+    export type debuggerPauseSessionChangedPayload = {
+      /**
+       * Identifies the session from the event that opens it to the event that closes it.
+       */
+      sessionId: string;
+      state: DebuggerPauseSessionState;
+      /**
+       * Targets of the frames whose pause has not ended yet. A frame that has resumed stays listed until its process is idle, which can be after Debugger.resumed. Empty when the session is closed, even if a frame is still stopped.
+       */
+      stoppingTargetIds: string[];
     }
     export type dispatchMessageFromTargetPayload = {
       targetId: string;
@@ -9028,25 +9128,16 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     }
     export type activateReturnValue = {
     }
-    /**
-     * Closes the target.
-     */
-    export type closeParameters = {
-      targetId: string;
-      runBeforeUnload?: boolean;
-    }
-    export type closeReturnValue = {
-    }
   }
   
   /**
    * Timeline provides its clients with instrumentation records that are generated during the page runtime. Timeline instrumentation can be started and stopped using corresponding commands. While timeline is started, it is generating timeline event records.
    */
-  export module Timeline {
+  export namespace Timeline {
     /**
      * Timeline record type.
      */
-    export type EventType = "EventDispatch"|"ScheduleStyleRecalculation"|"RecalculateStyles"|"InvalidateLayout"|"Layout"|"Paint"|"Composite"|"RenderingFrame"|"TimerInstall"|"TimerRemove"|"TimerFire"|"EvaluateScript"|"TimeStamp"|"Time"|"TimeEnd"|"FunctionCall"|"ProbeSample"|"ConsoleProfile"|"RequestAnimationFrame"|"CancelAnimationFrame"|"FireAnimationFrame"|"ObserverCallback"|"Screenshot";
+    export type EventType = "EventDispatch"|"ScheduleStyleRecalculation"|"RecalculateStyles"|"InvalidateLayout"|"ScheduleLayout"|"Layout"|"Paint"|"Composite"|"RenderingFrame"|"TimerInstall"|"TimerRemove"|"TimerFire"|"EvaluateScript"|"TimeStamp"|"Time"|"TimeEnd"|"FunctionCall"|"ProbeSample"|"ConsoleProfile"|"RequestAnimationFrame"|"CancelAnimationFrame"|"FireAnimationFrame"|"ObserverCallback"|"FirstContentfulPaint"|"LargestContentfulPaint"|"Screenshot";
     /**
      * Instrument types.
      */
@@ -9157,7 +9248,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     }
   }
   
-  export module Worker {
+  export namespace Worker {
     
     export type workerCreatedPayload = {
       workerId: string;
@@ -9211,7 +9302,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     }
   }
   
-  export interface Events {
+  export type Events = {
     "Animation.animationCreated": Animation.animationCreatedPayload;
     "Animation.nameChanged": Animation.nameChangedPayload;
     "Animation.effectChanged": Animation.effectChangedPayload;
@@ -9220,13 +9311,12 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Animation.trackingStart": Animation.trackingStartPayload;
     "Animation.trackingUpdate": Animation.trackingUpdatePayload;
     "Animation.trackingComplete": Animation.trackingCompletePayload;
-    "ApplicationCache.applicationCacheStatusUpdated": ApplicationCache.applicationCacheStatusUpdatedPayload;
-    "ApplicationCache.networkStateUpdated": ApplicationCache.networkStateUpdatedPayload;
     "Browser.extensionsEnabled": Browser.extensionsEnabledPayload;
     "Browser.extensionsDisabled": Browser.extensionsDisabledPayload;
     "CPUProfiler.trackingStart": CPUProfiler.trackingStartPayload;
     "CPUProfiler.trackingUpdate": CPUProfiler.trackingUpdatePayload;
     "CPUProfiler.trackingComplete": CPUProfiler.trackingCompletePayload;
+    "CSS.fontDataChanged": CSS.fontDataChangedPayload;
     "CSS.mediaQueryResultChanged": CSS.mediaQueryResultChangedPayload;
     "CSS.styleSheetChanged": CSS.styleSheetChangedPayload;
     "CSS.styleSheetAdded": CSS.styleSheetAddedPayload;
@@ -9234,15 +9324,19 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "CSS.nodeLayoutFlagsChanged": CSS.nodeLayoutFlagsChangedPayload;
     "Canvas.canvasAdded": Canvas.canvasAddedPayload;
     "Canvas.canvasRemoved": Canvas.canvasRemovedPayload;
+    "Canvas.canvasNameChanged": Canvas.canvasNameChangedPayload;
     "Canvas.canvasSizeChanged": Canvas.canvasSizeChangedPayload;
     "Canvas.canvasMemoryChanged": Canvas.canvasMemoryChangedPayload;
     "Canvas.extensionEnabled": Canvas.extensionEnabledPayload;
-    "Canvas.clientNodesChanged": Canvas.clientNodesChangedPayload;
+    "Canvas.nodesChanged": Canvas.nodesChangedPayload;
+    "Canvas.cssCanvasClientNodesChanged": Canvas.cssCanvasClientNodesChangedPayload;
+    "Canvas.cssCanvasNamesChanged": Canvas.cssCanvasNamesChangedPayload;
     "Canvas.recordingStarted": Canvas.recordingStartedPayload;
     "Canvas.recordingProgress": Canvas.recordingProgressPayload;
     "Canvas.recordingFinished": Canvas.recordingFinishedPayload;
     "Canvas.programCreated": Canvas.programCreatedPayload;
     "Canvas.programDeleted": Canvas.programDeletedPayload;
+    "Canvas.programNameChanged": Canvas.programNameChangedPayload;
     "Console.messageAdded": Console.messageAddedPayload;
     "Console.messageRepeatCountUpdated": Console.messageRepeatCountUpdatedPayload;
     "Console.messagesCleared": Console.messagesClearedPayload;
@@ -9271,7 +9365,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "DOMStorage.domStorageItemRemoved": DOMStorage.domStorageItemRemovedPayload;
     "DOMStorage.domStorageItemAdded": DOMStorage.domStorageItemAddedPayload;
     "DOMStorage.domStorageItemUpdated": DOMStorage.domStorageItemUpdatedPayload;
-    "Database.addDatabase": Database.addDatabasePayload;
     "Debugger.globalObjectCleared": Debugger.globalObjectClearedPayload;
     "Debugger.scriptParsed": Debugger.scriptParsedPayload;
     "Debugger.scriptFailedToParse": Debugger.scriptFailedToParsePayload;
@@ -9281,6 +9374,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Debugger.didSampleProbe": Debugger.didSampleProbePayload;
     "Debugger.playBreakpointActionSound": Debugger.playBreakpointActionSoundPayload;
     "Dialog.javascriptDialogOpening": Dialog.javascriptDialogOpeningPayload;
+    "Dialog.javascriptDialogClosed": Dialog.javascriptDialogClosedPayload;
     "Heap.garbageCollected": Heap.garbageCollectedPayload;
     "Heap.trackingStart": Heap.trackingStartPayload;
     "Heap.trackingComplete": Heap.trackingCompletePayload;
@@ -9311,10 +9405,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.frameNavigated": Page.frameNavigatedPayload;
     "Page.frameAttached": Page.frameAttachedPayload;
     "Page.frameDetached": Page.frameDetachedPayload;
-    "Page.frameStartedLoading": Page.frameStartedLoadingPayload;
-    "Page.frameStoppedLoading": Page.frameStoppedLoadingPayload;
-    "Page.frameScheduledNavigation": Page.frameScheduledNavigationPayload;
-    "Page.frameClearedScheduledNavigation": Page.frameClearedScheduledNavigationPayload;
     "Page.navigatedWithinDocument": Page.navigatedWithinDocumentPayload;
     "Page.defaultUserPreferencesDidChange": Page.defaultUserPreferencesDidChangePayload;
     "Page.willCheckNavigationPolicy": Page.willCheckNavigationPolicyPayload;
@@ -9327,7 +9417,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Playwright.downloadCreated": Playwright.downloadCreatedPayload;
     "Playwright.downloadFilenameSuggested": Playwright.downloadFilenameSuggestedPayload;
     "Playwright.downloadFinished": Playwright.downloadFinishedPayload;
-    "Playwright.screencastFinished": Playwright.screencastFinishedPayload;
     "Runtime.executionContextCreated": Runtime.executionContextCreatedPayload;
     "Runtime.bindingCalled": Runtime.bindingCalledPayload;
     "Screencast.screencastFrame": Screencast.screencastFramePayload;
@@ -9337,6 +9426,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Target.targetCreated": Target.targetCreatedPayload;
     "Target.targetDestroyed": Target.targetDestroyedPayload;
     "Target.didCommitProvisionalTarget": Target.didCommitProvisionalTargetPayload;
+    "Target.debuggerPauseSessionChanged": Target.debuggerPauseSessionChangedPayload;
     "Target.dispatchMessageFromTarget": Target.dispatchMessageFromTargetPayload;
     "Timeline.eventRecorded": Timeline.eventRecordedPayload;
     "Timeline.recordingStarted": Timeline.recordingStartedPayload;
@@ -9346,18 +9436,148 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Worker.workerTerminated": Worker.workerTerminatedPayload;
     "Worker.dispatchMessageFromWorker": Worker.dispatchMessageFromWorkerPayload;
   }
+  export type EventMap = {
+    ["Animation.animationCreated"]: [Animation.animationCreatedPayload];
+    ["Animation.nameChanged"]: [Animation.nameChangedPayload];
+    ["Animation.effectChanged"]: [Animation.effectChangedPayload];
+    ["Animation.targetChanged"]: [Animation.targetChangedPayload];
+    ["Animation.animationDestroyed"]: [Animation.animationDestroyedPayload];
+    ["Animation.trackingStart"]: [Animation.trackingStartPayload];
+    ["Animation.trackingUpdate"]: [Animation.trackingUpdatePayload];
+    ["Animation.trackingComplete"]: [Animation.trackingCompletePayload];
+    ["Browser.extensionsEnabled"]: [Browser.extensionsEnabledPayload];
+    ["Browser.extensionsDisabled"]: [Browser.extensionsDisabledPayload];
+    ["CPUProfiler.trackingStart"]: [CPUProfiler.trackingStartPayload];
+    ["CPUProfiler.trackingUpdate"]: [CPUProfiler.trackingUpdatePayload];
+    ["CPUProfiler.trackingComplete"]: [CPUProfiler.trackingCompletePayload];
+    ["CSS.fontDataChanged"]: [CSS.fontDataChangedPayload];
+    ["CSS.mediaQueryResultChanged"]: [CSS.mediaQueryResultChangedPayload];
+    ["CSS.styleSheetChanged"]: [CSS.styleSheetChangedPayload];
+    ["CSS.styleSheetAdded"]: [CSS.styleSheetAddedPayload];
+    ["CSS.styleSheetRemoved"]: [CSS.styleSheetRemovedPayload];
+    ["CSS.nodeLayoutFlagsChanged"]: [CSS.nodeLayoutFlagsChangedPayload];
+    ["Canvas.canvasAdded"]: [Canvas.canvasAddedPayload];
+    ["Canvas.canvasRemoved"]: [Canvas.canvasRemovedPayload];
+    ["Canvas.canvasNameChanged"]: [Canvas.canvasNameChangedPayload];
+    ["Canvas.canvasSizeChanged"]: [Canvas.canvasSizeChangedPayload];
+    ["Canvas.canvasMemoryChanged"]: [Canvas.canvasMemoryChangedPayload];
+    ["Canvas.extensionEnabled"]: [Canvas.extensionEnabledPayload];
+    ["Canvas.nodesChanged"]: [Canvas.nodesChangedPayload];
+    ["Canvas.cssCanvasClientNodesChanged"]: [Canvas.cssCanvasClientNodesChangedPayload];
+    ["Canvas.cssCanvasNamesChanged"]: [Canvas.cssCanvasNamesChangedPayload];
+    ["Canvas.recordingStarted"]: [Canvas.recordingStartedPayload];
+    ["Canvas.recordingProgress"]: [Canvas.recordingProgressPayload];
+    ["Canvas.recordingFinished"]: [Canvas.recordingFinishedPayload];
+    ["Canvas.programCreated"]: [Canvas.programCreatedPayload];
+    ["Canvas.programDeleted"]: [Canvas.programDeletedPayload];
+    ["Canvas.programNameChanged"]: [Canvas.programNameChangedPayload];
+    ["Console.messageAdded"]: [Console.messageAddedPayload];
+    ["Console.messageRepeatCountUpdated"]: [Console.messageRepeatCountUpdatedPayload];
+    ["Console.messagesCleared"]: [Console.messagesClearedPayload];
+    ["Console.heapSnapshot"]: [Console.heapSnapshotPayload];
+    ["DOM.documentUpdated"]: [DOM.documentUpdatedPayload];
+    ["DOM.inspect"]: [DOM.inspectPayload];
+    ["DOM.setChildNodes"]: [DOM.setChildNodesPayload];
+    ["DOM.attributeModified"]: [DOM.attributeModifiedPayload];
+    ["DOM.attributeRemoved"]: [DOM.attributeRemovedPayload];
+    ["DOM.inlineStyleInvalidated"]: [DOM.inlineStyleInvalidatedPayload];
+    ["DOM.characterDataModified"]: [DOM.characterDataModifiedPayload];
+    ["DOM.childNodeCountUpdated"]: [DOM.childNodeCountUpdatedPayload];
+    ["DOM.childNodeInserted"]: [DOM.childNodeInsertedPayload];
+    ["DOM.childNodeRemoved"]: [DOM.childNodeRemovedPayload];
+    ["DOM.willDestroyDOMNode"]: [DOM.willDestroyDOMNodePayload];
+    ["DOM.shadowRootPushed"]: [DOM.shadowRootPushedPayload];
+    ["DOM.shadowRootPopped"]: [DOM.shadowRootPoppedPayload];
+    ["DOM.customElementStateChanged"]: [DOM.customElementStateChangedPayload];
+    ["DOM.pseudoElementAdded"]: [DOM.pseudoElementAddedPayload];
+    ["DOM.pseudoElementRemoved"]: [DOM.pseudoElementRemovedPayload];
+    ["DOM.didAddEventListener"]: [DOM.didAddEventListenerPayload];
+    ["DOM.willRemoveEventListener"]: [DOM.willRemoveEventListenerPayload];
+    ["DOM.didFireEvent"]: [DOM.didFireEventPayload];
+    ["DOM.powerEfficientPlaybackStateChanged"]: [DOM.powerEfficientPlaybackStateChangedPayload];
+    ["DOMStorage.domStorageItemsCleared"]: [DOMStorage.domStorageItemsClearedPayload];
+    ["DOMStorage.domStorageItemRemoved"]: [DOMStorage.domStorageItemRemovedPayload];
+    ["DOMStorage.domStorageItemAdded"]: [DOMStorage.domStorageItemAddedPayload];
+    ["DOMStorage.domStorageItemUpdated"]: [DOMStorage.domStorageItemUpdatedPayload];
+    ["Debugger.globalObjectCleared"]: [Debugger.globalObjectClearedPayload];
+    ["Debugger.scriptParsed"]: [Debugger.scriptParsedPayload];
+    ["Debugger.scriptFailedToParse"]: [Debugger.scriptFailedToParsePayload];
+    ["Debugger.breakpointResolved"]: [Debugger.breakpointResolvedPayload];
+    ["Debugger.paused"]: [Debugger.pausedPayload];
+    ["Debugger.resumed"]: [Debugger.resumedPayload];
+    ["Debugger.didSampleProbe"]: [Debugger.didSampleProbePayload];
+    ["Debugger.playBreakpointActionSound"]: [Debugger.playBreakpointActionSoundPayload];
+    ["Dialog.javascriptDialogOpening"]: [Dialog.javascriptDialogOpeningPayload];
+    ["Dialog.javascriptDialogClosed"]: [Dialog.javascriptDialogClosedPayload];
+    ["Heap.garbageCollected"]: [Heap.garbageCollectedPayload];
+    ["Heap.trackingStart"]: [Heap.trackingStartPayload];
+    ["Heap.trackingComplete"]: [Heap.trackingCompletePayload];
+    ["Inspector.evaluateForTestInFrontend"]: [Inspector.evaluateForTestInFrontendPayload];
+    ["Inspector.inspect"]: [Inspector.inspectPayload];
+    ["LayerTree.layerTreeDidChange"]: [LayerTree.layerTreeDidChangePayload];
+    ["Memory.memoryPressure"]: [Memory.memoryPressurePayload];
+    ["Memory.trackingStart"]: [Memory.trackingStartPayload];
+    ["Memory.trackingUpdate"]: [Memory.trackingUpdatePayload];
+    ["Memory.trackingComplete"]: [Memory.trackingCompletePayload];
+    ["Network.requestWillBeSent"]: [Network.requestWillBeSentPayload];
+    ["Network.responseReceived"]: [Network.responseReceivedPayload];
+    ["Network.dataReceived"]: [Network.dataReceivedPayload];
+    ["Network.loadingFinished"]: [Network.loadingFinishedPayload];
+    ["Network.loadingFailed"]: [Network.loadingFailedPayload];
+    ["Network.requestServedFromMemoryCache"]: [Network.requestServedFromMemoryCachePayload];
+    ["Network.requestIntercepted"]: [Network.requestInterceptedPayload];
+    ["Network.responseIntercepted"]: [Network.responseInterceptedPayload];
+    ["Network.webSocketWillSendHandshakeRequest"]: [Network.webSocketWillSendHandshakeRequestPayload];
+    ["Network.webSocketHandshakeResponseReceived"]: [Network.webSocketHandshakeResponseReceivedPayload];
+    ["Network.webSocketCreated"]: [Network.webSocketCreatedPayload];
+    ["Network.webSocketClosed"]: [Network.webSocketClosedPayload];
+    ["Network.webSocketFrameReceived"]: [Network.webSocketFrameReceivedPayload];
+    ["Network.webSocketFrameError"]: [Network.webSocketFrameErrorPayload];
+    ["Network.webSocketFrameSent"]: [Network.webSocketFrameSentPayload];
+    ["Page.domContentEventFired"]: [Page.domContentEventFiredPayload];
+    ["Page.loadEventFired"]: [Page.loadEventFiredPayload];
+    ["Page.frameNavigated"]: [Page.frameNavigatedPayload];
+    ["Page.frameAttached"]: [Page.frameAttachedPayload];
+    ["Page.frameDetached"]: [Page.frameDetachedPayload];
+    ["Page.navigatedWithinDocument"]: [Page.navigatedWithinDocumentPayload];
+    ["Page.defaultUserPreferencesDidChange"]: [Page.defaultUserPreferencesDidChangePayload];
+    ["Page.willCheckNavigationPolicy"]: [Page.willCheckNavigationPolicyPayload];
+    ["Page.didCheckNavigationPolicy"]: [Page.didCheckNavigationPolicyPayload];
+    ["Page.fileChooserOpened"]: [Page.fileChooserOpenedPayload];
+    ["Playwright.pageProxyCreated"]: [Playwright.pageProxyCreatedPayload];
+    ["Playwright.pageProxyDestroyed"]: [Playwright.pageProxyDestroyedPayload];
+    ["Playwright.provisionalLoadFailed"]: [Playwright.provisionalLoadFailedPayload];
+    ["Playwright.windowOpen"]: [Playwright.windowOpenPayload];
+    ["Playwright.downloadCreated"]: [Playwright.downloadCreatedPayload];
+    ["Playwright.downloadFilenameSuggested"]: [Playwright.downloadFilenameSuggestedPayload];
+    ["Playwright.downloadFinished"]: [Playwright.downloadFinishedPayload];
+    ["Runtime.executionContextCreated"]: [Runtime.executionContextCreatedPayload];
+    ["Runtime.bindingCalled"]: [Runtime.bindingCalledPayload];
+    ["Screencast.screencastFrame"]: [Screencast.screencastFramePayload];
+    ["ScriptProfiler.trackingStart"]: [ScriptProfiler.trackingStartPayload];
+    ["ScriptProfiler.trackingUpdate"]: [ScriptProfiler.trackingUpdatePayload];
+    ["ScriptProfiler.trackingComplete"]: [ScriptProfiler.trackingCompletePayload];
+    ["Target.targetCreated"]: [Target.targetCreatedPayload];
+    ["Target.targetDestroyed"]: [Target.targetDestroyedPayload];
+    ["Target.didCommitProvisionalTarget"]: [Target.didCommitProvisionalTargetPayload];
+    ["Target.debuggerPauseSessionChanged"]: [Target.debuggerPauseSessionChangedPayload];
+    ["Target.dispatchMessageFromTarget"]: [Target.dispatchMessageFromTargetPayload];
+    ["Timeline.eventRecorded"]: [Timeline.eventRecordedPayload];
+    ["Timeline.recordingStarted"]: [Timeline.recordingStartedPayload];
+    ["Timeline.recordingStopped"]: [Timeline.recordingStoppedPayload];
+    ["Timeline.autoCaptureStarted"]: [Timeline.autoCaptureStartedPayload];
+    ["Worker.workerCreated"]: [Worker.workerCreatedPayload];
+    ["Worker.workerTerminated"]: [Worker.workerTerminatedPayload];
+    ["Worker.dispatchMessageFromWorker"]: [Worker.dispatchMessageFromWorkerPayload];
+  }
   export interface CommandParameters {
     "Animation.enable": Animation.enableParameters;
     "Animation.disable": Animation.disableParameters;
+    "Animation.requestEffect": Animation.requestEffectParameters;
     "Animation.requestEffectTarget": Animation.requestEffectTargetParameters;
     "Animation.resolveAnimation": Animation.resolveAnimationParameters;
     "Animation.startTracking": Animation.startTrackingParameters;
     "Animation.stopTracking": Animation.stopTrackingParameters;
-    "ApplicationCache.getFramesWithManifests": ApplicationCache.getFramesWithManifestsParameters;
-    "ApplicationCache.enable": ApplicationCache.enableParameters;
-    "ApplicationCache.disable": ApplicationCache.disableParameters;
-    "ApplicationCache.getManifestForFrame": ApplicationCache.getManifestForFrameParameters;
-    "ApplicationCache.getApplicationCacheForFrame": ApplicationCache.getApplicationCacheForFrameParameters;
     "Audit.setup": Audit.setupParameters;
     "Audit.run": Audit.runParameters;
     "Audit.teardown": Audit.teardownParameters;
@@ -9386,9 +9606,9 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "CSS.setLayoutContextTypeChangedMode": CSS.setLayoutContextTypeChangedModeParameters;
     "Canvas.enable": Canvas.enableParameters;
     "Canvas.disable": Canvas.disableParameters;
-    "Canvas.requestNode": Canvas.requestNodeParameters;
+    "Canvas.requestNodes": Canvas.requestNodesParameters;
     "Canvas.requestContent": Canvas.requestContentParameters;
-    "Canvas.requestClientNodes": Canvas.requestClientNodesParameters;
+    "Canvas.requestCSSCanvasClientNodes": Canvas.requestCSSCanvasClientNodesParameters;
     "Canvas.resolveContext": Canvas.resolveContextParameters;
     "Canvas.setRecordingAutoCaptureFrameCount": Canvas.setRecordingAutoCaptureFrameCountParameters;
     "Canvas.startRecording": Canvas.startRecordingParameters;
@@ -9405,6 +9625,8 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Console.setLoggingChannelLevel": Console.setLoggingChannelLevelParameters;
     "DOM.getDocument": DOM.getDocumentParameters;
     "DOM.requestChildNodes": DOM.requestChildNodesParameters;
+    "DOM.requestAssignedSlot": DOM.requestAssignedSlotParameters;
+    "DOM.requestAssignedNodes": DOM.requestAssignedNodesParameters;
     "DOM.querySelector": DOM.querySelectorParameters;
     "DOM.querySelectorAll": DOM.querySelectorAllParameters;
     "DOM.setNodeName": DOM.setNodeNameParameters;
@@ -9428,6 +9650,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "DOM.getSearchResults": DOM.getSearchResultsParameters;
     "DOM.discardSearchResults": DOM.discardSearchResultsParameters;
     "DOM.requestNode": DOM.requestNodeParameters;
+    "DOM.requestFrameOwner": DOM.requestFrameOwnerParameters;
     "DOM.setInspectModeEnabled": DOM.setInspectModeEnabledParameters;
     "DOM.highlightRect": DOM.highlightRectParameters;
     "DOM.highlightQuad": DOM.highlightQuadParameters;
@@ -9467,10 +9690,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "DOMStorage.setDOMStorageItem": DOMStorage.setDOMStorageItemParameters;
     "DOMStorage.removeDOMStorageItem": DOMStorage.removeDOMStorageItemParameters;
     "DOMStorage.clearDOMStorageItems": DOMStorage.clearDOMStorageItemsParameters;
-    "Database.enable": Database.enableParameters;
-    "Database.disable": Database.disableParameters;
-    "Database.getDatabaseTableNames": Database.getDatabaseTableNamesParameters;
-    "Database.executeSQL": Database.executeSQLParameters;
     "Debugger.enable": Debugger.enableParameters;
     "Debugger.disable": Debugger.disableParameters;
     "Debugger.setAsyncStackTraceDepth": Debugger.setAsyncStackTraceDepthParameters;
@@ -9504,11 +9723,13 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Dialog.disable": Dialog.disableParameters;
     "Dialog.handleJavaScriptDialog": Dialog.handleJavaScriptDialogParameters;
     "Emulation.setDeviceMetricsOverride": Emulation.setDeviceMetricsOverrideParameters;
+    "Emulation.clearDeviceMetricsOverride": Emulation.clearDeviceMetricsOverrideParameters;
     "Emulation.setJavaScriptEnabled": Emulation.setJavaScriptEnabledParameters;
     "Emulation.setAuthCredentials": Emulation.setAuthCredentialsParameters;
     "Emulation.setActiveAndFocused": Emulation.setActiveAndFocusedParameters;
     "Emulation.grantPermissions": Emulation.grantPermissionsParameters;
     "Emulation.resetPermissions": Emulation.resetPermissionsParameters;
+    "Emulation.setOrientationOverride": Emulation.setOrientationOverrideParameters;
     "Heap.enable": Heap.enableParameters;
     "Heap.disable": Heap.disableParameters;
     "Heap.gc": Heap.gcParameters;
@@ -9527,6 +9748,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Input.dispatchMouseEvent": Input.dispatchMouseEventParameters;
     "Input.dispatchWheelEvent": Input.dispatchWheelEventParameters;
     "Input.dispatchTapEvent": Input.dispatchTapEventParameters;
+    "Input.dispatchTouchEvent": Input.dispatchTouchEventParameters;
     "Inspector.enable": Inspector.enableParameters;
     "Inspector.disable": Inspector.disableParameters;
     "Inspector.initialized": Inspector.initializedParameters;
@@ -9534,6 +9756,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "LayerTree.disable": LayerTree.disableParameters;
     "LayerTree.layersForNode": LayerTree.layersForNodeParameters;
     "LayerTree.reasonsForCompositingLayer": LayerTree.reasonsForCompositingLayerParameters;
+    "LayerTree.requestContent": LayerTree.requestContentParameters;
     "Memory.enable": Memory.enableParameters;
     "Memory.disable": Memory.disableParameters;
     "Memory.startTracking": Memory.startTrackingParameters;
@@ -9543,6 +9766,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Network.setExtraHTTPHeaders": Network.setExtraHTTPHeadersParameters;
     "Network.getResponseBody": Network.getResponseBodyParameters;
     "Network.setResourceCachingDisabled": Network.setResourceCachingDisabledParameters;
+    "Network.setClearResourceDataOnNavigate": Network.setClearResourceDataOnNavigateParameters;
     "Network.loadResource": Network.loadResourceParameters;
     "Network.getSerializedCertificate": Network.getSerializedCertificateParameters;
     "Network.resolveWebSocket": Network.resolveWebSocketParameters;
@@ -9561,7 +9785,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.reload": Page.reloadParameters;
     "Page.goBack": Page.goBackParameters;
     "Page.goForward": Page.goForwardParameters;
-    "Page.navigate": Page.navigateParameters;
     "Page.overrideUserAgent": Page.overrideUserAgentParameters;
     "Page.overridePlatform": Page.overridePlatformParameters;
     "Page.overrideSetting": Page.overrideSettingParameters;
@@ -9585,13 +9808,11 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.archive": Page.archiveParameters;
     "Page.setScreenSizeOverride": Page.setScreenSizeOverrideParameters;
     "Page.insertText": Page.insertTextParameters;
-    "Page.accessibilitySnapshot": Page.accessibilitySnapshotParameters;
     "Page.setInterceptFileChooserDialog": Page.setInterceptFileChooserDialogParameters;
     "Page.setDefaultBackgroundColorOverride": Page.setDefaultBackgroundColorOverrideParameters;
     "Page.createUserWorld": Page.createUserWorldParameters;
     "Page.setBypassCSP": Page.setBypassCSPParameters;
     "Page.crash": Page.crashParameters;
-    "Page.setOrientationOverride": Page.setOrientationOverrideParameters;
     "Page.updateScrollingState": Page.updateScrollingStateParameters;
     "Playwright.enable": Playwright.enableParameters;
     "Playwright.disable": Playwright.disableParameters;
@@ -9600,10 +9821,13 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Playwright.createContext": Playwright.createContextParameters;
     "Playwright.deleteContext": Playwright.deleteContextParameters;
     "Playwright.createPage": Playwright.createPageParameters;
+    "Playwright.maximizeWindow": Playwright.maximizeWindowParameters;
     "Playwright.navigate": Playwright.navigateParameters;
     "Playwright.grantFileReadAccess": Playwright.grantFileReadAccessParameters;
     "Playwright.takePageScreenshot": Playwright.takePageScreenshotParameters;
     "Playwright.setIgnoreCertificateErrors": Playwright.setIgnoreCertificateErrorsParameters;
+    "Playwright.setPageZoomFactor": Playwright.setPageZoomFactorParameters;
+    "Playwright.closePage": Playwright.closePageParameters;
     "Playwright.getAllCookies": Playwright.getAllCookiesParameters;
     "Playwright.setCookies": Playwright.setCookiesParameters;
     "Playwright.deleteAllCookies": Playwright.deleteAllCookiesParameters;
@@ -9633,19 +9857,21 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Runtime.enableControlFlowProfiler": Runtime.enableControlFlowProfilerParameters;
     "Runtime.disableControlFlowProfiler": Runtime.disableControlFlowProfilerParameters;
     "Runtime.getBasicBlocks": Runtime.getBasicBlocksParameters;
-    "Screencast.startVideo": Screencast.startVideoParameters;
-    "Screencast.stopVideo": Screencast.stopVideoParameters;
     "Screencast.startScreencast": Screencast.startScreencastParameters;
     "Screencast.stopScreencast": Screencast.stopScreencastParameters;
     "Screencast.screencastFrameAck": Screencast.screencastFrameAckParameters;
     "ScriptProfiler.startTracking": ScriptProfiler.startTrackingParameters;
     "ScriptProfiler.stopTracking": ScriptProfiler.stopTrackingParameters;
     "ServiceWorker.getInitializationInfo": ServiceWorker.getInitializationInfoParameters;
+    "Storage.enable": Storage.enableParameters;
+    "Storage.disable": Storage.disableParameters;
+    "Storage.getCookies": Storage.getCookiesParameters;
+    "Storage.setCookie": Storage.setCookieParameters;
+    "Storage.deleteCookies": Storage.deleteCookiesParameters;
     "Target.setPauseOnStart": Target.setPauseOnStartParameters;
     "Target.resume": Target.resumeParameters;
     "Target.sendMessageToTarget": Target.sendMessageToTargetParameters;
     "Target.activate": Target.activateParameters;
-    "Target.close": Target.closeParameters;
     "Timeline.enable": Timeline.enableParameters;
     "Timeline.disable": Timeline.disableParameters;
     "Timeline.start": Timeline.startParameters;
@@ -9660,15 +9886,11 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
   export interface CommandReturnValues {
     "Animation.enable": Animation.enableReturnValue;
     "Animation.disable": Animation.disableReturnValue;
+    "Animation.requestEffect": Animation.requestEffectReturnValue;
     "Animation.requestEffectTarget": Animation.requestEffectTargetReturnValue;
     "Animation.resolveAnimation": Animation.resolveAnimationReturnValue;
     "Animation.startTracking": Animation.startTrackingReturnValue;
     "Animation.stopTracking": Animation.stopTrackingReturnValue;
-    "ApplicationCache.getFramesWithManifests": ApplicationCache.getFramesWithManifestsReturnValue;
-    "ApplicationCache.enable": ApplicationCache.enableReturnValue;
-    "ApplicationCache.disable": ApplicationCache.disableReturnValue;
-    "ApplicationCache.getManifestForFrame": ApplicationCache.getManifestForFrameReturnValue;
-    "ApplicationCache.getApplicationCacheForFrame": ApplicationCache.getApplicationCacheForFrameReturnValue;
     "Audit.setup": Audit.setupReturnValue;
     "Audit.run": Audit.runReturnValue;
     "Audit.teardown": Audit.teardownReturnValue;
@@ -9697,9 +9919,9 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "CSS.setLayoutContextTypeChangedMode": CSS.setLayoutContextTypeChangedModeReturnValue;
     "Canvas.enable": Canvas.enableReturnValue;
     "Canvas.disable": Canvas.disableReturnValue;
-    "Canvas.requestNode": Canvas.requestNodeReturnValue;
+    "Canvas.requestNodes": Canvas.requestNodesReturnValue;
     "Canvas.requestContent": Canvas.requestContentReturnValue;
-    "Canvas.requestClientNodes": Canvas.requestClientNodesReturnValue;
+    "Canvas.requestCSSCanvasClientNodes": Canvas.requestCSSCanvasClientNodesReturnValue;
     "Canvas.resolveContext": Canvas.resolveContextReturnValue;
     "Canvas.setRecordingAutoCaptureFrameCount": Canvas.setRecordingAutoCaptureFrameCountReturnValue;
     "Canvas.startRecording": Canvas.startRecordingReturnValue;
@@ -9716,6 +9938,8 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Console.setLoggingChannelLevel": Console.setLoggingChannelLevelReturnValue;
     "DOM.getDocument": DOM.getDocumentReturnValue;
     "DOM.requestChildNodes": DOM.requestChildNodesReturnValue;
+    "DOM.requestAssignedSlot": DOM.requestAssignedSlotReturnValue;
+    "DOM.requestAssignedNodes": DOM.requestAssignedNodesReturnValue;
     "DOM.querySelector": DOM.querySelectorReturnValue;
     "DOM.querySelectorAll": DOM.querySelectorAllReturnValue;
     "DOM.setNodeName": DOM.setNodeNameReturnValue;
@@ -9739,6 +9963,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "DOM.getSearchResults": DOM.getSearchResultsReturnValue;
     "DOM.discardSearchResults": DOM.discardSearchResultsReturnValue;
     "DOM.requestNode": DOM.requestNodeReturnValue;
+    "DOM.requestFrameOwner": DOM.requestFrameOwnerReturnValue;
     "DOM.setInspectModeEnabled": DOM.setInspectModeEnabledReturnValue;
     "DOM.highlightRect": DOM.highlightRectReturnValue;
     "DOM.highlightQuad": DOM.highlightQuadReturnValue;
@@ -9778,10 +10003,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "DOMStorage.setDOMStorageItem": DOMStorage.setDOMStorageItemReturnValue;
     "DOMStorage.removeDOMStorageItem": DOMStorage.removeDOMStorageItemReturnValue;
     "DOMStorage.clearDOMStorageItems": DOMStorage.clearDOMStorageItemsReturnValue;
-    "Database.enable": Database.enableReturnValue;
-    "Database.disable": Database.disableReturnValue;
-    "Database.getDatabaseTableNames": Database.getDatabaseTableNamesReturnValue;
-    "Database.executeSQL": Database.executeSQLReturnValue;
     "Debugger.enable": Debugger.enableReturnValue;
     "Debugger.disable": Debugger.disableReturnValue;
     "Debugger.setAsyncStackTraceDepth": Debugger.setAsyncStackTraceDepthReturnValue;
@@ -9815,11 +10036,13 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Dialog.disable": Dialog.disableReturnValue;
     "Dialog.handleJavaScriptDialog": Dialog.handleJavaScriptDialogReturnValue;
     "Emulation.setDeviceMetricsOverride": Emulation.setDeviceMetricsOverrideReturnValue;
+    "Emulation.clearDeviceMetricsOverride": Emulation.clearDeviceMetricsOverrideReturnValue;
     "Emulation.setJavaScriptEnabled": Emulation.setJavaScriptEnabledReturnValue;
     "Emulation.setAuthCredentials": Emulation.setAuthCredentialsReturnValue;
     "Emulation.setActiveAndFocused": Emulation.setActiveAndFocusedReturnValue;
     "Emulation.grantPermissions": Emulation.grantPermissionsReturnValue;
     "Emulation.resetPermissions": Emulation.resetPermissionsReturnValue;
+    "Emulation.setOrientationOverride": Emulation.setOrientationOverrideReturnValue;
     "Heap.enable": Heap.enableReturnValue;
     "Heap.disable": Heap.disableReturnValue;
     "Heap.gc": Heap.gcReturnValue;
@@ -9838,6 +10061,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Input.dispatchMouseEvent": Input.dispatchMouseEventReturnValue;
     "Input.dispatchWheelEvent": Input.dispatchWheelEventReturnValue;
     "Input.dispatchTapEvent": Input.dispatchTapEventReturnValue;
+    "Input.dispatchTouchEvent": Input.dispatchTouchEventReturnValue;
     "Inspector.enable": Inspector.enableReturnValue;
     "Inspector.disable": Inspector.disableReturnValue;
     "Inspector.initialized": Inspector.initializedReturnValue;
@@ -9845,6 +10069,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "LayerTree.disable": LayerTree.disableReturnValue;
     "LayerTree.layersForNode": LayerTree.layersForNodeReturnValue;
     "LayerTree.reasonsForCompositingLayer": LayerTree.reasonsForCompositingLayerReturnValue;
+    "LayerTree.requestContent": LayerTree.requestContentReturnValue;
     "Memory.enable": Memory.enableReturnValue;
     "Memory.disable": Memory.disableReturnValue;
     "Memory.startTracking": Memory.startTrackingReturnValue;
@@ -9854,6 +10079,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Network.setExtraHTTPHeaders": Network.setExtraHTTPHeadersReturnValue;
     "Network.getResponseBody": Network.getResponseBodyReturnValue;
     "Network.setResourceCachingDisabled": Network.setResourceCachingDisabledReturnValue;
+    "Network.setClearResourceDataOnNavigate": Network.setClearResourceDataOnNavigateReturnValue;
     "Network.loadResource": Network.loadResourceReturnValue;
     "Network.getSerializedCertificate": Network.getSerializedCertificateReturnValue;
     "Network.resolveWebSocket": Network.resolveWebSocketReturnValue;
@@ -9872,7 +10098,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.reload": Page.reloadReturnValue;
     "Page.goBack": Page.goBackReturnValue;
     "Page.goForward": Page.goForwardReturnValue;
-    "Page.navigate": Page.navigateReturnValue;
     "Page.overrideUserAgent": Page.overrideUserAgentReturnValue;
     "Page.overridePlatform": Page.overridePlatformReturnValue;
     "Page.overrideSetting": Page.overrideSettingReturnValue;
@@ -9896,13 +10121,11 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.archive": Page.archiveReturnValue;
     "Page.setScreenSizeOverride": Page.setScreenSizeOverrideReturnValue;
     "Page.insertText": Page.insertTextReturnValue;
-    "Page.accessibilitySnapshot": Page.accessibilitySnapshotReturnValue;
     "Page.setInterceptFileChooserDialog": Page.setInterceptFileChooserDialogReturnValue;
     "Page.setDefaultBackgroundColorOverride": Page.setDefaultBackgroundColorOverrideReturnValue;
     "Page.createUserWorld": Page.createUserWorldReturnValue;
     "Page.setBypassCSP": Page.setBypassCSPReturnValue;
     "Page.crash": Page.crashReturnValue;
-    "Page.setOrientationOverride": Page.setOrientationOverrideReturnValue;
     "Page.updateScrollingState": Page.updateScrollingStateReturnValue;
     "Playwright.enable": Playwright.enableReturnValue;
     "Playwright.disable": Playwright.disableReturnValue;
@@ -9911,10 +10134,13 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Playwright.createContext": Playwright.createContextReturnValue;
     "Playwright.deleteContext": Playwright.deleteContextReturnValue;
     "Playwright.createPage": Playwright.createPageReturnValue;
+    "Playwright.maximizeWindow": Playwright.maximizeWindowReturnValue;
     "Playwright.navigate": Playwright.navigateReturnValue;
     "Playwright.grantFileReadAccess": Playwright.grantFileReadAccessReturnValue;
     "Playwright.takePageScreenshot": Playwright.takePageScreenshotReturnValue;
     "Playwright.setIgnoreCertificateErrors": Playwright.setIgnoreCertificateErrorsReturnValue;
+    "Playwright.setPageZoomFactor": Playwright.setPageZoomFactorReturnValue;
+    "Playwright.closePage": Playwright.closePageReturnValue;
     "Playwright.getAllCookies": Playwright.getAllCookiesReturnValue;
     "Playwright.setCookies": Playwright.setCookiesReturnValue;
     "Playwright.deleteAllCookies": Playwright.deleteAllCookiesReturnValue;
@@ -9944,19 +10170,21 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Runtime.enableControlFlowProfiler": Runtime.enableControlFlowProfilerReturnValue;
     "Runtime.disableControlFlowProfiler": Runtime.disableControlFlowProfilerReturnValue;
     "Runtime.getBasicBlocks": Runtime.getBasicBlocksReturnValue;
-    "Screencast.startVideo": Screencast.startVideoReturnValue;
-    "Screencast.stopVideo": Screencast.stopVideoReturnValue;
     "Screencast.startScreencast": Screencast.startScreencastReturnValue;
     "Screencast.stopScreencast": Screencast.stopScreencastReturnValue;
     "Screencast.screencastFrameAck": Screencast.screencastFrameAckReturnValue;
     "ScriptProfiler.startTracking": ScriptProfiler.startTrackingReturnValue;
     "ScriptProfiler.stopTracking": ScriptProfiler.stopTrackingReturnValue;
     "ServiceWorker.getInitializationInfo": ServiceWorker.getInitializationInfoReturnValue;
+    "Storage.enable": Storage.enableReturnValue;
+    "Storage.disable": Storage.disableReturnValue;
+    "Storage.getCookies": Storage.getCookiesReturnValue;
+    "Storage.setCookie": Storage.setCookieReturnValue;
+    "Storage.deleteCookies": Storage.deleteCookiesReturnValue;
     "Target.setPauseOnStart": Target.setPauseOnStartReturnValue;
     "Target.resume": Target.resumeReturnValue;
     "Target.sendMessageToTarget": Target.sendMessageToTargetReturnValue;
     "Target.activate": Target.activateReturnValue;
-    "Target.close": Target.closeReturnValue;
     "Timeline.enable": Timeline.enableReturnValue;
     "Timeline.disable": Timeline.disableReturnValue;
     "Timeline.start": Timeline.startReturnValue;

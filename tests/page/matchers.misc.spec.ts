@@ -17,7 +17,7 @@
 import { stripAnsi } from '../config/utils';
 import { test as it, expect } from './pageTest';
 
-it('should outlive frame navigation', async ({ page, server }) => {
+it('EX-327 should outlive frame navigation', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   setTimeout(async () => {
     await page.goto(server.PREFIX + '/grid.html').catch(() => {});
@@ -25,7 +25,7 @@ it('should outlive frame navigation', async ({ page, server }) => {
   await expect(page.locator('.box').first()).toBeEmpty();
 });
 
-it('should print no-locator-resolved error when locator matcher did not resolve to any element', async ({ page, server }) => {
+it('EX-328 should print no-locator-resolved error when locator matcher did not resolve to any element', async ({ page, server }) => {
   const myLocator = page.locator('.nonexisting');
   const expectWithShortLivingTimeout = expect.configure({ timeout: 10 });
   const locatorMatchers = [
@@ -41,7 +41,7 @@ it('should print no-locator-resolved error when locator matcher did not resolve 
       const error = await matcher().catch(e => e);
       expect(error).toBeInstanceOf(Error);
       expect(error.message).toContain(`waiting for locator('.nonexisting')`);
-      expect(stripAnsi(error.message)).toMatch(/Received:  ?"?<element\(s\) not found>/);
+      expect(stripAnsi(error.message)).toContain('Error: element(s) not found');
     });
   }
 });

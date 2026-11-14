@@ -37,7 +37,7 @@ const it = playwrightTest.extend<{}, { expectScopeState: (object: any, golden: a
 it.skip(({ mode }) => mode !== 'default');
 it.skip(({ video }) => video === 'on', 'Extra video artifacts in the objects list');
 
-it('should scope context handles', async ({ browserType, server, expectScopeState }) => {
+it('CN-001 should scope context handles', async ({ browserType, server, expectScopeState }) => {
   const browser = await browserType.launch();
   const GOLDEN_PRECONDITION = {
     _guid: '',
@@ -51,7 +51,6 @@ it('should scope context handles', async ({ browserType, server, expectScopeStat
       { _guid: 'electron', objects: [] },
       { _guid: 'localUtils', objects: [] },
       { _guid: 'Playwright', objects: [] },
-      { _guid: 'selectors', objects: [] },
     ]
   };
   expectScopeState(browser, GOLDEN_PRECONDITION);
@@ -76,7 +75,10 @@ it('should scope context handles', async ({ browserType, server, expectScopeStat
                 { _guid: 'response', objects: [] },
               ] },
             ] },
-            { _guid: 'request-context', objects: [] },
+            { _guid: 'debugger', objects: [] },
+            { _guid: 'request-context', objects: [
+              { _guid: 'tracing', objects: [] },
+            ] },
             { _guid: 'tracing', objects: [] }
           ] },
         ] },
@@ -84,7 +86,6 @@ it('should scope context handles', async ({ browserType, server, expectScopeStat
       { _guid: 'electron', objects: [] },
       { _guid: 'localUtils', objects: [] },
       { _guid: 'Playwright', objects: [] },
-      { _guid: 'selectors', objects: [] },
     ]
   });
 
@@ -93,7 +94,7 @@ it('should scope context handles', async ({ browserType, server, expectScopeStat
   await browser.close();
 });
 
-it('should scope CDPSession handles', async ({ browserType, browserName, expectScopeState }) => {
+it('CN-002 should scope CDPSession handles', async ({ browserType, browserName, expectScopeState }) => {
   it.skip(browserName !== 'chromium');
 
   const browser = await browserType.launch();
@@ -109,7 +110,6 @@ it('should scope CDPSession handles', async ({ browserType, browserName, expectS
       { _guid: 'electron', objects: [] },
       { _guid: 'localUtils', objects: [] },
       { _guid: 'Playwright', objects: [] },
-      { _guid: 'selectors', objects: [] },
     ]
   };
   expectScopeState(browserType, GOLDEN_PRECONDITION);
@@ -129,7 +129,6 @@ it('should scope CDPSession handles', async ({ browserType, browserName, expectS
       { _guid: 'electron', objects: [] },
       { _guid: 'localUtils', objects: [] },
       { _guid: 'Playwright', objects: [] },
-      { _guid: 'selectors', objects: [] },
     ]
   });
 
@@ -139,7 +138,7 @@ it('should scope CDPSession handles', async ({ browserType, browserName, expectS
   await browser.close();
 });
 
-it('should scope browser handles', async ({ browserType, expectScopeState }) => {
+it('CN-003 should scope browser handles', async ({ browserType, expectScopeState }) => {
   const GOLDEN_PRECONDITION = {
     _guid: '',
     objects: [
@@ -150,7 +149,6 @@ it('should scope browser handles', async ({ browserType, expectScopeState }) => 
       { _guid: 'electron', objects: [] },
       { _guid: 'localUtils', objects: [] },
       { _guid: 'Playwright', objects: [] },
-      { _guid: 'selectors', objects: [] },
     ]
   };
   expectScopeState(browserType, GOLDEN_PRECONDITION);
@@ -167,7 +165,10 @@ it('should scope browser handles', async ({ browserType, expectScopeState }) => 
         {
           _guid: 'browser', objects: [
             { _guid: 'browser-context', objects: [
-              { _guid: 'request-context', objects: [] },
+              { _guid: 'debugger', objects: [] },
+              { _guid: 'request-context', objects: [
+                { _guid: 'tracing', objects: [] },
+              ] },
               { _guid: 'tracing', objects: [] },
             ] },
           ]
@@ -177,7 +178,6 @@ it('should scope browser handles', async ({ browserType, expectScopeState }) => 
       { _guid: 'electron', objects: [] },
       { _guid: 'localUtils', objects: [] },
       { _guid: 'Playwright', objects: [] },
-      { _guid: 'selectors', objects: [] },
     ]
   });
 
@@ -185,7 +185,7 @@ it('should scope browser handles', async ({ browserType, expectScopeState }) => 
   expectScopeState(browserType, GOLDEN_PRECONDITION);
 });
 
-it('should not generate dispatchers for subresources w/o listeners', async ({ page, server, browserType, expectScopeState }) => {
+it('CN-004 should not generate dispatchers for subresources w/o listeners', async ({ page, server, browserType, expectScopeState }) => {
   server.setRedirect('/one-style.css', '/two-style.css');
   server.setRedirect('/two-style.css', '/three-style.css');
   server.setRedirect('/three-style.css', '/four-style.css');
@@ -211,7 +211,10 @@ it('should not generate dispatchers for subresources w/o listeners', async ({ pa
                   ] },
                 ]
               },
-              { _guid: 'request-context', objects: [] },
+              { _guid: 'debugger', objects: [] },
+              { _guid: 'request-context', objects: [
+                { _guid: 'tracing', objects: [] },
+              ] },
               { _guid: 'tracing', objects: [] }
             ] },
           ]
@@ -220,12 +223,11 @@ it('should not generate dispatchers for subresources w/o listeners', async ({ pa
       { _guid: 'electron', objects: [] },
       { _guid: 'localUtils', objects: [] },
       { _guid: 'Playwright', objects: [] },
-      { _guid: 'selectors', objects: [] },
     ]
   });
 });
 
-it('should work with the domain module', async ({ browserType, server, browserName }) => {
+it('CN-005 should work with the domain module', async ({ browserType, server, channel }) => {
   const local = domain.create();
   local.run(() => { });
   let err;
@@ -241,14 +243,11 @@ it('should work with the domain module', async ({ browserType, server, browserNa
   let callback;
   const result = new Promise(f => callback = f);
   page.on('websocket', ws => ws.on('socketerror', callback));
-  void page.evaluate(port => {
-    new WebSocket('ws://localhost:' + port + '/bogus-ws');
-  }, server.PORT);
+  void page.evaluate(host => {
+    new WebSocket('ws://' + host + '/bogus-ws');
+  }, server.HOST);
   const message = await result;
-  if (browserName === 'firefox')
-    expect(message).toBe('CLOSE_ABNORMAL');
-  else
-    expect(message).toContain(': 400');
+  expect(message).toContain(channel?.includes('msedge') ? '' : ': 400');
 
   await browser.close();
 
@@ -256,7 +255,7 @@ it('should work with the domain module', async ({ browserType, server, browserNa
     throw err;
 });
 
-it('exposeFunction should not leak', async ({ page, expectScopeState, server }) => {
+it('CN-006 exposeFunction should not leak', async ({ page, expectScopeState, server }) => {
   await page.goto(server.EMPTY_PAGE);
   let called = 0;
   await page.exposeFunction('myFunction', () => ++called);
@@ -291,6 +290,10 @@ it('exposeFunction should not leak', async ({ page, expectScopeState, server }) 
                     '_guid': 'page',
                     'objects': [
                       {
+                        '_guid': 'disposable',
+                        'objects': [],
+                      },
+                      {
                         '_guid': 'frame',
                         'objects': [],
                       },
@@ -306,8 +309,17 @@ it('exposeFunction should not leak', async ({ page, expectScopeState, server }) 
                     ],
                   },
                   {
-                    '_guid': 'request-context',
+                    '_guid': 'debugger',
                     'objects': [],
+                  },
+                  {
+                    '_guid': 'request-context',
+                    'objects': [
+                      {
+                        '_guid': 'tracing',
+                        'objects': [],
+                      },
+                    ],
                   },
                   {
                     '_guid': 'tracing',
@@ -329,10 +341,6 @@ it('exposeFunction should not leak', async ({ page, expectScopeState, server }) 
       },
       {
         '_guid': 'Playwright',
-        'objects': [],
-      },
-      {
-        '_guid': 'selectors',
         'objects': [],
       },
     ],

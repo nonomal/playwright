@@ -26,17 +26,6 @@
   user-select: text;
 }
 
-.console-line .codicon {
-  padding: 0 2px 0 3px;
-  position: relative;
-  flex: none;
-  top: 3px;
-}
-
-.console-line.warning .codicon {
-  color: darkorange;
-}
-
 .console-line-message {
   word-break: break-word;
   white-space: pre-wrap;
@@ -48,6 +37,21 @@
   float: right;
   color: var(--vscode-editorCodeLens-foreground);
   user-select: none;
+}
+
+.console-source {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-width: 48px;
+  height: 16px;
+  padding: 0 4px;
+  margin: 0 6px 0 3px;
+  font-size: 11px;
+  border-radius: 4px;
+  user-select: none;
+  flex: none;
+  vertical-align: middle;
 }
 
 .console-time {
@@ -62,24 +66,15 @@
   margin-left: 50px;
 }
 
-.console-line .codicon.status-none::after,
-.console-line .codicon.status-error::after,
-.console-line .codicon.status-warning::after {
+.console-repeat {
   display: inline-block;
-  content: 'a';
-  color: transparent;
-  border-radius: 4px;
-  width: 8px;
-  height: 8px;
-  position: relative;
-  top: 8px;
-  left: -7px;
-}
-
-.console-line .codicon.status-error::after {
-  background-color: var(--vscode-errorForeground);
-}
-
-.console-line .codicon.status-warning::after {
-  background-color: var(--vscode-list-warningForeground);
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 18px;
+  border-radius: 6px;
+  background-color: #8c959f;
+  color: white;
+  margin-right: 10px;
+  flex: none;
+  font-weight: 600;
 }

@@ -5,9 +5,9 @@ title: "TypeScript"
 
 ## Introduction
 
-Playwright supports TypeScript out of the box. You just write tests in TypeScript, and Playwright will read them, transform to JavaScript and run. Note that Playwright does not check the types and will run tests even if there are non-critical TypeScript compilation errors.
+Playwright supports TypeScript out of the box. You just write tests in TypeScript, and Playwright will read them, transform to JavaScript and run.
 
-We recommend you run TypeScript compiler alongside Playwright. For example on GitHub actions:
+Note that Playwright does not check the types and will run tests even if there are non-critical TypeScript compilation errors. We recommend you run TypeScript compiler alongside Playwright. For example on GitHub actions:
 
 ```yaml
 jobs:
@@ -28,7 +28,7 @@ npx tsc -p tsconfig.json --noEmit -w
 
 ## tsconfig.json
 
-Playwright will pick up `tsconfig.json` for each source file it loads. Note that Playwright **only supports** the following tsconfig options: `paths` and `baseUrl`.
+Playwright will pick up `tsconfig.json` for each source file it loads. Note that Playwright **only supports** the following tsconfig options: `allowJs`, `baseUrl`, `paths`, `jsx`, `jsxFactory`, `jsxFragmentFactory`, `jsxImportSource`, `useDefineForClassFields`, `references` and `extends`. The `target` option is only used to determine `useDefineForClassFields`.
 
 We recommend setting up a separate `tsconfig.json` in the tests directory so that you can change some preferences specifically for the tests. Here is an example directory structure.
 
@@ -47,16 +47,15 @@ playwright.config.ts
 
 ### tsconfig path mapping
 
-Playwright supports [path mapping](https://www.typescriptlang.org/docs/handbook/module-resolution.html#path-mapping) declared in the `tsconfig.json`. Make sure that `baseUrl` is also set.
+Playwright supports [path mapping](https://www.typescriptlang.org/docs/handbook/module-resolution.html#path-mapping) declared in the `tsconfig.json`.
 
-Here is an example `tsconfig.json` that works with Playwright Test:
+Here is an example `tsconfig.json` that works with Playwright:
 
-```json
+```json title="tsconfig.json"
 {
   "compilerOptions": {
-    "baseUrl": ".", // This must be specified if "paths" is.
     "paths": {
-      "@myhelper/*": ["packages/myhelper/*"] // This mapping is relative to "baseUrl".
+      "@myhelper/*": ["packages/myhelper/*"] // This mapping is relative to the tsconfig.
     }
   }
 }
@@ -67,6 +66,85 @@ You can now import using the mapped paths:
 ```js title="example.spec.ts"
 import { test, expect } from '@playwright/test';
 import { username, password } from '@myhelper/credentials';
+
+test('example', async ({ page }) => {
+  await page.getByLabel('User Name').fill(username);
+  await page.getByLabel('Password').fill(password);
+});
+```
+
+### tsconfig JSX options
+
+Playwright compiles JSX in `.tsx` and `.jsx` files according to the `jsx`, `jsxFactory`, `jsxFragmentFactory` and `jsxImportSource` options in the `tsconfig.json`. When `jsx` is not specified, or is set to `preserve` or `react-native`, Playwright uses the automatic runtime from `react/jsx-runtime`.
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
+  }
+}
+```
+
+### tsconfig class fields
+
+Playwright compiles TypeScript class fields according to the `useDefineForClassFields` option in the `tsconfig.json`. Just like `tsc`, when it is not specified, it is enabled for `ES2022` and later targets, and when `target` is not specified.
+
+With `useDefineForClassFields` enabled, class fields follow the JavaScript semantics, so field initializers run before the constructor body and can not access constructor parameter properties. Disable it to keep the legacy TypeScript semantics.
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "useDefineForClassFields": false
+  }
+}
+```
+
+### tsconfig resolution
+
+By default, Playwright will look up a closest tsconfig for each imported file by going up the directory structure and looking for `tsconfig.json` or `jsconfig.json`. This way, you can create a `tests/tsconfig.json` file that will be used only for your tests and Playwright will pick it up automatically.
+
+```sh
+# Playwright will choose tsconfig automatically
+npx playwright test
+```
+
+Alternatively, you can specify a single tsconfig file to use in the command line, and Playwright will use it for all imported files, not only test files.
+
+```sh
+# Pass a specific tsconfig
+npx playwright test --tsconfig=tsconfig.test.json
+```
+
+You can specify a single tsconfig file in the config file, that will be used for loading test files, reporters, etc. However, it will not be used while loading the playwright config itself or any files imported from it.
+
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  tsconfig: './tsconfig.test.json',
+});
+```
+
+## package.json subpath imports
+
+Playwright supports [subpath imports](https://nodejs.org/api/packages.html#subpath-imports) declared in the `package.json`. Node.js resolves a subpath import to the first target of its mapping, even when that file does not exist. When Node.js fails, Playwright follows TypeScript instead: it tries each target until one resolves, and a `.js` target also matches a `.ts` file with the same name.
+
+Here is an example `package.json` that works with Playwright:
+
+```json title="package.json"
+{
+  "imports": {
+    "#helpers/*": ["./src/helpers/*", "./src/helpers/*.ts", "./src/helpers/*/index.ts"]
+  }
+}
+```
+
+You can now import using the mapped paths:
+
+```js title="example.spec.ts"
+import { test, expect } from '@playwright/test';
+import { username, password } from '#helpers/credentials';
 
 test('example', async ({ page }) => {
   await page.getByLabel('User Name').fill(username);
@@ -108,16 +186,3 @@ In `package.json`, add two scripts:
 The `pretest` script runs typescript on the tests. `test` will run the tests that have been generated to the `tests-out` directory. The `-c` argument configures the test runner to look for tests inside the `tests-out` directory.
 
 Then `npm run test` will build the tests and run them.
-
-## Using `import` inside `evaluate()`
-
-Using dynamic imports inside a function passed to various `evaluate()` methods is not supported. This is because Playwright uses `Function.prototype.toString()` to serialize functions, and transpiler will sometimes replace dynamic imports with `require()` calls, which are not valid inside the web page.
-
-To work around this issue, use a string template instead of a function:
-
-```js
-await page.evaluate(`(async () => {
-  const { value } = await import('some-module');
-  console.log(value);
-})()`);
-```

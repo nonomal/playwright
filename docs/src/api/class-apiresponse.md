@@ -13,7 +13,8 @@ async def run(playwright: Playwright):
     assert response.ok
     assert response.status == 200
     assert response.headers["content-type"] == "application/json; charset=utf-8"
-    assert response.json()["name"] == "foobar"
+    json_data = await response.json()
+    assert json_data["name"] == "foobar"
     assert await response.body() == '{"status": "ok"}'
 
 
@@ -56,11 +57,12 @@ An object with all the response HTTP headers associated with this response.
 
 ## method: APIResponse.headersArray
 * since: v1.16
-- returns: <[Array]<[Object]>>
+- returns: "HttpHeader" <[Array]<[Object]>>
+  * alias-csharp: Header
   - `name` <[string]> Name of the header.
   - `value` <[string]> Value of the header.
 
-An array with all the request HTTP headers associated with this response. Header names are not lower-cased.
+An array with all the response HTTP headers associated with this response. Header names are not lower-cased.
 Headers with multiple entries, such as `Set-Cookie`, appear in the array multiple times.
 
 ## async method: APIResponse.json
@@ -87,6 +89,16 @@ This method will throw if the response body is not parsable via `JSON.parse`.
 
 Contains a boolean stating whether the response was successful (status in the range 200-299) or not.
 
+## async method: APIResponse.securityDetails = %%-response-security-details-%%
+* since: v1.61
+
+Returns SSL and other security information. Resolves to `null` for non-HTTPS responses. For redirected requests, returns the information for the last request in the redirect chain.
+
+## async method: APIResponse.serverAddr = %%-response-server-addr-%%
+* since: v1.61
+
+Returns the IP address and port of the server. Resolves to `null` if the server address is not available. For redirected requests, returns the information for the last request in the redirect chain.
+
 ## method: APIResponse.status
 * since: v1.16
 - returns: <[int]>
@@ -104,6 +116,14 @@ Contains the status text of the response (e.g. usually an "OK" for a success).
 - returns: <[string]>
 
 Returns the text representation of response body.
+
+## method: APIResponse.timing = %%-resource-timing-%%
+* since: v1.62
+
+Returns resource timing information for given response. For redirected requests, returns the information for the last
+request in the redirect chain. When the response is served [from the HAR file](../mock.md#replaying-from-har), timing
+information is not available and all the values are -1. Find more information at
+[Resource Timing API](https://developer.mozilla.org/en-US/docs/Web/API/PerformanceResourceTiming).
 
 ## method: APIResponse.url
 * since: v1.16

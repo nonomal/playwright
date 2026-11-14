@@ -15,14 +15,27 @@
  */
 import { test } from './npmTest';
 import fs from 'fs';
+import { expect } from '../../packages/playwright-test';
 import path from 'path';
 
-test('electron should work', async ({ exec, tsc, writeFiles }) => {
-  await exec('npm i playwright electron@19.0.11');
+// Electron 42's extract-zip pulls in an incompatible yauzl on newer Node.js, breaking install.
+// Pin yauzl to a known-good version via package.json overrides.
+// https://github.com/electron/electron/issues/51619
+async function pinYauzl(tmpWorkspace: string) {
+  const pkgPath = path.join(tmpWorkspace, 'package.json');
+  const pkg = JSON.parse(await fs.promises.readFile(pkgPath, 'utf-8'));
+  pkg.overrides = { ...pkg.overrides, yauzl: '^3.3.2' };
+  await fs.promises.writeFile(pkgPath, JSON.stringify(pkg, null, 2));
+}
+
+test('electron should work', async ({ exec, tsc, writeFiles, tmpWorkspace }) => {
+  await pinYauzl(tmpWorkspace);
+  await exec('npm i @playwright/test electron@42.3.3');
+  await exec('npx install-electron --no');
   await exec('node sanity-electron.js');
   await writeFiles({
     'test.ts':
-      `import { Page, _electron, ElectronApplication, Electron } from 'playwright';`
+      `import { _electron as electron, ElectronApplication, Electron } from '@playwright/test';`
   });
   await tsc('test.ts');
 });
@@ -31,11 +44,41 @@ test('electron should work with special characters in path', async ({ exec, tmpW
   test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30755' });
   const folderName = path.join(tmpWorkspace, '!@#$% тест with spaces and 😊');
 
-  await exec('npm i playwright electron@19.0.11');
+  await pinYauzl(tmpWorkspace);
+  await exec('npm i @playwright/test electron@42.3.3');
+  await exec('npx install-electron --no');
   await fs.promises.mkdir(folderName);
   for (const file of ['electron-app.js', 'sanity-electron.js'])
     await fs.promises.copyFile(path.join(tmpWorkspace, file), path.join(folderName, file));
   await exec('node sanity-electron.js', {
     cwd: path.join(folderName)
   });
+});
+
+test('should work when wrapped inside @playwright/test and trace is enabled', async ({ exec, tmpWorkspace, writeFiles }) => {
+  await pinYauzl(tmpWorkspace);
+  await exec('npm i -D @playwright/test electron@42.3.3');
+  await exec('npx install-electron --no');
+  await writeFiles({
+    'electron-with-tracing.spec.ts': `
+      import { test, expect, _electron as electron } from '@playwright/test';
+
+      test('should work', async ({}) => {
+        const electronApp = await electron.launch({ args: [${JSON.stringify(path.join(__dirname, '../electron/electron-window-app.js'))}] });
+        const window = await electronApp.firstWindow();
+        await window.goto('data:text/html,<title>Playwright</title><h1>Playwright</h1>');
+        await expect(window).toHaveTitle(/Playwright/);
+        await expect(window.getByRole('heading')).toHaveText('Playwright');
+        await electronApp.close();
+      });
+    `,
+  });
+  const jsonOutputName = test.info().outputPath('report.json');
+  await exec('npx playwright test --trace=on --reporter=json electron-with-tracing.spec.ts', {
+    env: { PLAYWRIGHT_JSON_OUTPUT_NAME: jsonOutputName }
+  });
+  const trace = path.join(tmpWorkspace, 'test-results', 'electron-with-tracing-should-work', 'trace.zip');
+  expect(fs.existsSync(trace)).toBe(true);
+  const report = JSON.parse(fs.readFileSync(jsonOutputName, 'utf-8'));
+  expect(report.suites[0].specs[0].tests[0].results[0].attachments.map(a => a.name)).toEqual(['trace']);
 });

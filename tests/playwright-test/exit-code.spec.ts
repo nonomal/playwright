@@ -27,17 +27,17 @@ test('should collect stdio', async ({ runInlineTest }) => {
       import { test, expect } from '@playwright/test';
       test('stdio', () => {
         process.stdout.write('stdout text');
-        process.stdout.write(Buffer.from('stdout buffer'));
+        process.stdout.write(Buffer.from('\\x1b[31mstdout buffer 😀\\x1b[0m'));
         process.stderr.write('stderr text');
-        process.stderr.write(Buffer.from('stderr buffer'));
+        process.stderr.write(Buffer.from('stderr café', 'latin1'));
       });
     `
   });
   expect(exitCode).toBe(0);
   const testResult = report.suites[0].specs[0].tests[0].results[0];
   const { stdout, stderr } = testResult;
-  expect(stdout).toEqual([{ text: 'stdout text' }, { buffer: Buffer.from('stdout buffer').toString('base64') }]);
-  expect(stderr).toEqual([{ text: 'stderr text' }, { buffer: Buffer.from('stderr buffer').toString('base64') }]);
+  expect(stdout).toEqual([{ text: 'stdout text' }, { text: '\x1b[31mstdout buffer 😀\x1b[0m' }]);
+  expect(stderr).toEqual([{ text: 'stderr text' }, { buffer: Buffer.from('stderr café', 'latin1').toString('base64') }]);
 });
 
 test('should collect stdio from forked process', async ({ runInlineTest }) => {
@@ -60,8 +60,8 @@ test('should collect stdio from forked process', async ({ runInlineTest }) => {
   expect(exitCode).toBe(0);
   const testResult = report.suites[0].specs[0].tests[0].results[0];
   const { stdout, stderr } = testResult;
-  expect(stdout.map(e => Buffer.from((e as any).buffer, 'base64').toString()).join('')).toEqual('stdout textstdout buffer');
-  expect(stderr.map(e => Buffer.from((e as any).buffer, 'base64').toString()).join('')).toEqual('stderr textstderr buffer');
+  expect(stdout.map(e => (e as any).text).join('')).toEqual('stdout textstdout buffer');
+  expect(stderr.map(e => (e as any).text).join('')).toEqual('stderr textstderr buffer');
 });
 
 test('should work with not defined errors', async ({ runInlineTest }) => {
@@ -174,7 +174,7 @@ test('should respect global timeout', async ({ runInlineTest }) => {
 test('should exit with code 1 if the specified folder does not exist', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { testDir: '111111111111.js' };
+      export default { testDir: '111111111111.js' };
     `,
   });
   expect(result.exitCode).toBe(1);
@@ -184,7 +184,7 @@ test('should exit with code 1 if the specified folder does not exist', async ({ 
 test('should exit with code 1 if passed a file name', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { testDir: 'test.spec.js' };
+      export default { testDir: 'test.spec.js' };
     `,
     'test.spec.js': `
     `,
@@ -196,7 +196,7 @@ test('should exit with code 1 if passed a file name', async ({ runInlineTest }) 
 test('should exit with code 0 with --pass-with-no-tests', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = { testDir: 'unknown' };
+      export default { testDir: 'unknown' };
     `,
   }, undefined, undefined, { additionalArgs: ['--pass-with-no-tests'] });
   expect(result.exitCode).toBe(0);
@@ -206,4 +206,48 @@ test('should exit with code 1 when config is not found', async ({ runInlineTest 
   const result = await runInlineTest({ 'my.config.js': '' }, { 'config': 'foo.config.js' });
   expect(result.exitCode).toBe(1);
   expect(result.output).toContain(`foo.config.js does not exist`);
+});
+
+test('should force-kill a worker that does not exit on stop', async ({ runInlineTest }) => {
+  const now = monotonicTime();
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
+        hangOnExit: [async ({}, use) => {
+          await use();
+          // Disable graceful exit to simulate a worker that cannot self-terminate.
+          process.exit = (() => {}) as any;
+          setInterval(() => {}, 1000);
+        }, { scope: 'worker' }],
+      });
+      test('passes', async ({ hangOnExit }) => {});
+    `,
+  }, undefined, { PWTEST_CHILD_PROCESS_TIMEOUT: '2000' });
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(1);
+  expect(result.output).toContain('process did not exit within 2000ms after stop, force-killed it');
+  // Should complete well within a minute thanks to the watchdog.
+  expect(monotonicTime() - now).toBeLessThan(60000);
+});
+
+test('should not force-kill a worker that is running a slow fixture teardown', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/42007' });
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend<{}, { slowTeardown: void }>({
+        slowTeardown: [async ({}, use) => {
+          await use();
+          await new Promise(f => setTimeout(f, 4000));
+          console.log('slow teardown finished');
+        }, { scope: 'worker', timeout: 0 }],
+      });
+      test('passes', async ({ slowTeardown }) => {});
+    `,
+  }, undefined, { PWTEST_CHILD_PROCESS_TIMEOUT: '2000' });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.output).toContain('slow teardown finished');
+  expect(result.output).not.toContain('force-killed');
 });

@@ -1,7 +1,7 @@
 /**
  * Copyright (c) Microsoft Corporation.
  *
- * Licensed under the Apache License, Version 2.0 (the 'License");
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
@@ -14,41 +14,64 @@
  * limitations under the License.
  */
 
-import type * as channels from '@protocol/channels';
+import fs from 'fs';
+
 import { Dispatcher } from './dispatcher';
-import * as fs from 'fs';
-import { createGuid } from '../../utils';
+import { SdkObject } from '../instrumentation';
+
 import type { BrowserContextDispatcher } from './browserContextDispatcher';
+import type * as channels from '../channels';
+import type { Progress } from '../progress';
 
-export class WritableStreamDispatcher extends Dispatcher<{ guid: string, stream: fs.WriteStream }, channels.WritableStreamChannel, BrowserContextDispatcher> implements channels.WritableStreamChannel {
+class WritableStreamSdkObject extends SdkObject {
+  readonly streamOrDirectory: fs.WriteStream | string;
+  readonly lastModifiedMs: number | undefined;
+
+  constructor(parent: SdkObject, streamOrDirectory: fs.WriteStream | string, lastModifiedMs: number | undefined) {
+    super(parent, 'stream');
+    this.streamOrDirectory = streamOrDirectory;
+    this.lastModifiedMs = lastModifiedMs;
+  }
+}
+
+export class WritableStreamDispatcher extends Dispatcher<WritableStreamSdkObject, channels.WritableStreamChannel, BrowserContextDispatcher> implements channels.WritableStreamChannel {
   _type_WritableStream = true;
-  private _lastModifiedMs: number | undefined;
 
-  constructor(scope: BrowserContextDispatcher, stream: fs.WriteStream, lastModifiedMs?: number) {
-    super(scope, { guid: 'writableStream@' + createGuid(), stream }, 'WritableStream', {});
-    this._lastModifiedMs = lastModifiedMs;
+  constructor(scope: BrowserContextDispatcher, streamOrDirectory: fs.WriteStream | string, lastModifiedMs?: number) {
+    super(scope, new WritableStreamSdkObject(scope._object, streamOrDirectory, lastModifiedMs), 'WritableStream', {});
   }
 
-  async write(params: channels.WritableStreamWriteParams): Promise<channels.WritableStreamWriteResult> {
-    const stream = this._object.stream;
-    await new Promise<void>((fulfill, reject) => {
+  async write(params: channels.WritableStreamWriteParams, progress: Progress): Promise<channels.WritableStreamWriteResult> {
+    if (typeof this._object.streamOrDirectory === 'string')
+      throw new Error('Cannot write to a directory');
+    const stream = this._object.streamOrDirectory;
+    await progress.race(new Promise<void>((fulfill, reject) => {
       stream.write(params.binary, error => {
         if (error)
           reject(error);
         else
           fulfill();
       });
-    });
+    }));
   }
 
-  async close() {
-    const stream = this._object.stream;
-    await new Promise<void>(fulfill => stream.end(fulfill));
-    if (this._lastModifiedMs)
-      await fs.promises.utimes(this.path(), new Date(this._lastModifiedMs), new Date(this._lastModifiedMs));
+  async close(params: channels.WritableStreamCloseParams, progress: Progress): Promise<void> {
+    if (typeof this._object.streamOrDirectory === 'string')
+      throw new Error('Cannot close a directory');
+    const stream = this._object.streamOrDirectory;
+    await progress.race(new Promise<void>(fulfill => stream.end(fulfill)));
+    if (this._object.lastModifiedMs)
+      await progress.race(fs.promises.utimes(this.path(), new Date(this._object.lastModifiedMs), new Date(this._object.lastModifiedMs)));
   }
 
   path(): string {
-    return this._object.stream.path as string;
+    if (typeof this._object.streamOrDirectory === 'string')
+      return this._object.streamOrDirectory;
+    return this._object.streamOrDirectory.path as string;
+  }
+
+  override _onDispose() {
+    if (typeof this._object.streamOrDirectory !== 'string')
+      this._object.streamOrDirectory.destroy();
   }
 }

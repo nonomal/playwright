@@ -14,25 +14,23 @@
  * limitations under the License.
  */
 
+import https from 'node:https';
 import { contextTest as it, expect } from '../config/browserTest';
-
-it.use({
-  launchOptions: async ({ launchOptions }, use) => {
-    await use({
-      ...launchOptions,
-      proxy: { server: 'per-context' }
-    });
-  }
-});
+import { TestServer } from '../config/testserver';
 
 it.skip(({ mode }) => mode !== 'default');
 
-it('context request should pick up proxy credentials', async ({ browserType, server, proxyServer }) => {
+it('PR-041 context request should pick up proxy credentials', async ({ browserType, server, proxyServer }) => {
   proxyServer.forwardTo(server.PORT, { allowConnectRequests: true });
-  let auth;
-  proxyServer.setAuthHandler(req => {
-    auth = req.headers['proxy-authorization'];
-    return !!auth;
+  const authPromise = new Promise<string>(resolve => {
+    proxyServer.setAuthHandler(req => {
+      const header = req.headers['proxy-authorization'];
+      // Browser can issue various unrelated requests over the proxy,
+      // but we are only interested in our own request.
+      if (proxyServer.connectHosts.includes('non-existent.com:80'))
+        resolve(header);
+      return !!header;
+    });
   });
   const browser = await browserType.launch({
     proxy: { server: `localhost:${proxyServer.PORT}`, username: 'user', password: 'secret' }
@@ -40,12 +38,13 @@ it('context request should pick up proxy credentials', async ({ browserType, ser
   const context = await browser.newContext();
   const response = await context.request.get('http://non-existent.com/simple.json');
   expect(proxyServer.connectHosts).toContain('non-existent.com:80');
+  const auth = await authPromise;
   expect(auth).toBe('Basic ' + Buffer.from('user:secret').toString('base64'));
   expect(await response.json()).toEqual({ foo: 'bar' });
   await browser.close();
 });
 
-it('global request should pick up proxy credentials', async ({ playwright, server, proxyServer }) => {
+it('PR-042 global request should pick up proxy credentials', async ({ playwright, server, proxyServer }) => {
   proxyServer.forwardTo(server.PORT, { allowConnectRequests: true });
   let auth;
   proxyServer.setAuthHandler(req => {
@@ -62,7 +61,7 @@ it('global request should pick up proxy credentials', async ({ playwright, serve
   await request.dispose();
 });
 
-it('should work with context level proxy', async ({ contextFactory, contextOptions, server, proxyServer }) => {
+it('PR-043 should work with context level proxy', async ({ contextFactory, contextOptions, server, proxyServer }) => {
   server.setRoute('/target.html', async (req, res) => {
     res.end('<title>Served by the proxy</title>');
   });
@@ -80,7 +79,7 @@ it('should work with context level proxy', async ({ contextFactory, contextOptio
   expect(request.url).toBe('/target.html');
 });
 
-it(`should support proxy.bypass`, async ({ contextFactory, contextOptions, server, proxyServer }) => {
+it(`PR-044 should support proxy.bypass`, async ({ contextFactory, contextOptions, server, proxyServer }) => {
   server.setRoute('/target.html', async (req, res) => {
     res.end('Served by the proxy');
   });
@@ -131,7 +130,7 @@ it(`should support proxy.bypass`, async ({ contextFactory, contextOptions, serve
   }
 });
 
-it('should use socks proxy', async ({ playwright, server, socksPort }) => {
+it('PR-045 should use socks proxy', async ({ playwright, server, socksPort }) => {
   it.skip(!!process.env.INSIDE_DOCKER, 'connect ECONNREFUSED 127.0.0.1:<port>');
 
   const request = await playwright.request.newContext({ proxy: {
@@ -139,4 +138,65 @@ it('should use socks proxy', async ({ playwright, server, socksPort }) => {
   } });
   const response = await request.get(server.EMPTY_PAGE);
   expect(await response.text()).toContain('Served by the SOCKS proxy');
+});
+
+it('PR-046 should send correct ALPN protocol to HTTPS proxy', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/37676' } }, async ({ playwright, server, nodeVersion }) => {
+  it.skip(nodeVersion.major < 22, 'ALPNCallback is supported starting from Node 22');
+
+  let offeredProtocols: string[];
+  const proxy = https.createServer({
+    ...(await TestServer.certOptions()),
+    ALPNCallback: protocols => {
+      offeredProtocols = protocols.protocols;
+      return protocols[0];
+    },
+  });
+
+  const port = await new Promise<number>(resolve => {
+    proxy.listen(0, () => {
+      const { port } = proxy.address() as any;
+      resolve(port);
+    });
+  });
+
+  const request = await playwright.request.newContext({
+    proxy: { server: `https://localhost:${port}` },
+    ignoreHTTPSErrors: true,
+  });
+
+  await expect(request.get(server.EMPTY_PAGE)).rejects.toThrowError();
+
+  expect(offeredProtocols).toContain('http/1.1');
+
+  proxy.close();
+  await request.dispose();
+});
+
+it('PR-047 should apply proxy.bypass to redirect targets', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/42815' } }, async ({ contextFactory, server, proxyServer }) => {
+  const crossProcessHost = new URL(server.CROSS_PROCESS_PREFIX).host;
+  it.skip(crossProcessHost === server.HOST, 'Needs two different host names for the same server');
+
+  proxyServer.forwardTo(server.PORT, { allowConnectRequests: true });
+  server.setRedirect('/redirect-to-cross-process', server.CROSS_PROCESS_PREFIX + '/simple.json');
+  server.setRedirect('/redirect-to-same-origin', server.PREFIX + '/simple.json');
+  const context = await contextFactory({
+    proxy: { server: `localhost:${proxyServer.PORT}`, bypass: server.HOSTNAME }
+  });
+
+  {
+    // Bypassed first hop redirects to a host that must go through the proxy.
+    const response = await context.request.get(server.PREFIX + '/redirect-to-cross-process');
+    expect(response.url()).toBe(server.CROSS_PROCESS_PREFIX + '/simple.json');
+    expect(await response.json()).toEqual({ foo: 'bar' });
+    expect(proxyServer.connectHosts).toEqual([crossProcessHost]);
+    proxyServer.connectHosts = [];
+  }
+
+  {
+    // Proxied first hop redirects to a bypassed host.
+    const response = await context.request.get(server.CROSS_PROCESS_PREFIX + '/redirect-to-same-origin');
+    expect(response.url()).toBe(server.PREFIX + '/simple.json');
+    expect(await response.json()).toEqual({ foo: 'bar' });
+    expect(proxyServer.connectHosts).toEqual([crossProcessHost]);
+  }
 });

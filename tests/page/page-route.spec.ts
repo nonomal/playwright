@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-import os from 'os';
+import type * as http from 'http';
 import type { Route } from 'playwright-core';
 import { test as it, expect } from './pageTest';
 
-it('should intercept @smoke', async ({ page, server }) => {
+it('RO-001 should intercept @smoke', async ({ page, server }) => {
   let intercepted = false;
   await page.route('**/empty.html', (route, request) => {
     expect(route.request()).toBe(request);
@@ -39,7 +39,7 @@ it('should intercept @smoke', async ({ page, server }) => {
   expect(intercepted).toBe(true);
 });
 
-it('should unroute', async ({ page, server }) => {
+it('RO-002 should unroute', async ({ page, server }) => {
   let intercepted = [];
   await page.route('**/*', route => {
     intercepted.push(1);
@@ -72,10 +72,11 @@ it('should unroute', async ({ page, server }) => {
   expect(intercepted).toEqual([1]);
 });
 
-it('should support ? in glob pattern', async ({ page, server }) => {
+it('RO-003 should not support ? in glob pattern', async ({ page, server }) => {
   server.setRoute('/index', (req, res) => res.end('index-no-hello'));
   server.setRoute('/index123hello', (req, res) => res.end('index123hello'));
   server.setRoute('/index?hello', (req, res) => res.end('index?hello'));
+  server.setRoute('/index1hello', (req, res) => res.end('index1hello'));
 
   await page.route('**/index?hello', async (route, request) => {
     await route.fulfill({ body: 'intercepted any character' });
@@ -92,13 +93,13 @@ it('should support ? in glob pattern', async ({ page, server }) => {
   expect(await page.content()).toContain('index-no-hello');
 
   await page.goto(server.PREFIX + '/index1hello');
-  expect(await page.content()).toContain('intercepted any character');
+  expect(await page.content()).toContain('index1hello');
 
   await page.goto(server.PREFIX + '/index123hello');
   expect(await page.content()).toContain('index123hello');
 });
 
-it('should work when POST is redirected with 302', async ({ page, server }) => {
+it('RO-004 should work when POST is redirected with 302', async ({ page, server }) => {
   server.setRedirect('/rredirect', '/empty.html');
   await page.goto(server.EMPTY_PAGE);
   await page.route('**/*', route => route.continue());
@@ -114,7 +115,7 @@ it('should work when POST is redirected with 302', async ({ page, server }) => {
 });
 
 // @see https://github.com/GoogleChrome/puppeteer/issues/3973
-it('should work when header manipulation headers with redirect', async ({ page, server }) => {
+it('RO-005 should work when header manipulation headers with redirect', async ({ page, server }) => {
   server.setRedirect('/rrredirect', '/empty.html');
   await page.route('**/*', route => {
     const headers = Object.assign({}, route.request().headers(), {
@@ -126,7 +127,7 @@ it('should work when header manipulation headers with redirect', async ({ page, 
 });
 
 // @see https://github.com/GoogleChrome/puppeteer/issues/4743
-it('should be able to remove headers', async ({ page, server }) => {
+it('RO-006 should be able to remove headers', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.route('**/*', async route => {
     const headers = { ...route.request().headers() };
@@ -141,7 +142,7 @@ it('should be able to remove headers', async ({ page, server }) => {
   expect(serverRequest.headers.foo).toBe(undefined);
 });
 
-it('should contain referer header', async ({ page, server }) => {
+it('RO-007 should contain referer header', async ({ page, server }) => {
   const requests = [];
   await page.route('**/*', route => {
     requests.push(route.request());
@@ -152,9 +153,9 @@ it('should contain referer header', async ({ page, server }) => {
   expect(requests[1].headers().referer).toContain('/one-style.html');
 });
 
-it('should properly return navigation response when URL has cookies', async ({ page, server, isElectron, isAndroid }) => {
+it('RO-008 should properly return navigation response when URL has cookies', async ({ page, server, isAndroid, isElectron, electronMajorVersion }) => {
   it.skip(isAndroid, 'No isolated context');
-  it.fixme(isElectron, 'error: Browser context management is not supported.');
+  it.skip(isElectron && electronMajorVersion < 30, 'error: Browser context management is not supported.');
 
   // Setup cookie.
   await page.goto(server.EMPTY_PAGE);
@@ -166,9 +167,8 @@ it('should properly return navigation response when URL has cookies', async ({ p
   expect(response.status()).toBe(200);
 });
 
-it('should override cookie header', async ({ page, server, browserName }) => {
+it('RO-009 should not override cookie header', async ({ page, server, browserName }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16773' });
-  it.fail(browserName !== 'firefox');
 
   await page.goto(server.EMPTY_PAGE);
   await page.evaluate(() => document.cookie = 'original=value');
@@ -184,11 +184,12 @@ it('should override cookie header', async ({ page, server, browserName }) => {
     page.goto(server.EMPTY_PAGE),
   ]);
 
-  expect(cookieValueInRoute).toBe('original=value');
-  expect(serverReq.headers['cookie']).toBe('overridden=value');
+  if (browserName !== 'webkit')
+    expect.soft(cookieValueInRoute).toBe('original=value');
+  expect.soft(serverReq.headers['cookie']).toBe('original=value');
 });
 
-it('should show custom HTTP headers', async ({ page, server }) => {
+it('RO-010 should show custom HTTP headers', async ({ page, server }) => {
   await page.setExtraHTTPHeaders({
     foo: 'bar'
   });
@@ -201,7 +202,7 @@ it('should show custom HTTP headers', async ({ page, server }) => {
 });
 
 // @see https://github.com/GoogleChrome/puppeteer/issues/4337
-it('should work with redirect inside sync XHR', async ({ page, server, browserName }) => {
+it('RO-011 should work with redirect inside sync XHR', async ({ page, server, browserName }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28461' });
   it.fixme(browserName === 'webkit', 'No Network.requestIntercepted for the request');
   await page.goto(server.EMPTY_PAGE);
@@ -221,7 +222,8 @@ it('should work with redirect inside sync XHR', async ({ page, server, browserNa
   await continuePromise;
 });
 
-it('should pause intercepted XHR until continue', async ({ page, server, browserName }) => {
+it('RO-012 should pause intercepted XHR until continue', async ({ page, server, browserName }) => {
+  it.skip(process.env.PW_CLOCK === 'frozen');
   it.fixme(browserName === 'webkit', 'Redirected request is not paused in WebKit');
 
   await page.goto(server.EMPTY_PAGE);
@@ -229,55 +231,52 @@ it('should pause intercepted XHR until continue', async ({ page, server, browser
   const routePromise = new Promise(r => resolveRoute = r);
   await page.route('**/global-var.html', async route => resolveRoute(route));
   let xhrFinished = false;
-  const statusPromise = page.evaluate(async () => {
-    const request = new XMLHttpRequest();
-    request.open('GET', '/global-var.html', false);  // `false` makes the request synchronous
-    request.send(null);
-    return request.status;
-  }).then(r => {
-    xhrFinished = true;
-    return r;
+  page.on('requestfinished', request => {
+    if (request.url().endsWith('/global-var.html'))
+      xhrFinished = true;
+  });
+  // The synchronous request blocks the page, so it is started from a timer.
+  await page.evaluate(() => {
+    (window as any).__statusPromise = new Promise(resolve => setTimeout(() => {
+      const request = new XMLHttpRequest();
+      request.open('GET', '/global-var.html', false);  // `false` makes the request synchronous
+      request.send(null);
+      resolve(request.status);
+    }, 0));
   });
   const route = await routePromise;
   // Check that intercepted request is actually paused.
   await new Promise(r => setTimeout(r, 500));
   expect(xhrFinished).toBe(false);
-  const [status] = await Promise.all([
-    statusPromise,
-    (route as any).continue()
-  ]);
-  expect(status).toBe(200);
+  await (route as any).continue();
+  expect(await page.evaluate(() => (window as any).__statusPromise)).toBe(200);
 });
 
-it('should pause intercepted fetch request until continue', async ({ page, server }) => {
+it('RO-013 should pause intercepted fetch request until continue', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   let resolveRoute;
   const routePromise = new Promise(r => resolveRoute = r);
   await page.route('**/global-var.html', async route => resolveRoute(route));
-  let fetchFinished = false;
-  const statusPromise = page.evaluate(async () => {
-    const response = await fetch('/global-var.html');
-    return response.status;
-  }).then(r => {
-    fetchFinished = true;
-    return r;
+  await page.evaluate(() => {
+    (window as any).__fetchFinished = false;
+    (window as any).__statusPromise = fetch('/global-var.html').then(response => {
+      (window as any).__fetchFinished = true;
+      return response.status;
+    });
   });
   const route = await routePromise;
   // Check that intercepted request is actually paused.
   await new Promise(r => setTimeout(r, 500));
-  expect(fetchFinished).toBe(false);
-  const [status] = await Promise.all([
-    statusPromise,
-    (route as any).continue()
-  ]);
-  expect(status).toBe(200);
+  expect(await page.evaluate(() => (window as any).__fetchFinished)).toBe(false);
+  await (route as any).continue();
+  expect(await page.evaluate(() => (window as any).__statusPromise)).toBe(200);
 });
 
-it('should work with custom referer headers', async ({ page, server, browserName }) => {
+it('RO-014 should work with custom referer headers', async ({ page, server, browserName, browserMajorVersion }) => {
   await page.setExtraHTTPHeaders({ 'referer': server.EMPTY_PAGE });
   await page.route('**/*', route => {
     // See https://github.com/microsoft/playwright/issues/8999
-    if (browserName === 'chromium')
+    if (browserName === 'chromium' && browserMajorVersion < 154)
       expect(route.request().headers()['referer']).toBe(server.EMPTY_PAGE + ', ' + server.EMPTY_PAGE);
     else
       expect(route.request().headers()['referer']).toBe(server.EMPTY_PAGE);
@@ -287,7 +286,7 @@ it('should work with custom referer headers', async ({ page, server, browserName
   expect(response.ok()).toBe(true);
 });
 
-it('should be abortable', async ({ page, server }) => {
+it('RO-015 should be abortable', async ({ page, server }) => {
   await page.route(/\.css$/, route => route.abort());
   let failed = false;
   page.on('requestfailed', request => {
@@ -300,22 +299,21 @@ it('should be abortable', async ({ page, server }) => {
   expect(failed).toBe(true);
 });
 
-it('should be abortable with custom error codes', async ({ page, server, browserName, isMac }) => {
+it('RO-016 should be abortable with custom error codes', async ({ page, server, browserName, isMac, macVersion }) => {
   await page.route('**/*', route => route.abort('internetdisconnected'));
   let failedRequest = null;
   page.on('requestfailed', request => failedRequest = request);
   await page.goto(server.EMPTY_PAGE).catch(e => {});
   expect(failedRequest).toBeTruthy();
-  const isFrozenWebKit = isMac && parseInt(os.release(), 10) < 20;
   if (browserName === 'webkit')
-    expect(failedRequest.failure().errorText).toBe(isFrozenWebKit ? 'Request intercepted' : 'Blocked by Web Inspector');
+    expect(failedRequest.failure().errorText).toBe(isMac && macVersion < 11 ? 'Request intercepted' : 'Blocked by Web Inspector');
   else if (browserName === 'firefox')
     expect(failedRequest.failure().errorText).toBe('NS_ERROR_OFFLINE');
   else
     expect(failedRequest.failure().errorText).toBe('net::ERR_INTERNET_DISCONNECTED');
 });
 
-it('should not throw if request was cancelled by the page', async ({ page, server }) => {
+it('RO-017 should not throw if request was cancelled by the page', async ({ page, server }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28490' });
   let interceptCallback;
   const interceptPromise = new Promise<Route>(f => interceptCallback = f);
@@ -333,7 +331,7 @@ it('should not throw if request was cancelled by the page', async ({ page, serve
   await route.abort(); // Should not throw.
 });
 
-it('should send referer', async ({ page, server }) => {
+it('RO-018 should send referer', async ({ page, server }) => {
   await page.setExtraHTTPHeaders({
     referer: 'http://google.com/'
   });
@@ -345,21 +343,22 @@ it('should send referer', async ({ page, server }) => {
   expect(request.headers['referer']).toBe('http://google.com/');
 });
 
-it('should fail navigation when aborting main resource', async ({ page, server, browserName, isMac }) => {
+it('RO-019 should fail navigation when aborting main resource', async ({ page, server, browserName, isMac, macVersion, isBidi }) => {
   await page.route('**/*', route => route.abort());
   let error = null;
   await page.goto(server.EMPTY_PAGE).catch(e => error = e);
   expect(error).toBeTruthy();
-  const isFrozenWebKit = isMac && parseInt(os.release(), 10) < 20;
   if (browserName === 'webkit')
-    expect(error.message).toContain(isFrozenWebKit ? 'Request intercepted' : 'Blocked by Web Inspector');
+    expect(error.message).toContain(isMac && macVersion < 11 ? 'Request intercepted' : 'Blocked by Web Inspector');
+  else if (browserName === 'firefox' && isBidi)
+    expect(error.message).toContain('NS_ERROR_ABORT');
   else if (browserName === 'firefox')
     expect(error.message).toContain('NS_ERROR_FAILURE');
   else
     expect(error.message).toContain('net::ERR_FAILED');
 });
 
-it('should not work with redirects', async ({ page, server }) => {
+it('RO-020 should not work with redirects', async ({ page, server }) => {
   const intercepted = [];
   await page.route('**/*', route => {
     void route.continue();
@@ -394,7 +393,7 @@ it('should not work with redirects', async ({ page, server }) => {
     expect(chain[i].redirectedTo()).toBe(i ? chain[i - 1] : null);
 });
 
-it('should chain fallback w/ dynamic URL', async ({ page, server }) => {
+it('RO-021 should chain fallback w/ dynamic URL', async ({ page, server }) => {
   const intercepted = [];
   await page.route('**/bar', route => {
     intercepted.push(1);
@@ -414,7 +413,7 @@ it('should chain fallback w/ dynamic URL', async ({ page, server }) => {
   expect(intercepted).toEqual([3, 2, 1]);
 });
 
-it('should work with redirects for subresources', async ({ page, server }) => {
+it('RO-022 should work with redirects for subresources', async ({ page, server }) => {
   const intercepted = [];
   await page.route('**/*', route => {
     void route.continue();
@@ -442,7 +441,7 @@ it('should work with redirects for subresources', async ({ page, server }) => {
   expect(r).toBe(null);
 });
 
-it('should work with equal requests', async ({ page, server }) => {
+it('RO-023 should work with equal requests', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   let responseCount = 1;
   server.setRoute('/zzz', (req, res) => res.end((responseCount++) * 11 + ''));
@@ -459,7 +458,7 @@ it('should work with equal requests', async ({ page, server }) => {
   expect(results).toEqual(['11', 'FAILED', '22']);
 });
 
-it('should navigate to dataURL and not fire dataURL requests', async ({ page, server }) => {
+it('RO-024 should navigate to dataURL and not fire dataURL requests', async ({ page, server }) => {
   const requests = [];
   await page.route('**/*', route => {
     requests.push(route.request());
@@ -471,7 +470,7 @@ it('should navigate to dataURL and not fire dataURL requests', async ({ page, se
   expect(requests.length).toBe(0);
 });
 
-it('should be able to fetch dataURL and not fire dataURL requests', async ({ page, server }) => {
+it('RO-025 should be able to fetch dataURL and not fire dataURL requests', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   const requests = [];
   await page.route('**/*', route => {
@@ -484,7 +483,7 @@ it('should be able to fetch dataURL and not fire dataURL requests', async ({ pag
   expect(requests.length).toBe(0);
 });
 
-it('should navigate to URL with hash and and fire requests without hash', async ({ page, server }) => {
+it('RO-026 should navigate to URL with hash and and fire requests without hash', async ({ page, server }) => {
   const requests = [];
   await page.route('**/*', route => {
     requests.push(route.request());
@@ -497,7 +496,7 @@ it('should navigate to URL with hash and and fire requests without hash', async 
   expect(requests[0].url()).toBe(server.EMPTY_PAGE);
 });
 
-it('should work with encoded server', async ({ page, server }) => {
+it('RO-027 should work with encoded server', async ({ page, server }) => {
   // The requestWillBeSent will report encoded URL, whereas interception will
   // report URL as-is. @see crbug.com/759388
   await page.route('**/*', route => route.continue());
@@ -505,31 +504,28 @@ it('should work with encoded server', async ({ page, server }) => {
   expect(response.status()).toBe(404);
 });
 
-it('should work with badly encoded server', async ({ page, server }) => {
+it('RO-028 should work with badly encoded server', async ({ page, server }) => {
   server.setRoute('/malformed?rnd=%911', (req, res) => res.end());
   await page.route('**/*', route => route.continue());
   const response = await page.goto(server.PREFIX + '/malformed?rnd=%911');
   expect(response.status()).toBe(200);
 });
 
-it('should work with encoded server - 2', async ({ page, server, browserName, browserMajorVersion }) => {
+it('RO-029 should work with encoded server - 2', async ({ page, server, browserName }) => {
   // The requestWillBeSent will report URL as-is, whereas interception will
   // report encoded URL for stylesheet. @see crbug.com/759388
+  await page.goto(server.EMPTY_PAGE);
   const requests = [];
   await page.route('**/*', route => {
     void route.continue();
     requests.push(route.request());
   });
-  const response = await page.goto(`data:text/html,<link rel="stylesheet" href="${server.PREFIX}/fonts?helvetica|arial"/>`);
-  expect(response).toBe(null);
-  if (browserName === 'firefox' && browserMajorVersion >= 97)
-    expect(requests.length).toBe(2); // Firefox DevTools report to navigations in this case as well.
-  else
-    expect(requests.length).toBe(1);
+  await page.setContent(`<link rel="stylesheet" href="${server.PREFIX}/fonts?helvetica|arial"/>`);
+  expect(requests.length).toBe(1);
   expect((await requests[0].response()).status()).toBe(404);
 });
 
-it('should not throw "Invalid Interception Id" if the request was cancelled', async ({ page, server }) => {
+it('RO-030 should not throw "Invalid Interception Id" if the request was cancelled', async ({ page, server }) => {
   await page.setContent('<iframe></iframe>');
   let route = null;
   await page.route('**/*', async r => route = r);
@@ -543,7 +539,7 @@ it('should not throw "Invalid Interception Id" if the request was cancelled', as
   expect(error).toBe(null);
 });
 
-it('should intercept main resource during cross-process navigation', async ({ page, server }) => {
+it('RO-031 should intercept main resource during cross-process navigation', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   let intercepted = false;
   await page.route(server.CROSS_PROCESS_PREFIX + '/empty.html', route => {
@@ -555,7 +551,7 @@ it('should intercept main resource during cross-process navigation', async ({ pa
   expect(intercepted).toBe(true);
 });
 
-it('should fulfill with redirect status', async ({ page, server, browserName }) => {
+it('RO-032 should fulfill with redirect status', async ({ page, server, browserName }) => {
   it.fixme(browserName === 'webkit', 'in WebKit the redirects are handled by the network stack and we intercept before');
 
   await page.goto(server.PREFIX + '/title.html');
@@ -578,7 +574,7 @@ it('should fulfill with redirect status', async ({ page, server, browserName }) 
   expect(text).toBe('foo');
 });
 
-it('should not fulfill with redirect status', async ({ page, server, browserName }) => {
+it('RO-033 should not fulfill with redirect status', async ({ page, server, browserName }) => {
   it.skip(browserName !== 'webkit', 'we should support fulfill with redirect in webkit and delete this test');
 
   await page.goto(server.PREFIX + '/empty.html');
@@ -612,7 +608,7 @@ it('should not fulfill with redirect status', async ({ page, server, browserName
   }
 });
 
-it('should support cors with GET', async ({ page, server, browserName }) => {
+it('RO-034 should support cors with GET', async ({ page, server, browserName, channel }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.route('**/cars*', async (route, request) => {
     const headers = { 'access-control-allow-origin': request.url().endsWith('allow') ? '*' : 'none' };
@@ -646,7 +642,7 @@ it('should support cors with GET', async ({ page, server, browserName }) => {
   }
 });
 
-it('should add Access-Control-Allow-Origin by default when fulfill', async ({ page, server }) => {
+it('RO-035 should add Access-Control-Allow-Origin by default when fulfill', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.route('**/cars', async route => {
     await route.fulfill({
@@ -672,7 +668,7 @@ it('should add Access-Control-Allow-Origin by default when fulfill', async ({ pa
   expect(await response.headerValue('Access-Control-Allow-Origin')).toBe(server.PREFIX);
 });
 
-it('should allow null origin for about:blank', async ({ page, server, browserName }) => {
+it('RO-036 should allow null origin for about:blank', async ({ page, server, browserName }) => {
   await page.route('**/something', async route => {
     await route.fulfill({
       contentType: 'text/plain',
@@ -695,7 +691,7 @@ it('should allow null origin for about:blank', async ({ page, server, browserNam
   expect(await response.headerValue('Access-Control-Allow-Origin')).toBe('null');
 });
 
-it('should respect cors overrides', async ({ page, server, browserName, isAndroid }) => {
+it('RO-037 should respect cors overrides', async ({ page, server, browserName, isAndroid }) => {
   it.fail(isAndroid, 'no cors error in android emulator');
   await page.goto(server.EMPTY_PAGE);
   server.setRoute('/something', (request, response) => {
@@ -739,7 +735,7 @@ it('should respect cors overrides', async ({ page, server, browserName, isAndroi
   }
 });
 
-it('should not auto-intercept non-preflight OPTIONS', async ({ page, server, isAndroid, browserName }) => {
+it('RO-038 should not auto-intercept non-preflight OPTIONS without network interception', async ({ page, server, isAndroid, browserName }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20469' });
   it.fixme(isAndroid);
 
@@ -777,6 +773,31 @@ it('should not auto-intercept non-preflight OPTIONS', async ({ page, server, isA
     // Preflight for OPTIONS, then OPTIONS, then GET without preflight.
     expect.soft(requests).toEqual(['OPTIONS:/something', 'OPTIONS:/something', 'GET:/something']);
   }
+});
+
+// Make sure this runs in a new context as preflight results could be cached.
+it('RO-039 should not auto-intercept non-preflight OPTIONS with network interception', async ({ page, server, isAndroid, browserName, isBidi }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20469' });
+  it.fixme(isAndroid);
+
+  await page.goto(server.EMPTY_PAGE);
+
+  let requests = [];
+  server.setRoute('/something', (request, response) => {
+    requests.push(request.method + ':' + request.url);
+    if (request.method === 'OPTIONS') {
+      response.writeHead(200, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, DELETE',
+        'Access-Control-Allow-Headers': '*',
+        'Cache-Control': 'no-cache'
+      });
+      response.end(`Hello`);
+      return;
+    }
+    response.writeHead(200, { 'Access-Control-Allow-Origin': '*' });
+    response.end('World');
+  });
 
   // With interception.
   {
@@ -793,14 +814,14 @@ it('should not auto-intercept non-preflight OPTIONS', async ({ page, server, isA
     expect.soft(text1).toBe('Hello');
     expect.soft(text2).toBe('World');
     // Preflight for OPTIONS is auto-fulfilled, then OPTIONS, then GET without preflight.
-    if (browserName === 'firefox')
-      expect.soft(requests).toEqual(['OPTIONS:/something', 'OPTIONS:/something', 'GET:/something']);
-    else
+    if (browserName === 'chromium' || isBidi)
       expect.soft(requests).toEqual(['OPTIONS:/something', 'GET:/something']);
+    else
+      expect.soft(requests).toEqual(['OPTIONS:/something', 'OPTIONS:/something', 'GET:/something']);
   }
 });
 
-it('should support cors with POST', async ({ page, server }) => {
+it('RO-040 should support cors with POST', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.route('**/cars', async route => {
     await route.fulfill({
@@ -822,7 +843,7 @@ it('should support cors with POST', async ({ page, server }) => {
   expect(resp).toEqual(['electric', 'gas']);
 });
 
-it('should support cors with credentials', async ({ page, server }) => {
+it('RO-041 should support cors with credentials', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.route('**/cars', async route => {
     await route.fulfill({
@@ -848,7 +869,43 @@ it('should support cors with credentials', async ({ page, server }) => {
   expect(resp).toEqual(['electric', 'gas']);
 });
 
-it('should reject cors with disallowed credentials', async ({ page, server }) => {
+it('RO-042 should not abort preflighted cross-origin redirect when a route is registered', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43242' },
+}, async ({ page, server, isAndroid }) => {
+  it.skip(isAndroid, 'No cross-process on Android');
+
+  const allowCors = (request: http.IncomingMessage, response: http.ServerResponse) => {
+    response.setHeader('Access-Control-Allow-Origin', request.headers.origin || '*');
+    response.setHeader('Access-Control-Allow-Credentials', 'true');
+    response.setHeader('Access-Control-Allow-Headers', 'x-app-version');
+    if (request.method !== 'OPTIONS')
+      return false;
+    response.writeHead(204);
+    response.end();
+    return true;
+  };
+  server.setRoute('/download', (request, response) => {
+    if (allowCors(request, response))
+      return;
+    response.writeHead(302, { location: `${server.PREFIX}/file` });
+    response.end();
+  });
+  server.setRoute('/file', (request, response) => {
+    if (allowCors(request, response))
+      return;
+    response.end('file contents');
+  });
+
+  await page.goto(server.EMPTY_PAGE);
+  await page.route('**/never-matches', route => route.continue());
+  const result = await page.evaluate(async url => {
+    const response = await fetch(url, { credentials: 'include', headers: { 'X-App-Version': '1.2.3' } });
+    return `${response.status} ${await response.text()}`;
+  }, server.CROSS_PROCESS_PREFIX + '/download');
+  expect(result).toBe('200 file contents');
+});
+
+it('RO-043 should reject cors with disallowed credentials', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.route('**/cars', async route => {
     await route.fulfill({
@@ -880,7 +937,7 @@ it('should reject cors with disallowed credentials', async ({ page, server }) =>
   expect(error).toBeTruthy();
 });
 
-it('should support cors for different methods', async ({ page, server }) => {
+it('RO-044 should support cors for different methods', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.route('**/cars', async (route, request) => {
     await route.fulfill({
@@ -918,19 +975,28 @@ it('should support cors for different methods', async ({ page, server }) => {
   }
 });
 
-it('should support the times parameter with route matching', async ({ page, server }) => {
+it('RO-045 should support the times parameter with route matching', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43507' },
+}, async ({ page, server }) => {
+  await page.goto(server.EMPTY_PAGE);
+  function fetchBody() {
+    return page.evaluate(() => fetch('/empty.html').then(response => response.text()));
+  }
+
   const intercepted = [];
   await page.route('**/empty.html', route => {
     intercepted.push(1);
-    void route.continue();
+    void route.fulfill({ body: 'first' });
   }, { times: 1 });
-  await page.goto(server.EMPTY_PAGE);
-  await page.goto(server.EMPTY_PAGE);
-  await page.goto(server.EMPTY_PAGE);
+  expect(await fetchBody()).toBe('first');
+  await page.route('**/empty.html', route => route.fulfill({ body: 'second' }), { times: 1 });
+  expect(await fetchBody()).toBe('second');
+  await fetchBody();
+  await fetchBody();
   expect(intercepted).toHaveLength(1);
 });
 
-it('should work if handler with times parameter was removed from another handler', async ({ page, server }) => {
+it('RO-046 should work if handler with times parameter was removed from another handler', async ({ page, server }) => {
   const intercepted = [];
   const handler = async route => {
     intercepted.push('first');
@@ -949,7 +1015,7 @@ it('should work if handler with times parameter was removed from another handler
   expect(intercepted).toEqual(['second']);
 });
 
-it('should support async handler w/ times', async ({ page, server }) => {
+it('RO-047 should support async handler w/ times', async ({ page, server }) => {
   await page.route('**/empty.html', async route => {
     await new Promise(f => setTimeout(f, 100));
     await route.fulfill({
@@ -963,7 +1029,33 @@ it('should support async handler w/ times', async ({ page, server }) => {
   await expect(page.locator('body')).not.toHaveText('intercepted');
 });
 
-it('should contain raw request header', async ({ page, server }) => {
+it('RO-048 route abort with times: 1 should not affect second sequential fetch', async ({ page, server, browserName, browserMajorVersion }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/41802' });
+  it.skip(browserName === 'chromium' && browserMajorVersion < 155, 'Chromium drops a request that is intercepted while Fetch.disable is being processed; fix is not rolled yet');
+
+  server.setRoute('/data', (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('ok');
+  });
+
+  await page.goto(server.EMPTY_PAGE);
+  await page.route('**/data', route => route.abort('timedout'), { times: 1 });
+
+  const results = await page.evaluate(async () => {
+    async function fetchOrHung(url: string) {
+      const timeout = new Promise<string>(resolve => setTimeout(() => resolve('hung'), 3000));
+      const request = fetch(url).then(r => String(r.status)).catch(() => 'aborted');
+      return Promise.race([request, timeout]);
+    }
+    const first = await fetchOrHung('/data');
+    const second = await fetchOrHung('/data');
+    return [first, second];
+  });
+
+  expect(results).toEqual(['aborted', '200']);
+});
+
+it('RO-049 should contain raw request header', async ({ page, server }) => {
   let headers: any;
   await page.route('**/*', async route => {
     headers = await route.request().allHeaders();
@@ -973,7 +1065,48 @@ it('should contain raw request header', async ({ page, server }) => {
   expect(headers.accept).toBeTruthy();
 });
 
-it('should contain raw response header', async ({ page, server }) => {
+it('RO-050 should contain sec-fetch headers in route', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/42620' });
+  it.fail(browserName === 'chromium', 'Fetch.requestPaused fires before Chromium attaches Fetch Metadata headers');
+
+  const secFetch = (headers: Record<string, string | string[] | undefined>) => Object.fromEntries(
+      Object.entries(headers).filter(([name]) => name.toLowerCase().startsWith('sec-fetch-')));
+  const modes = ['cors', 'no-cors', 'same-origin'];
+
+  await page.goto(server.EMPTY_PAGE);
+
+  const routed = new Map<string, { headers: any, allHeaders: any }>();
+  await page.route('**/probe-*', async route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    routed.set(path, { headers: secFetch(request.headers()), allHeaders: secFetch(await request.allHeaders()) });
+    void route.continue();
+  });
+
+  const [serverRequests] = await Promise.all([
+    Promise.all(modes.map(mode => server.waitForRequest(`/probe-${mode}`))),
+    page.evaluate(async modes => {
+      for (const mode of modes)
+        await (await fetch(`/probe-${mode}`, { mode: mode as RequestMode })).text();
+    }, modes),
+  ]);
+
+  for (let i = 0; i < modes.length; i++) {
+    const path = `/probe-${modes[i]}`;
+    const onServer = secFetch(serverRequests[i].headers);
+    // The server does receive the browser-computed Fetch Metadata.
+    expect.soft(onServer, `${path} on server`).toEqual({
+      'sec-fetch-site': 'same-origin',
+      'sec-fetch-mode': modes[i],
+      'sec-fetch-dest': 'empty',
+    });
+    // The route handler should see the same headers.
+    expect.soft(routed.get(path)!.headers, `${path} route.request().headers()`).toEqual(onServer);
+    expect.soft(routed.get(path)!.allHeaders, `${path} route.request().allHeaders()`).toEqual(onServer);
+  }
+});
+
+it('RO-051 should contain raw response header', async ({ page, server }) => {
   let request: any;
   await page.route('**/*', async route => {
     request = route.request();
@@ -985,7 +1118,7 @@ it('should contain raw response header', async ({ page, server }) => {
   expect(headers['content-type']).toBeTruthy();
 });
 
-it('should contain raw response header after fulfill', async ({ page, server }) => {
+it('RO-052 should contain raw response header after fulfill', async ({ page, server }) => {
   let request: any;
   await page.route('**/*', async route => {
     request = route.request();
@@ -1002,7 +1135,7 @@ it('should contain raw response header after fulfill', async ({ page, server }) 
 });
 
 for (const method of ['fulfill', 'continue', 'fallback', 'abort'] as const) {
-  it(`route.${method} should throw if called twice`, async ({ page, server }) => {
+  it(`RO-053 route.${method} should throw if called twice`, async ({ page, server }) => {
     let resolve;
     const resolvePromise = new Promise<Route>(f => resolve = f);
     await page.route('**/*', resolve);
@@ -1014,8 +1147,10 @@ for (const method of ['fulfill', 'continue', 'fallback', 'abort'] as const) {
   });
 }
 
-it('should intercept when postData is more than 1MB', async ({ page, server }) => {
+it('RO-054 should intercept when postData is more than 1MB', async ({ page, server, isAndroid }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/22753' });
+  it.fixme(isAndroid);
+
   await page.goto(server.EMPTY_PAGE);
   let interceptionCallback;
   const interceptionPromise = new Promise(x => interceptionCallback = x);
@@ -1029,4 +1164,61 @@ it('should intercept when postData is more than 1MB', async ({ page, server }) =
     body: POST_BODY,
   }).catch(e => {}), POST_BODY);
   expect(await interceptionPromise).toBe(POST_BODY);
+});
+
+it('RO-055 should be able to intercept every navigation to a page controlled by service worker', async ({ page, server, isElectron, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/33561' });
+  it.skip(isElectron);
+
+  let interceptions = 0;
+  const URL = server.PREFIX + '/serviceworkers/bug-33561/index.html';
+  await page.route(URL, async route => {
+    ++interceptions;
+    await route.continue();
+  });
+
+  await page.goto(URL);
+  await page.evaluate(() => window['activationPromise']);
+  await page.goto(URL);
+  expect(interceptions).toBe(2);
+});
+
+it('RO-056 should respect URLPattern ignoreCase', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/42918' });
+  it.skip(globalThis.URLPattern === undefined, 'URLPattern is not supported in this environment');
+
+  const intercepted: string[] = [];
+  // @ts-ignore URLPattern is not in @types/node yet
+  await page.route(new URLPattern(server.PREFIX + '/EMPTY.html', { ignoreCase: true }), route => {
+    intercepted.push('ignoreCase');
+    return route.fulfill({ body: 'mock' });
+  });
+  // @ts-ignore URLPattern is not in @types/node yet
+  await page.route(new URLPattern(server.PREFIX + '/EMPTY.html'), route => {
+    intercepted.push('caseSensitive');
+    return route.fulfill({ body: 'mock' });
+  });
+  const response = await page.goto(server.EMPTY_PAGE);
+  expect(await response!.text()).toBe('mock');
+  expect(intercepted).toEqual(['ignoreCase']);
+});
+
+it('RO-202 should continue a request reported while interception was disabled', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/43619' },
+}, async ({ page, server, isElectron }) => {
+  it.skip(isElectron);
+
+  await page.goto(server.PREFIX + '/serviceworkers/slow-fallback/sw.html');
+  await page.evaluate(() => window['activationPromise']);
+
+  const handler = route => route.fulfill({ body: 'mocked' });
+  await page.route('**/never-requested', handler);
+  await page.unroute('**/never-requested');
+  // The service worker holds the request, so it reaches the network
+  // after interception is enabled again.
+  const requestPromise = page.waitForRequest('**/simple.json');
+  const bodyPromise = page.evaluate(() => fetch('/simple.json').then(response => response.text()));
+  await requestPromise;
+  await page.route('**/never-requested', handler);
+  expect(await bodyPromise).toBe('{"foo": "bar"}\n');
 });

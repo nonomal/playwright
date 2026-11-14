@@ -20,10 +20,11 @@ import type { TestModeTestFixtures, TestModeWorkerFixtures, TestModeWorkerOption
 import { androidTest } from '../android/androidTest';
 import { browserTest } from '../config/browserTest';
 import { electronTest } from '../electron/electronTest';
-import { webView2Test } from '../webview2/webView2Test';
+import { webviewTest } from '../webview/webviewTest';
 import type { PageTestFixtures, PageWorkerFixtures } from './pageTestApi';
 import type { ServerFixtures, ServerWorkerOptions } from '../config/serverFixtures';
-export { expect } from '@playwright/test';
+import { expect as baseExpect } from '@playwright/test';
+export { rafraf } from '../config/utils';
 
 let impl: TestType<PageTestFixtures & ServerFixtures & TestModeTestFixtures, PageWorkerFixtures & PlatformWorkerFixtures & TestModeWorkerFixtures & TestModeWorkerOptions & ServerWorkerOptions> = browserTest;
 
@@ -31,7 +32,30 @@ if (process.env.PWPAGE_IMPL === 'android')
   impl = androidTest;
 if (process.env.PWPAGE_IMPL === 'electron')
   impl = electronTest;
-if (process.env.PWPAGE_IMPL === 'webview2')
-  impl = webView2Test;
+if (process.env.PWPAGE_IMPL === 'webkit-webview')
+  impl = webviewTest;
 
 export const test = impl;
+
+export const expect = baseExpect.extend({
+  toContainYaml(received: string, expected: string) {
+    const trimmed = expected.split('\n').filter(a => !!a.trim());
+    const maxPrefixLength = Math.min(...trimmed.map(line => line.match(/^\s*/)[0].length));
+    const trimmedExpected = trimmed.map(line => line.substring(maxPrefixLength)).join('\n');
+    try {
+      if (this.isNot)
+        expect(received).not.toContain(trimmedExpected);
+      else
+        expect(received).toContain(trimmedExpected);
+      return {
+        pass: !this.isNot,
+        message: () => '',
+      };
+    } catch (e) {
+      return {
+        pass: this.isNot,
+        message: () => e.message,
+      };
+    }
+  }
+});

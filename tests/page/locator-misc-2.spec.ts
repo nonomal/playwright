@@ -16,15 +16,14 @@
  */
 
 import { test as it, expect } from './pageTest';
-import os from 'os';
 
-it('should press @smoke', async ({ page }) => {
+it('LO-140 should press @smoke', async ({ page }) => {
   await page.setContent(`<input type='text' />`);
   await page.locator('input').press('h');
   expect(await page.$eval('input', input => input.value)).toBe('h');
 });
 
-it('should scroll into view', async ({ page, server, isAndroid }) => {
+it('LO-141 should scroll into view', async ({ page, server, isAndroid }) => {
   it.fixme(isAndroid);
 
   await page.goto(server.PREFIX + '/offscreenbuttons.html');
@@ -43,9 +42,8 @@ it('should scroll into view', async ({ page, server, isAndroid }) => {
   }
 });
 
-it('should scroll zero-sized element into view', async ({ page, isAndroid, isElectron, isWebView2, browserName, isMac }) => {
-  it.fixme(isAndroid || isElectron || isWebView2);
-  it.skip(browserName === 'webkit' && isMac && parseInt(os.release(), 10) < 20, 'WebKit for macOS 10.15 is frozen.');
+it('LO-142 should scroll zero-sized element into view', async ({ page, isAndroid, isElectron }) => {
+  it.fixme(isAndroid || isElectron);
 
   await page.setContent(`
     <style>
@@ -75,32 +73,27 @@ it('should scroll zero-sized element into view', async ({ page, isAndroid, isEle
   expect(await page.locator('#lazyload').boundingBox()).toEqual({ x: 0, y: 720, width: 1280, height: 20 });
 });
 
-it('should select textarea', async ({ page, server, browserName }) => {
+it('LO-143 should select textarea', async ({ page, server, browserName }) => {
   await page.goto(server.PREFIX + '/input/textarea.html');
   const textarea = page.locator('textarea');
   await textarea.evaluate(textarea => (textarea as HTMLTextAreaElement).value = 'some value');
   await textarea.selectText();
-  if (browserName === 'firefox' || browserName === 'webkit') {
-    expect(await textarea.evaluate(el => (el as HTMLTextAreaElement).selectionStart)).toBe(0);
-    expect(await textarea.evaluate(el => (el as HTMLTextAreaElement).selectionEnd)).toBe(10);
-  } else {
-    expect(await page.evaluate(() => window.getSelection().toString())).toBe('some value');
-  }
+  expect(await page.evaluate(() => window.getSelection().toString())).toBe('some value');
 });
 
-it('should type', async ({ page }) => {
+it('LO-144 should type', async ({ page }) => {
   await page.setContent(`<input type='text' />`);
   await page.locator('input').type('hello');
   expect(await page.$eval('input', input => input.value)).toBe('hello');
 });
 
-it('should pressSequentially', async ({ page }) => {
+it('LO-145 should pressSequentially', async ({ page }) => {
   await page.setContent(`<input type='text' />`);
   await page.locator('input').pressSequentially('hello');
   expect(await page.$eval('input', input => input.value)).toBe('hello');
 });
 
-it('should take screenshot', async ({ page, server, browserName, headless, isAndroid, mode }) => {
+it('LO-146 should take screenshot', async ({ page, server, browserName, headless, isAndroid, mode }) => {
   it.skip(browserName === 'firefox' && !headless);
   it.skip(isAndroid, 'Different dpr. Remove after using 1x scale for screenshots.');
   await page.setViewportSize({ width: 500, height: 500 });
@@ -111,8 +104,7 @@ it('should take screenshot', async ({ page, server, browserName, headless, isAnd
   expect(screenshot).toMatchSnapshot('screenshot-element-bounding-box.png');
 });
 
-it('should return bounding box', async ({ page, server, browserName, headless, isAndroid, isLinux }) => {
-  it.fixme(browserName === 'firefox' && !headless && !isLinux);
+it('LO-147 should return bounding box', async ({ page, server, browserName, headless, isAndroid, isLinux }) => {
   it.skip(isAndroid);
 
   await page.setViewportSize({ width: 500, height: 500 });
@@ -122,7 +114,7 @@ it('should return bounding box', async ({ page, server, browserName, headless, i
   expect(box).toEqual({ x: 100, y: 50, width: 50, height: 50 });
 });
 
-it('should waitFor', async ({ page }) => {
+it('LO-148 should waitFor', async ({ page }) => {
   await page.setContent(`<div></div>`);
   const locator = page.locator('span');
   const promise = locator.waitFor();
@@ -131,7 +123,7 @@ it('should waitFor', async ({ page }) => {
   await expect(locator).toHaveText('target');
 });
 
-it('should waitFor hidden', async ({ page }) => {
+it('LO-149 should waitFor hidden', async ({ page }) => {
   await page.setContent(`<div><span>target</span></div>`);
   const locator = page.locator('span');
   const promise = locator.waitFor({ state: 'hidden' });
@@ -139,7 +131,7 @@ it('should waitFor hidden', async ({ page }) => {
   await promise;
 });
 
-it('should combine visible with other selectors', async ({ page }) => {
+it('LO-150 should combine visible with other selectors', async ({ page }) => {
   await page.setContent(`<div>
   <div class="item" style="display: none">Hidden data0</div>
   <div class="item">visible data1</div>
@@ -153,14 +145,46 @@ it('should combine visible with other selectors', async ({ page }) => {
   await expect(page.locator('.item >> visible=true >> text=data3')).toHaveText('visible data3');
 });
 
-it('locator.count should work with deleted Map in main world', async ({ page }) => {
+it('LO-151 should support filter(visible)', async ({ page }) => {
+  await page.setContent(`<div>
+    <div class="item" style="display: none">Hidden data0</div>
+    <div class="item">visible data1</div>
+    <div class="item" style="display: none">Hidden data1</div>
+    <div class="item">visible data2</div>
+    <div class="item" style="display: none">Hidden data2</div>
+    <div class="item">visible data3</div>
+    </div>
+  `);
+  const locator = page.locator('.item').filter({ visible: true }).nth(1);
+  await expect(locator).toHaveText('visible data2');
+  await expect(page.locator('.item').filter({ visible: true }).getByText('data3')).toHaveText('visible data3');
+  await expect(page.locator('.item').filter({ visible: false }).getByText('data1')).toHaveText('Hidden data1');
+});
+
+it('LO-152 should support visible()', async ({ page }) => {
+  await page.setContent(`<div>
+    <div class="item" style="display: none">Hidden data0</div>
+    <div class="item">visible data1</div>
+    <div class="item" style="display: none">Hidden data1</div>
+    <div class="item">visible data2</div>
+    <div class="item" style="display: none">Hidden data2</div>
+    <div class="item">visible data3</div>
+    </div>
+  `);
+  const locator = page.locator('.item').visible().nth(1);
+  await expect(locator).toHaveText('visible data2');
+  await expect(page.locator('.item').visible().getByText('data3')).toHaveText('visible data3');
+  await expect(page.locator('.item').visible()).toHaveCount(3);
+});
+
+it('LO-153 locator.count should work with deleted Map in main world', async ({ page }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/11254' });
   await page.evaluate('Map = 1');
   await page.locator('#searchResultTableDiv .x-grid3-row').count();
   await expect(page.locator('#searchResultTableDiv .x-grid3-row')).toHaveCount(0);
 });
 
-it('Locator.locator() and FrameLocator.locator() should accept locator', async ({ page }) => {
+it('LO-154 Locator.locator() and FrameLocator.locator() should accept locator', async ({ page }) => {
   await page.setContent(`
     <div><input value=outer></div>
     <iframe srcdoc="<div><input value=inner></div>"></iframe>
@@ -177,3 +201,27 @@ it('Locator.locator() and FrameLocator.locator() should accept locator', async (
   expect(await page.frameLocator('iframe').locator(divLocator).locator('input').inputValue()).toBe('inner');
 });
 
+it('LO-155 should fill programmatically enabled textarea', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/36307' } }, async ({ page }) => {
+  await page.setContent(`
+    <button>Enable</button>
+    <form>
+      <textarea id="text" disabled></textarea>
+    </form>
+    <script>
+      document.querySelector('button').addEventListener('click', () => {
+        document.querySelector('#text').disabled = false;
+      });
+    </script>
+  `);
+  await page.locator('button').click();
+  await page.locator('#text').fill('Hello');
+  await expect(page.locator('#text')).toHaveValue('Hello');
+});
+
+it('LO-156 press should throw on unknown keys', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/36697' } }, async ({ page, server }) => {
+  await page.setContent(`<input type='text' value='hello' />`);
+  const locator = page.getByRole('textbox');
+  await expect(locator.press('NotARealKey')).rejects.toThrowError(/Unknown key: "NotARealKey"/);
+  await expect(locator.press('ё')).rejects.toThrowError(/Unknown key: "ё"/);
+  await expect(locator.press('😊')).rejects.toThrowError(/Unknown key: "😊"/);
+});

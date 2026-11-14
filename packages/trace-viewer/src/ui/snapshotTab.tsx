@@ -16,80 +16,130 @@
 
 import './snapshotTab.css';
 import * as React from 'react';
-import type { ActionTraceEvent } from '@trace/trace';
-import { context, prevInList } from './modelUtil';
+import type { ActionPhase, ActionTraceEvent } from '@isomorphic/trace/trace';
+import { nextActionByStartTime, previousActionByEndTime } from '@isomorphic/trace/traceModel';
+import type { TraceModel } from '@isomorphic/trace/traceModel';
 import { Toolbar } from '@web/components/toolbar';
 import { ToolbarButton } from '@web/components/toolbarButton';
-import { useMeasure } from '@web/uiUtils';
+import { clsx, upperBound, useMeasure, useSetting } from '@web/uiUtils';
 import { InjectedScript } from '@injected/injectedScript';
 import { Recorder } from '@injected/recorder/recorder';
-import ConsoleAPI from '@injected/consoleApi';
 import { asLocator } from '@isomorphic/locatorGenerators';
+import { blankSnapshotUrl } from '@isomorphic/trace/snapshotRenderer';
 import type { Language } from '@isomorphic/locatorGenerators';
 import { locatorOrSelectorAsSelector } from '@isomorphic/locatorParser';
 import { TabbedPaneTab } from '@web/components/tabbedPane';
 import { BrowserFrame } from './browserFrame';
+import type { ElementInfo } from '@recorder/recorderTypes';
+import { parseAriaSnapshot } from '@isomorphic/ariaSnapshot';
+import yaml from 'yaml';
+import { PlaybackButtons } from './playbackControl';
+import type { PlaybackState } from './playbackControl';
+import { AriaModeView, collectAriaModeTargets, shouldDisplayAriaMode } from './ariaModeView';
+import { useVideoSources } from './videoThumbnails';
+import { VideoFrame, lastVideoIndex } from './videoFrame';
 
-export const SnapshotTab: React.FunctionComponent<{
+export type HighlightedElement = {
+  locator?: string,
+  ariaSnapshot?: string
+  lastEdited: 'locator' | 'ariaSnapshot' | 'none';
+};
+
+export const SnapshotTabsView: React.FunctionComponent<{
   action: ActionTraceEvent | undefined,
+  model?: TraceModel,
   sdkLanguage: Language,
   testIdAttributeName: string,
   isInspecting: boolean,
   setIsInspecting: (isInspecting: boolean) => void,
-  highlightedLocator: string,
-  setHighlightedLocator: (locator: string) => void,
-}> = ({ action, sdkLanguage, testIdAttributeName, isInspecting, setIsInspecting, highlightedLocator, setHighlightedLocator }) => {
-  const [measure, ref] = useMeasure<HTMLDivElement>();
+  highlightedElement: HighlightedElement,
+  setHighlightedElement: (element: HighlightedElement) => void,
+  // Time to show the screencast at, undefined to show the action snapshot.
+  screencastTime?: number,
+  playback: PlaybackState
+}> = ({ action, model, sdkLanguage, testIdAttributeName, isInspecting, setIsInspecting, highlightedElement, setHighlightedElement, screencastTime, playback }) => {
   const [snapshotTab, setSnapshotTab] = React.useState<'action'|'before'|'after'>('action');
 
-  type Snapshot = { action: ActionTraceEvent, snapshotName: string, point?: { x: number, y: number } };
-  const { snapshots } = React.useMemo(() => {
-    if (!action)
-      return { snapshots: {} };
+  const [shouldPopulateCanvasFromScreenshot] = useSetting('shouldPopulateCanvasFromScreenshot', false);
+  const [displayAriaModeSetting] = useSetting('displayAriaMode', false);
+  const displayAriaMode = shouldDisplayAriaMode(model, displayAriaModeSetting);
+  const screencastFrame = useScreencastFrame(model, screencastTime, playback.playing, playback.speed);
 
-    // if the action has no beforeSnapshot, use the last available afterSnapshot.
-    let beforeSnapshot: Snapshot | undefined = action.beforeSnapshot ? { action, snapshotName: action.beforeSnapshot } : undefined;
-    let a = action;
-    while (!beforeSnapshot && a) {
-      a = prevInList(a);
-      beforeSnapshot = a?.afterSnapshot ? { action: a, snapshotName: a?.afterSnapshot } : undefined;
-    }
-    const afterSnapshot: Snapshot | undefined = action.afterSnapshot ? { action, snapshotName: action.afterSnapshot } : beforeSnapshot;
-    const actionSnapshot: Snapshot | undefined = action.inputSnapshot ? { action, snapshotName: action.inputSnapshot } : afterSnapshot;
-    if (actionSnapshot)
-      actionSnapshot.point = action.point;
-    return { snapshots: { action: actionSnapshot, before: beforeSnapshot, after: afterSnapshot } };
-  }, [action]);
+  const snapshots = React.useMemo(() => {
+    return collectSnapshots(model, action);
+  }, [model, action]);
+  const ariaModeTargets = React.useMemo(() => {
+    return model && displayAriaMode ? collectAriaModeTargets(model, action) : {};
+  }, [model, action, displayAriaMode]);
 
+  React.useEffect(() => {
+    if (displayAriaMode && isInspecting)
+      setIsInspecting(false);
+  }, [displayAriaMode, isInspecting, setIsInspecting]);
   const { snapshotInfoUrl, snapshotUrl, popoutUrl } = React.useMemo(() => {
     const snapshot = snapshots[snapshotTab];
-    if (!snapshot)
-      return { snapshotUrl: kBlankSnapshotUrl };
+    return model && snapshot ? extendSnapshot(model.traceUri, snapshot, shouldPopulateCanvasFromScreenshot) : { snapshotInfoUrl: undefined, snapshotUrl: undefined, popoutUrl: undefined };
+  }, [snapshots, snapshotTab, shouldPopulateCanvasFromScreenshot, model]);
 
-    const params = new URLSearchParams();
-    params.set('trace', context(snapshot.action).traceUrl);
-    params.set('name', snapshot.snapshotName);
-    if (snapshot.point) {
-      params.set('pointX', String(snapshot.point.x));
-      params.set('pointY', String(snapshot.point.y));
-    }
-    const snapshotUrl = new URL(`snapshot/${snapshot.action.pageId}?${params.toString()}`, window.location.href).toString();
-    const snapshotInfoUrl = new URL(`snapshotInfo/${snapshot.action.pageId}?${params.toString()}`, window.location.href).toString();
+  const snapshotUrls = React.useMemo((): SnapshotUrls | undefined => snapshotInfoUrl !== undefined ? { snapshotInfoUrl, snapshotUrl, popoutUrl } : undefined, [snapshotInfoUrl, snapshotUrl, popoutUrl]);
 
-    const popoutParams = new URLSearchParams();
-    popoutParams.set('r', snapshotUrl);
-    popoutParams.set('trace', context(snapshot.action).traceUrl);
-    if (snapshot.point) {
-      popoutParams.set('pointX', String(snapshot.point.x));
-      popoutParams.set('pointY', String(snapshot.point.y));
-    }
-    const popoutUrl = new URL(`snapshot.html?${popoutParams.toString()}`, window.location.href).toString();
-    return { snapshots, snapshotInfoUrl, snapshotUrl, popoutUrl };
-  }, [snapshots, snapshotTab]);
+  return <div className='snapshot-tab vbox'>
+    <Toolbar>
+      <ToolbarButton className='pick-locator' title='Pick locator' icon='target' disabled={displayAriaMode} toggled={isInspecting} onClick={() => setIsInspecting(!isInspecting)} />
+      <div className='hbox' style={{ height: '100%' }} role='tablist'>
+        {(['action', 'before', 'after'] as const).map(tab => {
+          return <TabbedPaneTab
+            key={tab}
+            id={tab}
+            title={renderTitle(tab)}
+            selected={snapshotTab === tab}
+            onSelect={() => setSnapshotTab(tab)}
+          />;
+        })}
+      </div>
+      <div style={{ flex: 'auto' }}></div>
+      <PlaybackButtons playback={playback} />
+      <ToolbarButton icon='link-external' title='Open snapshot in a new tab' disabled={displayAriaMode || !snapshotUrls?.popoutUrl} onClick={() => {
+        const win = window.open(snapshotUrls?.popoutUrl || '', '_blank');
+        win?.addEventListener('DOMContentLoaded', () => {
+          const injectedScript = new InjectedScript(win as any, { isUnderTest, frameSeq: 0, sdkLanguage, testIdAttributeName, stableRafCount: 1, browserName: 'chromium', customEngines: [] });
+          injectedScript.consoleApi.install();
+        });
+      }} />
+    </Toolbar>
+    {displayAriaMode && <AriaModeView
+      model={model}
+      target={ariaModeTargets[snapshotTab]}
+      point={snapshotTab === 'action' ? action?.point : undefined}
+      box={snapshotTab === 'action' ? action?.box : undefined}
+      screencastFrame={screencastFrame}
+    />}
+    {!displayAriaMode && <SnapshotView
+      snapshotUrls={snapshotUrls}
+      sdkLanguage={sdkLanguage}
+      testIdAttributeName={testIdAttributeName}
+      isInspecting={isInspecting}
+      setIsInspecting={setIsInspecting}
+      highlightedElement={highlightedElement}
+      setHighlightedElement={setHighlightedElement}
+      screencastFrame={screencastFrame}
+    />}
+  </div>;
+};
 
+export const SnapshotView: React.FunctionComponent<{
+  snapshotUrls: SnapshotUrls | undefined,
+  sdkLanguage: Language,
+  testIdAttributeName: string,
+  isInspecting: boolean,
+  setIsInspecting: (isInspecting: boolean) => void,
+  highlightedElement: HighlightedElement,
+  setHighlightedElement: (element: HighlightedElement) => void,
+  screencastFrame?: React.ReactNode,
+}> = ({ snapshotUrls, sdkLanguage, testIdAttributeName, isInspecting, setIsInspecting, highlightedElement, setHighlightedElement, screencastFrame }) => {
   const iframeRef0 = React.useRef<HTMLIFrameElement>(null);
   const iframeRef1 = React.useRef<HTMLIFrameElement>(null);
-  const [snapshotInfo, setSnapshotInfo] = React.useState({ viewport: kDefaultViewport, url: '' });
+  const [snapshotInfo, setSnapshotInfo] = React.useState<SnapshotInfo>({ viewport: kDefaultViewport, url: '' });
   const loadingRef = React.useRef({ iteration: 0, visibleIframe: 0 });
 
   React.useEffect(() => {
@@ -98,21 +148,14 @@ export const SnapshotTab: React.FunctionComponent<{
       const newVisibleIframe = 1 - loadingRef.current.visibleIframe;
       loadingRef.current.iteration = thisIteration;
 
-      const newSnapshotInfo = { url: '', viewport: kDefaultViewport };
-      if (snapshotInfoUrl) {
-        const response = await fetch(snapshotInfoUrl);
-        const info = await response.json();
-        if (!info.error) {
-          newSnapshotInfo.url = info.url;
-          newSnapshotInfo.viewport = info.viewport;
-        }
-      }
+      const newSnapshotInfo = await fetchSnapshotInfo(snapshotUrls?.snapshotInfoUrl);
 
       // Interrupted by another load - bail out.
       if (loadingRef.current.iteration !== thisIteration)
         return;
 
-      const iframe = [iframeRef0, iframeRef1][newVisibleIframe].current;
+      // While the screencast frame covers the snapshot, only take the viewport and the url from it.
+      const iframe = screencastFrame ? undefined : [iframeRef0, iframeRef1][newVisibleIframe].current;
       if (iframe) {
         let loadedCallback = () => {};
         const loadedPromise = new Promise<void>(f => loadedCallback = f);
@@ -121,6 +164,7 @@ export const SnapshotTab: React.FunctionComponent<{
           iframe.addEventListener('error', loadedCallback);
 
           // Try preventing history entry from being created.
+          const snapshotUrl = snapshotUrls?.snapshotUrl || blankSnapshotUrl;
           if (iframe.contentWindow)
             iframe.contentWindow.location.replace(snapshotUrl);
           else
@@ -137,24 +181,14 @@ export const SnapshotTab: React.FunctionComponent<{
       if (loadingRef.current.iteration !== thisIteration)
         return;
 
-      loadingRef.current.visibleIframe = newVisibleIframe;
+      if (iframe)
+        loadingRef.current.visibleIframe = newVisibleIframe;
       setSnapshotInfo(newSnapshotInfo);
     })();
-  }, [snapshotUrl, snapshotInfoUrl]);
-
-  const windowHeaderHeight = 40;
-  const snapshotContainerSize = {
-    width: snapshotInfo.viewport.width,
-    height: snapshotInfo.viewport.height + windowHeaderHeight,
-  };
-  const scale = Math.min(measure.width / snapshotContainerSize.width, measure.height / snapshotContainerSize.height, 1);
-  const translate = {
-    x: (measure.width - snapshotContainerSize.width) / 2,
-    y: (measure.height - snapshotContainerSize.height) / 2,
-  };
+  }, [snapshotUrls, screencastFrame]);
 
   return <div
-    className='snapshot-tab'
+    className='vbox'
     tabIndex={0}
     onKeyDown={event => {
       if (event.key === 'Escape') {
@@ -167,46 +201,69 @@ export const SnapshotTab: React.FunctionComponent<{
       isInspecting={isInspecting}
       sdkLanguage={sdkLanguage}
       testIdAttributeName={testIdAttributeName}
-      highlightedLocator={highlightedLocator}
-      setHighlightedLocator={setHighlightedLocator}
+      highlightedElement={highlightedElement}
+      setHighlightedElement={setHighlightedElement}
       iframe={iframeRef0.current}
       iteration={loadingRef.current.iteration} />
     <InspectModeController
       isInspecting={isInspecting}
       sdkLanguage={sdkLanguage}
       testIdAttributeName={testIdAttributeName}
-      highlightedLocator={highlightedLocator}
-      setHighlightedLocator={setHighlightedLocator}
+      highlightedElement={highlightedElement}
+      setHighlightedElement={setHighlightedElement}
       iframe={iframeRef1.current}
       iteration={loadingRef.current.iteration} />
-    <Toolbar>
-      {['action', 'before', 'after'].map(tab => {
-        return <TabbedPaneTab
-          id={tab}
-          title={renderTitle(tab)}
-          selected={snapshotTab === tab}
-          onSelect={() => setSnapshotTab(tab as 'action' | 'before' | 'after')}
-        ></TabbedPaneTab>;
-      })}
-      <div style={{ flex: 'auto' }}></div>
-      <ToolbarButton icon='link-external' title='Open snapshot in a new tab' disabled={!popoutUrl} onClick={() => {
-        const win = window.open(popoutUrl || '', '_blank');
-        win?.addEventListener('DOMContentLoaded', () => {
-          const injectedScript = new InjectedScript(win as any, false, sdkLanguage, testIdAttributeName, 1, 'chromium', []);
-          new ConsoleAPI(injectedScript);
-        });
-      }}></ToolbarButton>
-    </Toolbar>
-    <div ref={ref} className='snapshot-wrapper'>
-      <div className='snapshot-container' style={{
-        width: snapshotContainerSize.width + 'px',
-        height: snapshotContainerSize.height + 'px',
-        transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
-      }}>
-        <BrowserFrame url={snapshotInfo.url} />
-        <div className='snapshot-switcher'>
-          <iframe ref={iframeRef0} name='snapshot' title='DOM Snapshot' className={loadingRef.current.visibleIframe === 0 ? 'snapshot-visible' : ''}></iframe>
-          <iframe ref={iframeRef1} name='snapshot' title='DOM Snapshot' className={loadingRef.current.visibleIframe === 1 ? 'snapshot-visible' : ''}></iframe>
+    <SnapshotWrapper snapshotInfo={snapshotInfo}>
+      <div className='snapshot-switcher'>
+        <iframe ref={iframeRef0} name='snapshot' title='DOM Snapshot' sandbox='allow-same-origin allow-scripts' className={clsx(loadingRef.current.visibleIframe === 0 && 'snapshot-visible')}></iframe>
+        <iframe ref={iframeRef1} name='snapshot' title='DOM Snapshot' sandbox='allow-same-origin allow-scripts' className={clsx(loadingRef.current.visibleIframe === 1 && 'snapshot-visible')}></iframe>
+        {screencastFrame}
+      </div>
+    </SnapshotWrapper>
+  </div>;
+};
+
+const SnapshotWrapper: React.FunctionComponent<React.PropsWithChildren<{
+  snapshotInfo: SnapshotInfo,
+}>> = ({ snapshotInfo, children }) => {
+  const [measure, ref] = useMeasure<HTMLDivElement>();
+
+  const windowHeaderHeight = 40;
+  const snapshotContainerSize = {
+    width: snapshotInfo.viewport.width,
+    height: snapshotInfo.viewport.height,
+  };
+
+  const renderedBrowserFrameSize = {
+    width: Math.max(snapshotContainerSize.width, 320),
+    height: Math.max(snapshotContainerSize.height + windowHeaderHeight, 320),
+  };
+
+  // `measure` is the wrapper's border box (getBoundingClientRect), which includes the
+  // 10px padding on every side. Fit and center the frame within the content box so it
+  // keeps a padding-sized margin (with room for the box-shadow) when squeezed.
+  const padding = 10;
+  const availableWidth = measure.width - 2 * padding;
+  const availableHeight = measure.height - 2 * padding;
+  const scale = Math.min(availableWidth / renderedBrowserFrameSize.width, availableHeight / renderedBrowserFrameSize.height, 1);
+  const translate = {
+    x: (measure.width - renderedBrowserFrameSize.width) / 2 - padding,
+    y: (measure.height - renderedBrowserFrameSize.height) / 2 - padding,
+  };
+
+  return <div ref={ref} className='snapshot-wrapper'>
+    <div className='snapshot-container' style={{
+      width: renderedBrowserFrameSize.width + 'px',
+      height: renderedBrowserFrameSize.height + 'px',
+      transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
+    }}>
+      <BrowserFrame url={snapshotInfo.url} />
+      <div className='snapshot-browser-body'>
+        <div style={{
+          width: snapshotContainerSize.width + 'px',
+          height: snapshotContainerSize.height + 'px',
+        }}>
+          {children}
         </div>
       </div>
     </div>
@@ -228,30 +285,49 @@ export const InspectModeController: React.FunctionComponent<{
   isInspecting: boolean,
   sdkLanguage: Language,
   testIdAttributeName: string,
-  highlightedLocator: string,
-  setHighlightedLocator: (locator: string) => void,
+  highlightedElement: HighlightedElement,
+  setHighlightedElement: (element: HighlightedElement) => void,
   iteration: number,
-}> = ({ iframe, isInspecting, sdkLanguage, testIdAttributeName, highlightedLocator, setHighlightedLocator, iteration }) => {
+}> = ({ iframe, isInspecting, sdkLanguage, testIdAttributeName, highlightedElement, setHighlightedElement, iteration }) => {
   React.useEffect(() => {
+    const highlightedAriaSnapshot = highlightedElement.lastEdited === 'ariaSnapshot' ? highlightedElement.ariaSnapshot : undefined;
+    const highlightedLocator = highlightedElement.lastEdited === 'locator' ? highlightedElement.locator : undefined;
+    const forceRecorders = !!highlightedAriaSnapshot || !!highlightedLocator || isInspecting;
+
     const recorders: { recorder: Recorder, frameSelector: string }[] = [];
     const isUnderTest = new URLSearchParams(window.location.search).get('isUnderTest') === 'true';
     try {
-      createRecorders(recorders, sdkLanguage, testIdAttributeName, isUnderTest, '', iframe?.contentWindow);
+      createRecorders(recorders, forceRecorders, sdkLanguage, testIdAttributeName, isUnderTest, '', iframe?.contentWindow);
     } catch {
       // Potential cross-origin exceptions.
     }
 
+    const parsedSnapshot = highlightedAriaSnapshot ? parseAriaSnapshot(yaml, highlightedAriaSnapshot) : undefined;
+    const fullSelector = highlightedLocator ? locatorOrSelectorAsSelector(sdkLanguage, highlightedLocator, testIdAttributeName) : undefined;
     for (const { recorder, frameSelector } of recorders) {
-      const actionSelector = locatorOrSelectorAsSelector(sdkLanguage, highlightedLocator, testIdAttributeName);
+      const actionSelector = fullSelector?.startsWith(frameSelector) ? fullSelector.substring(frameSelector.length).trim() : undefined;
+      const ariaTemplate = parsedSnapshot?.errors.length === 0 ? parsedSnapshot.fragment : undefined;
+      try {
+        const highlightSelector = actionSelector || (ariaTemplate ? 'aria-template=' + JSON.stringify(ariaTemplate) : undefined);
+        if (highlightSelector)
+          recorder.injectedScript.setHighlights([{ selector: recorder.injectedScript.parseSelector(highlightSelector) }]);
+        else
+          recorder.injectedScript.setHighlights([]);
+      } catch {
+        recorder.injectedScript.setHighlights([]);
+      }
       recorder.setUIState({
         mode: isInspecting ? 'inspecting' : 'none',
-        actionSelector: actionSelector.startsWith(frameSelector) ? actionSelector.substring(frameSelector.length).trim() : undefined,
         language: sdkLanguage,
         testIdAttributeName,
         overlay: { offsetX: 0 },
       }, {
-        async setSelector(selector: string) {
-          setHighlightedLocator(asLocator(sdkLanguage, frameSelector + selector));
+        async elementPicked(elementInfo: ElementInfo) {
+          setHighlightedElement({
+            locator: asLocator(sdkLanguage, frameSelector + elementInfo.selector),
+            ariaSnapshot: elementInfo.ariaSnapshot,
+            lastEdited: 'none',
+          });
         },
         highlightUpdated() {
           for (const r of recorders) {
@@ -261,28 +337,179 @@ export const InspectModeController: React.FunctionComponent<{
         }
       });
     }
-  }, [iframe, isInspecting, highlightedLocator, setHighlightedLocator, sdkLanguage, testIdAttributeName, iteration]);
+  }, [iframe, isInspecting, highlightedElement, setHighlightedElement, sdkLanguage, testIdAttributeName, iteration]);
   return <></>;
 };
 
-function createRecorders(recorders: { recorder: Recorder, frameSelector: string }[], sdkLanguage: Language, testIdAttributeName: string, isUnderTest: boolean, parentFrameSelector: string, frameWindow: Window | null | undefined) {
+function createRecorders(recorders: { recorder: Recorder, frameSelector: string }[], force: boolean, sdkLanguage: Language, testIdAttributeName: string, isUnderTest: boolean, parentFrameSelector: string, frameWindow: Window | null | undefined) {
   if (!frameWindow)
     return;
   const win = frameWindow as any;
-  if (!win._recorder) {
-    const injectedScript = new InjectedScript(frameWindow as any, isUnderTest, sdkLanguage, testIdAttributeName, 1, 'chromium', []);
+  if (!win._recorder && force) {
+    const injectedScript = new InjectedScript(frameWindow as any, { isUnderTest, frameSeq: 0, sdkLanguage, testIdAttributeName, stableRafCount: 1, browserName: 'chromium', customEngines: [] });
     const recorder = new Recorder(injectedScript);
     win._injectedScript = injectedScript;
     win._recorder = { recorder, frameSelector: parentFrameSelector };
+    if (isUnderTest) {
+      (window as any)._weakRecordersForTest = (window as any)._weakRecordersForTest || new Set();
+      (window as any)._weakRecordersForTest.add(new WeakRef(recorder));
+    }
   }
-  recorders.push(win._recorder);
+  if (win._recorder)
+    recorders.push(win._recorder);
 
   for (let i = 0; i < frameWindow.frames.length; ++i) {
     const childFrame = frameWindow.frames[i];
     const frameSelector = childFrame.frameElement ? win._injectedScript.generateSelectorSimple(childFrame.frameElement, { omitInternalEngines: true, testIdAttributeName }) + ' >> internal:control=enter-frame >> ' : '';
-    createRecorders(recorders, sdkLanguage, testIdAttributeName, isUnderTest, parentFrameSelector + frameSelector, childFrame);
+    createRecorders(recorders, force, sdkLanguage, testIdAttributeName, isUnderTest, parentFrameSelector + frameSelector, childFrame);
   }
 }
 
-const kDefaultViewport = { width: 1280, height: 720 };
-const kBlankSnapshotUrl = 'data:text/html,<body style="background: #ddd"></body>';
+export type Snapshot = {
+  action: ActionTraceEvent;
+  phase: ActionPhase;
+  point?: { x: number, y: number };
+};
+
+const createSnapshot = (model: TraceModel, action: ActionTraceEvent | undefined, phase: ActionPhase): Snapshot | undefined => {
+  if (!action || !model.hasDomSnapshotForCall(action.callId, phase))
+    return undefined;
+  return {
+    action,
+    phase,
+    point: action.point,
+  };
+};
+
+export type SnapshotInfo = {
+  url: string;
+  viewport: { width: number, height: number };
+  timestamp?: number;
+  wallTime?: undefined;
+};
+
+export type Snapshots = {
+  action?: Snapshot;
+  before?: Snapshot;
+  after?: Snapshot;
+};
+
+export type SnapshotUrls = {
+  snapshotInfoUrl: string;
+  snapshotUrl: string;
+  popoutUrl: string;
+};
+
+export function collectSnapshots(model: TraceModel | undefined, action: ActionTraceEvent | undefined): Snapshots {
+  if (!model || !action)
+    return {};
+
+  const hasSnapshot = (callId: string, phase: ActionPhase) => model.hasDomSnapshotForCall(callId, phase);
+
+  let beforeSnapshot = createSnapshot(model, action, 'before');
+  if (!beforeSnapshot) {
+    // If the action has no "before" snapshot, use the last available "after" one.
+    for (let a = previousActionByEndTime(action); a; a = previousActionByEndTime(a)) {
+      if (a.endTime <= action.startTime && hasSnapshot(a.callId, 'after')) {
+        beforeSnapshot = createSnapshot(model, a, 'after');
+        break;
+      }
+    }
+  }
+
+  let afterSnapshot = createSnapshot(model, action, 'after');
+  if (!afterSnapshot) {
+    let last: ActionTraceEvent | undefined;
+    // - For test.step, we want to use the snapshot of the last nested action.
+    // - For a regular action, we use snapshot of any overlapping in time action
+    //   as a best effort.
+    // - If there are no "nested" actions, use the beforeSnapshot which works best
+    //   for simple `expect(a).toBe(b);` case. Also if the action doesn't have
+    //   an "after" snapshot, it likely doesn't have its own "before" one either,
+    //   and we calculated it above from a previous action.
+    for (let a = nextActionByStartTime(action); a && a.startTime <= action.endTime; a = nextActionByStartTime(a)) {
+      if (a.endTime > action.endTime || !hasSnapshot(a.callId, 'after'))
+        continue;
+      if (last && last.endTime > a.endTime)
+        continue;
+      last = a;
+    }
+    if (last)
+      afterSnapshot = createSnapshot(model, last, 'after');
+    else
+      afterSnapshot = beforeSnapshot;
+  }
+
+  const actionSnapshot = createSnapshot(model, action, 'action') ?? afterSnapshot;
+  if (actionSnapshot)
+    actionSnapshot.point = action.point;
+  return { action: actionSnapshot, before: beforeSnapshot, after: afterSnapshot };
+}
+
+const isUnderTest = new URLSearchParams(window.location.search).has('isUnderTest');
+
+export function extendSnapshot(traceUri: string, snapshot: Snapshot, shouldPopulateCanvasFromScreenshot: boolean): SnapshotUrls {
+  const params = new URLSearchParams();
+  params.set('trace', traceUri);
+  if (isUnderTest)
+    params.set('isUnderTest', 'true');
+  if (snapshot.point) {
+    params.set('pointX', String(snapshot.point.x));
+    params.set('pointY', String(snapshot.point.y));
+  }
+  if (shouldPopulateCanvasFromScreenshot)
+    params.set('shouldPopulateCanvasFromScreenshot', '1');
+
+  params.set('phase', snapshot.phase);
+
+  const callId = encodeURIComponent(snapshot.action.callId);
+  const snapshotUrl = new URL(`snapshot/${callId}?${params.toString()}`, window.location.href).toString();
+  const snapshotInfoUrl = new URL(`snapshotInfo/${callId}?${params.toString()}`, window.location.href).toString();
+
+  const popoutParams = new URLSearchParams();
+  popoutParams.set('r', snapshotUrl);
+  popoutParams.set('trace', traceUri);
+  const popoutUrl = new URL(`snapshot.html?${popoutParams.toString()}`, window.location.href).toString();
+  return { snapshotInfoUrl, snapshotUrl, popoutUrl };
+}
+
+export async function fetchSnapshotInfo(snapshotInfoUrl: string | undefined) {
+  const result = { url: '', viewport: kDefaultViewport, timestamp: undefined, wallTime: undefined };
+  if (snapshotInfoUrl) {
+    const response = await fetch(snapshotInfoUrl);
+    const info = await response.json();
+    if (!info.error) {
+      result.url = info.url;
+      result.viewport = info.viewport;
+      result.timestamp = info.timestamp;
+      result.wallTime = info.wallTime;
+    }
+  }
+  return result;
+}
+
+export const kDefaultViewport = { width: 1280, height: 720 };
+
+function useScreencastFrame(model: TraceModel | undefined, time: number | undefined, playing: boolean, speed: number): React.ReactNode | undefined {
+  const videos = model && time !== undefined ? model.videos.map(video => ({ video, url: model.createRelativeUrl(`file/${video.file}`) })) : [];
+  const videoSources = useVideoSources(videos);
+  if (!model || time === undefined)
+    return undefined;
+
+  // A trace has either screencast frames or videos, never both.
+  // Show the page that painted most recently.
+  let frame: { timestamp: number, file: string } | undefined;
+  for (const page of model.pages) {
+    const candidate = page.screencastFrames[upperBound(page.screencastFrames, time, (t, f) => t - f.timestamp) - 1];
+    if (candidate && (!frame || candidate.timestamp > frame.timestamp))
+      frame = candidate;
+  }
+  if (frame)
+    return <img className='screencast-frame' src={model.createRelativeUrl(`file/${frame.file}`)} alt='Screencast frame' />;
+
+  const index = lastVideoIndex(videos.map(({ video }) => video), time);
+  const url = videoSources[index]?.url;
+  if (!url)
+    return undefined;
+  return <VideoFrame className='screencast-frame' url={url} startTime={videos[index].video.timestamp} time={time} playing={playing} speed={speed} />;
+}
